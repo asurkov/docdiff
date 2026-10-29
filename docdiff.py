@@ -170,17 +170,17 @@ const pos=$('pos'),next=$('next'),prev=$('prev'),acc=$('acc'),rev=$('rev'),rp=$(
 const groups=[],byG=new Map();
 for(const e of document.querySelectorAll('.v-diff .chg')){let x=byG.get(e.dataset.g);
 if(!x){const s=e.closest('section');x={k:e.dataset.k,file:s.dataset.file,sec:s,els:[]};byG.set(e.dataset.g,x);groups.push(x);}x.els.push(e);}
-let ok={},cur=body.dataset.view,c=null,req=null;
+let ok={},cur=body.dataset.view,c=null,anchor=null,req=null;
 const isOk=x=>!!(ok[x.file]||{})[x.k],gi=x=>groups.indexOf(x);
 const L=()=>cur==='review'?groups.filter(x=>!isOk(x)):cur==='diff'?groups:[];
 const txt=(x,t)=>x.els.filter(e=>e.tagName===t).map(e=>e.textContent).join(' ').replace(/\\s+/g,' ').trim();
 function summary(x){const d=txt(x,'DEL'),i=txt(x,'INS');return [d&&'−'+d,i&&'+'+i].filter(Boolean).join(' ').slice(0,300);}
-function step(d){const l=L(),at=c?gi(c):d>0?-1:groups.length;return (d>0?l.find(x=>gi(x)>at):l.findLast(x=>gi(x)<at))||null;}
+function step(d){const l=L(),m=c||anchor,at=m?gi(m):d>0?-1:groups.length;return (d>0?l.find(x=>gi(x)>at):l.findLast(x=>gi(x)<at))||null;}
 function status(){const l=L(),i=l.indexOf(c);prev.disabled=!step(-1);next.disabled=!step(1);
 acc.disabled=!c;acc.textContent=c&&isOk(c)?'↺ unaccept':'✓ accept';
 pos.textContent=cur!=='review'&&cur!=='diff'?'select text, r to revisit · v view':i>=0?'change '+(i+1)+' of '+l.length+' · '+c.file:
 (l.length||'nothing')+(cur==='review'?' to review':' changes')+' · n / p step · a accept · r revisit · v view';}
-function focus(x,scroll=true){hidePop();if(c)c.els.forEach(e=>e.classList.remove('cur'));c=x;
+function focus(x,scroll=true){hidePop();if(c)c.els.forEach(e=>e.classList.remove('cur'));c=x;if(x)anchor=x;
 if(c){c.els.forEach(e=>e.classList.add('cur'));if(scroll)c.els.find(e=>e.offsetParent)?.scrollIntoView({block:'center',behavior:'smooth'});}status();}
 function go(d){const x=step(d);if(x)focus(x);}
 function paint(){for(const x of groups)x.els.forEach(e=>e.classList.toggle('ok',isOk(x)));
@@ -198,8 +198,8 @@ mark(s.dataset.file,on?gs.filter(x=>!isOk(x)):gs,on);});
 function hidePop(){pop.hidden=true;}
 function showPop(t){pa.textContent=isOk(c)?'↺':'✓';pa.title=isOk(c)?'Unaccept (a)':'Accept (a)';pop.hidden=false;
 const r=t.getBoundingClientRect();pop.style.left=Math.max(8,Math.min(r.left,innerWidth-pop.offsetWidth-8))+scrollX+'px';pop.style.top=r.bottom+scrollY+4+'px';}
-document.addEventListener('click',e=>{if(pop.contains(e.target))return;const t=e.target.closest('.v-diff .chg');
-if(t&&getSelection().isCollapsed){focus(groups.find(x=>x.els.includes(t)),false);showPop(t);}else hidePop();});
+document.addEventListener('click',e=>{if(e.target.closest('header,#pop,#rp'))return;const t=e.target.closest('.v-diff .chg');
+if(!getSelection().isCollapsed)hidePop();else if(t){focus(groups.find(x=>x.els.includes(t)),false);showPop(t);}else focus(null,false);});
 [pa,pr].forEach(b=>b.onmousedown=e=>e.preventDefault());
 pa.onclick=()=>{hidePop();accept();};pr.onclick=()=>{hidePop();openRev(grab());};
 const vb=[...document.querySelectorAll('.seg button')],views=vb.map(b=>b.dataset.v);
