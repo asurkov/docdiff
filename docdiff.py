@@ -198,17 +198,26 @@ def pair(olds, news):
 
 def whole_blocks(run, gid):
     """A run of added, removed or rewritten blocks [(list tag, kind, old, new)] as one change under one
-    key; each old block folds under a one-line summary of its text."""
+    key. Old text folds under a one-line summary; consecutive removed blocks share one."""
     key = hashlib.sha1('|'.join(f'{k}|{text(o)}|{text(w)}' for _, k, o, w in run).encode()).hexdigest()[:12]
     inner = lambda b: re.sub(r'^<li\b[^>]*>|</li>$', '', b)
-    out = []
+    merged = []
     for lst, kind, old, new in run:
+        if kind == 'del' and merged and merged[-1][1] == 'del' and merged[-1][0] == lst:
+            merged[-1][2].append(old)
+        else:
+            merged.append((lst, kind, [old] if old else [], new))
+    out = []
+    for lst, kind, olds, new in merged:
         was = ''
-        if old:
-            head = ' '.join(html.unescape(re.sub(r'<[^>]+>', lambda m: ' ' if BLOCK.match(m.group(0)) else '', old)).split())
+        if olds:
+            head = ' '.join(html.unescape(re.sub(r'<[^>]+>', lambda m: ' ' if BLOCK.match(m.group(0)) else '', olds[0])).split())
             head = head if len(head) <= 80 else head[:80].rsplit(' ', 1)[0] + '…'
-            was = (f'<details class="was"><summary>{"removed" if kind == "del" else "was"}: {html.escape(head)}'
-                   f'</summary><div class="old">{inner(old)}</div></details>')
+            label = ('was' if kind == 'rw' else 'removed' if len(olds) == 1
+                     else f'removed {len(olds)} {"items" if lst else "paragraphs"}')
+            body = (inner(olds[0]) if len(olds) == 1 else f'{lst}{"".join(olds)}</{lst[1:3]}>') if lst else ''.join(olds)
+            was = (f'<details class="was"><summary>{label}: {html.escape(head)}</summary>'
+                   f'<div class="old">{body}</div></details>')
         now = f'<div class="now">{inner(new)}</div>' if new else ''
         tag = 'li' if lst else 'div'
         out.append((lst, f'<{tag} class="chg blk" data-kind="{kind}" data-g="{gid}" data-k="{key}">{was}{now}</{tag}>'))
