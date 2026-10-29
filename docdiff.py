@@ -158,13 +158,15 @@ body:not(.show-review):not(.show-diff) .step{display:none}
 .seg{display:inline-flex} .seg button{border-radius:0} .seg button:first-child{border-radius:6px 0 0 6px}
 .seg button:last-child{border-radius:0 6px 6px 0} .seg button[aria-pressed=true]{background:var(--fg);color:var(--bg)}
 #rp{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:10px 16px;z-index:2;font-size:14px}
+#pop{position:absolute;z-index:3;display:flex;gap:2px;padding:2px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+#pop[hidden]{display:none} #pop button{padding:1px 9px;font-size:15px;line-height:1.4}
 #rp blockquote{margin:0 0 8px;padding:2px 10px;border-left:3px solid var(--line);color:var(--muted);max-height:6em;overflow:auto;white-space:pre-wrap}
 #rp textarea{display:block;width:100%;box-sizing:border-box;min-height:4.5em;margin-bottom:8px;font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px}
 '''
 
 SCRIPT = '''
 const $=id=>document.getElementById(id),body=document.body,repo=body.dataset.repo;
-const pos=$('pos'),next=$('next'),prev=$('prev'),acc=$('acc'),rev=$('rev'),rp=$('rp'),rq=$('rq'),rt=$('rt');
+const pos=$('pos'),next=$('next'),prev=$('prev'),acc=$('acc'),rev=$('rev'),rp=$('rp'),rq=$('rq'),rt=$('rt'),pop=$('pop'),pa=$('pa'),pr=$('pr');
 const groups=[],byG=new Map();
 for(const e of document.querySelectorAll('.v-diff .chg')){let x=byG.get(e.dataset.g);
 if(!x){const s=e.closest('section');x={k:e.dataset.k,file:s.dataset.file,sec:s,els:[]};byG.set(e.dataset.g,x);groups.push(x);}x.els.push(e);}
@@ -178,7 +180,7 @@ function status(){const l=L(),i=l.indexOf(c);prev.disabled=!step(-1);next.disabl
 acc.disabled=!c;acc.textContent=c&&isOk(c)?'↺ unaccept':'✓ accept';
 pos.textContent=cur!=='review'&&cur!=='diff'?'select text, r to revisit · v view':i>=0?'change '+(i+1)+' of '+l.length+' · '+c.file:
 (l.length||'nothing')+(cur==='review'?' to review':' changes')+' · n / p step · a accept · r revisit · v view';}
-function focus(x,scroll=true){if(c)c.els.forEach(e=>e.classList.remove('cur'));c=x;
+function focus(x,scroll=true){hidePop();if(c)c.els.forEach(e=>e.classList.remove('cur'));c=x;
 if(c){c.els.forEach(e=>e.classList.add('cur'));if(scroll)c.els.find(e=>e.offsetParent)?.scrollIntoView({block:'center',behavior:'smooth'});}status();}
 function go(d){const x=step(d);if(x)focus(x);}
 function paint(){for(const x of groups)x.els.forEach(e=>e.classList.toggle('ok',isOk(x)));
@@ -193,9 +195,15 @@ async function accept(){if(!c||acc.disabled)return;const x=c,on=!isOk(x),nx=cur=
 if(await mark(x.file,[x],on))focus(nx,nx!==x);}
 document.querySelectorAll('.accf').forEach(b=>b.onclick=()=>{const s=b.closest('section'),gs=groups.filter(x=>x.sec===s),on=gs.some(x=>!isOk(x));
 mark(s.dataset.file,on?gs.filter(x=>!isOk(x)):gs,on);});
-document.addEventListener('click',e=>{const t=e.target.closest('.v-diff .chg');if(t&&getSelection().isCollapsed)focus(groups.find(x=>x.els.includes(t)),false);});
+function hidePop(){pop.hidden=true;}
+function showPop(t){pa.textContent=isOk(c)?'↺':'✓';pa.title=isOk(c)?'Unaccept (a)':'Accept (a)';pop.hidden=false;
+const r=t.getBoundingClientRect();pop.style.left=Math.max(8,Math.min(r.left,innerWidth-pop.offsetWidth-8))+scrollX+'px';pop.style.top=r.bottom+scrollY+4+'px';}
+document.addEventListener('click',e=>{if(pop.contains(e.target))return;const t=e.target.closest('.v-diff .chg');
+if(t&&getSelection().isCollapsed){focus(groups.find(x=>x.els.includes(t)),false);showPop(t);}else hidePop();});
+[pa,pr].forEach(b=>b.onmousedown=e=>e.preventDefault());
+pa.onclick=()=>{hidePop();accept();};pr.onclick=()=>{hidePop();openRev(grab());};
 const vb=[...document.querySelectorAll('.seg button')],views=vb.map(b=>b.dataset.v);
-function view(v){if(v===cur)return;
+function view(v){if(v===cur)return;hidePop();
 const secs=[...document.querySelectorAll('section')];let s=secs[0],r=0;
 for(const x of secs){const b=x.getBoundingClientRect();if(b.bottom>80){s=x;r=Math.max(0,80-b.top)/Math.max(1,b.height);break;}}
 body.classList.replace('show-'+cur,'show-'+v);cur=v;vb.forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===v));
@@ -222,6 +230,7 @@ $('rs').onclick=send;$('rc').onclick=closeRev;
 rt.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();send();}if(e.key==='Escape')closeRev();});
 next.onclick=()=>go(1);prev.onclick=()=>go(-1);acc.onclick=accept;vb.forEach(b=>b.onclick=()=>view(b.dataset.v));
 document.addEventListener('keydown',e=>{if(e.target.closest('input,textarea')||e.metaKey||e.ctrlKey||e.altKey)return;
+if(e.key==='Escape')hidePop();
 if(e.key==='v')view(views[(views.indexOf(cur)+1)%views.length]);
 if(e.key==='r'){e.preventDefault();openRev(grab());}
 if(cur!=='review'&&cur!=='diff')return;
@@ -268,6 +277,7 @@ def build(repo, base, files):
 <main>{"".join(sections)}</main>
 <div id="rp" hidden><blockquote id="rq"></blockquote><textarea id="rt" placeholder="What should change? ⌘↵ sends"></textarea>
 <button id="rs">Send</button> <button id="rc">Cancel</button></div>
+<div id="pop" hidden><button id="pa">✓</button><button id="pr" title="Revisit (r)">✎</button></div>
 <script>{SCRIPT}</script></body></html>''', len(sections)
 
 
