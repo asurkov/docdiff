@@ -22,6 +22,14 @@ MERGE_WORDS = 3
 # Unchanged words on each side that go into a change's key, so an accepted change comes back when
 # the text right around it is edited, and not when the doc changes elsewhere.
 CONTEXT = 4
+# Word similarity of an old and a new block: at REWRITE or above the block is word-diffed; below it
+# the block shows as rewritten, its old text folded above the new; below PAIR the two are not matched
+# and show as one removed block and one added.
+REWRITE = 0.5
+PAIR = 0.3
+SHORT = 6
+TAG = re.compile(r'<(/?)([a-zA-Z][\w-]*)[^>]*?(/?)>')
+VOID = {'area', 'br', 'col', 'hr', 'img', 'input', 'wbr'}
 
 
 def git(repo, *args, check=True):
@@ -133,9 +141,127 @@ def diff(old, new, gid):
     return page, n
 
 
+def split_blocks(page):
+    """pandoc HTML as its top-level blocks, each list item a block of its own: [(list tag or '', html)]."""
+    out, depth, start, lst = [], 0, None, ''
+    for m in TAG.finditer(page):
+        closing, name = m.group(1), m.group(2).lower()
+        top = 1 if lst else 0
+        if name in VOID or m.group(3):
+            if depth == top and start is None:
+                out.append((lst, m.group(0)))
+            continue
+        if not closing:
+            if depth == 0 and not lst and name in ('ul', 'ol'):
+                lst = m.group(0)
+            elif depth == top and start is None:
+                start = m.start()
+            depth += 1
+            continue
+        depth -= 1
+        if depth == top and start is not None:
+            out.append((lst, page[start:m.end()]))
+            start = None
+        elif depth == 0 and lst:
+            lst = ''
+    return out
+
+
+def text(block):
+    return ' '.join(words(TOKEN.findall(block))) if block else ''
+
+
+def similarity(a, b):
+    """Share of words two blocks have in common, punctuation left out. A block of a few words, a
+    heading say, has to keep most of them to count as similar at all."""
+    wa, wb = ([w.lower() for w in text(x).split() if re.match(r'\w', w)] for x in (a, b))
+    r = difflib.SequenceMatcher(None, wa, wb, autojunk=False).ratio()
+    return r if min(len(wa), len(wb)) >= SHORT or r >= REWRITE else 0
+
+
+def pair(olds, news):
+    """Match the blocks of a replaced run, keeping their order: [(old index or None, new index or None)]."""
+    out, i = [], 0
+    for j, new in enumerate(news):
+        best, at = PAIR, None
+        for k in range(i, len(olds)):
+            r = similarity(olds[k], new)
+            if r > best:
+                best, at = r, k
+        if at is None:
+            out.append((None, j))
+            continue
+        out += [(k, None) for k in range(i, at)] + [(at, j)]
+        i = at + 1
+    return out + [(k, None) for k in range(i, len(olds))]
+
+
+def whole_blocks(run, gid):
+    """A run of added, removed or rewritten blocks [(list tag, kind, old, new)] as one change under one
+    key; each old block folds under a one-line summary of its text."""
+    key = hashlib.sha1('|'.join(f'{k}|{text(o)}|{text(w)}' for _, k, o, w in run).encode()).hexdigest()[:12]
+    inner = lambda b: re.sub(r'^<li\b[^>]*>|</li>$', '', b)
+    out = []
+    for lst, kind, old, new in run:
+        was = ''
+        if old:
+            head = ' '.join(html.unescape(re.sub(r'<[^>]+>', lambda m: ' ' if BLOCK.match(m.group(0)) else '', old)).split())
+            head = head if len(head) <= 80 else head[:80].rsplit(' ', 1)[0] + '…'
+            was = (f'<details class="was"><summary>{"removed" if kind == "del" else "was"}: {html.escape(head)}'
+                   f'</summary><div class="old">{inner(old)}</div></details>')
+        now = f'<div class="now">{inner(new)}</div>' if new else ''
+        tag = 'li' if lst else 'div'
+        out.append((lst, f'<{tag} class="chg blk" data-kind="{kind}" data-g="{gid}" data-k="{key}">{was}{now}</{tag}>'))
+    return out
+
+
+def block_diff(old, new, gid):
+    """Diff block by block (paragraph, heading, list item, table...): unchanged blocks plain, added,
+    removed and rewritten ones marked whole, and only a lightly edited one word by word."""
+    a, b = split_blocks(old), split_blocks(new)
+    norm = lambda h: re.sub(r'\s+', ' ', h).strip()
+    sm = difflib.SequenceMatcher(None, [norm(h) for _, h in a], [norm(h) for _, h in b], autojunk=False)
+    items, n = [], 0
+    for op, i1, i2, j1, j2 in sm.get_opcodes():
+        if op == 'equal':
+            items += b[j1:j2]
+            continue
+        run = []
+        for i, j in pair([h for _, h in a[i1:i2]], [h for _, h in b[j1:j2]]):
+            o = a[i1 + i] if i is not None else None
+            w = b[j1 + j] if j is not None else None
+            lst = (w or o)[0]
+            if o and w and similarity(o[1], w[1]) >= REWRITE:
+                if run:
+                    items += whole_blocks(run, f'{gid}-b{len(items)}')
+                    n, run = n + 1, []
+                body, k = diff(o[1], w[1], f'{gid}-b{len(items)}')
+                items.append((lst, body))
+                n += k
+            else:
+                # A new section starts a new change.
+                if run and w and re.match(r'<h\d', w[1]):
+                    items += whole_blocks(run, f'{gid}-b{len(items)}')
+                    n, run = n + 1, []
+                run.append((lst, 'rw' if o and w else 'add' if w else 'del', o and o[1], w and w[1]))
+        if run:
+            items += whole_blocks(run, f'{gid}-b{len(items)}')
+            n += 1
+    # Consecutive items of one list go back into it.
+    out, open_ = [], ''
+    for lst, h in items:
+        if lst != open_:
+            out += [f'</{open_[1:3]}>'] if open_ else []
+            out += [lst] if lst else []
+            open_ = lst
+        out.append(h)
+    out += [f'</{open_[1:3]}>'] if open_ else []
+    return ''.join(out), n
+
+
 STYLE = '''
-:root{--bg:#fff;--fg:#1f2328;--muted:#59636e;--line:#d1d9e0;--ins:#dafbe1;--insb:#1a7f37;--del:#ffebe9;--delb:#cf222e;--code:#f6f8fa;--link:#0969da}
-@media (prefers-color-scheme: dark){:root{--bg:#0d1117;--fg:#e6edf3;--muted:#9198a1;--line:#3d444d;--ins:#033a16;--insb:#3fb950;--del:#4b1113;--delb:#f85149;--code:#161b22;--link:#4493f8}}
+:root{--bg:#fff;--fg:#1f2328;--muted:#59636e;--line:#d1d9e0;--ins:#dafbe1;--insb:#1a7f37;--del:#ffebe9;--delb:#cf222e;--rw:#bf8700;--code:#f6f8fa;--link:#0969da}
+@media (prefers-color-scheme: dark){:root{--bg:#0d1117;--fg:#e6edf3;--muted:#9198a1;--line:#3d444d;--ins:#033a16;--insb:#3fb950;--del:#4b1113;--delb:#f85149;--rw:#d29922;--code:#161b22;--link:#4493f8}}
 body{background:var(--bg);color:var(--fg);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0}
 main{max-width:920px;margin:0 auto;padding:16px 16px 40vh}
 header{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 16px;z-index:1;display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;font-size:14px}
@@ -148,6 +274,11 @@ button{font:inherit;padding:4px 10px;border:1px solid var(--line);background:var
 ins{background:var(--ins);text-decoration:none;box-shadow:inset 0 -2px var(--insb)}
 del{background:var(--del);color:var(--delb);text-decoration:line-through}
 .chg{cursor:pointer} .show-review .ok{cursor:auto} .show-review del.ok{display:none} .show-review ins.ok{background:none;box-shadow:none} .show-diff .ok{opacity:.45}
+.blk{border-left:3px solid var(--line);padding-left:10px;margin-left:-13px} li.blk{margin-left:0;padding-left:6px}
+.blk[data-kind=add]{border-color:var(--insb)} .blk[data-kind=del]{border-color:var(--delb)} .blk[data-kind=rw]{border-color:var(--rw)}
+.was summary{color:var(--muted);font-size:13px;cursor:pointer} .was summary~*{margin-top:4px}
+.was .old{color:var(--muted);border-left:2px solid var(--delb);padding-left:8px} .old>:first-child,.now>:first-child{margin-top:0}
+.show-review .blk.ok{border-color:transparent} .show-review .blk.ok .was,.show-review .blk.ok[data-kind=del]{display:none}
 code{background:var(--code);padding:1px 4px;border-radius:4px;font-size:90%}
 pre{background:var(--code);padding:12px;overflow-x:auto}
 img{max-width:100%}
@@ -173,8 +304,10 @@ if(!x){const s=e.closest('section');x={k:e.dataset.k,file:s.dataset.file,sec:s,e
 let ok={},cur=body.dataset.view,c=null,anchor=null,req=null;
 const isOk=x=>!!(ok[x.file]||{})[x.k],gi=x=>groups.indexOf(x);
 const L=()=>cur==='review'?groups.filter(x=>!isOk(x)):cur==='diff'?groups:[];
-const txt=(x,t)=>x.els.filter(e=>e.tagName===t).map(e=>e.textContent).join(' ').replace(/\\s+/g,' ').trim();
-function summary(x){const d=txt(x,'DEL'),i=txt(x,'INS');return [d&&'−'+d,i&&'+'+i].filter(Boolean).join(' ').slice(0,300);}
+// A change's removed (-) or added (+) text: an inline <del>/<ins>, or a whole block's old/new part.
+const part=(e,s)=>e.classList.contains('blk')?e.querySelector(s==='-'?'.old':'.now')?.textContent||'':e.tagName===(s==='-'?'DEL':'INS')?e.textContent:'';
+const txt=(x,s)=>x.els.map(e=>part(e,s)).join(' ').replace(/\\s+/g,' ').trim();
+function summary(x){const d=txt(x,'-'),i=txt(x,'+');return [d&&'−'+d,i&&'+'+i].filter(Boolean).join(' ').slice(0,300);}
 function step(d){const l=L(),m=c||anchor,at=m?gi(m):d>0?-1:groups.length;return (d>0?l.find(x=>gi(x)>at):l.findLast(x=>gi(x)<at))||null;}
 function status(){const l=L(),i=l.indexOf(c);prev.disabled=!step(-1);next.disabled=!step(1);
 acc.disabled=!c;acc.textContent=c&&isOk(c)?'↺ unaccept':'✓ accept';
@@ -268,7 +401,7 @@ def build(repo, base, files, build_id):
         old_html = inline_images(render(old_md), repo, os.path.dirname(old or ''), base, False) if old else ''
         new_html = inline_images(render(new_md), repo, rel, base, True) if new else ''
         if new:
-            body, n = diff(old_html, new_html, f'f{k}')
+            body, n = block_diff(old_html, new_html, f'f{k}')
         else:
             body, n = f'<del class="chg" data-g="f{k}-1" data-k="deleted">{old_html}</del>', 1
         if not n:

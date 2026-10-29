@@ -7,7 +7,10 @@ argument-hint: "[repo path] [base revision] [paths…]"
 # docdiff
 
 Renders old = the file at a base revision (default `HEAD`) and new = the working tree (staged,
-unstaged and untracked `.md` files) with pandoc, word-diffs the two HTML renders, and writes one page:
+unstaged and untracked `.md` files) with pandoc, compares the two renders paragraph by paragraph (headings,
+list items and tables count as paragraphs), and writes one page. Added paragraphs show as plain text with
+a green bar; removed ones fold to a one-line summary with a red bar; a lightly edited one is word-diffed
+inline; consecutive added and removed paragraphs within a section are one change. The page has
 a sticky header with per-file change counts, "change N of M · file", ↑ prev / next change ↓ buttons and
 `n`/`p` (or `j`/`k`) keys, and a view switch (`v` cycles): **To review** (the default: changes not yet
 accepted), **Diff vs base** (all of them, accepted ones dimmed), and **Old** / **New**, each version clean,
