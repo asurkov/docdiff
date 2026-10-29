@@ -9,10 +9,15 @@ argument-hint: "[repo path] [base revision] [paths…]"
 Renders old = the file at a base revision (default `HEAD`) and new = the working tree (staged,
 unstaged and untracked `.md` files) with pandoc, word-diffs the two HTML renders, and writes one page:
 a sticky header with per-file change counts, "change N of M · file", ↑ prev / next change ↓ buttons and
-`n`/`p` (or `j`/`k`) keys, and a view switch (`v` cycles): **Since last run** (against the previous docdiff
-run of the same repo; the default when it differs), **Diff vs base**, and **Old** / **New**, each version clean,
+`n`/`p` (or `j`/`k`) keys, and a view switch (`v` cycles): **To review** (the default: changes not yet
+accepted), **Diff vs base** (all of them, accepted ones dimmed), and **Old** / **New**, each version clean,
 for rewrites too large to read inline; switching keeps the reader at the same place in the doc.
 Whitespace-only rewraps do not count as changes. Relative images are embedded.
+
+**Accept** (`a`, or the ✓ button; "accept file" on each file's bar) marks the current change reviewed: it
+leaves To review and shows as plain text. Clicking a change makes it current. **Revisit** (`r`, or the
+button) takes the selected text, or the current change, and a request typed under it; Send (⌘↵) copies a
+ready prompt to the clipboard and queues the request ([Accepts and revisits](#accepts-and-revisits)).
 
 ## Arguments
 
@@ -40,8 +45,20 @@ Read them from the invocation, in any order:
 3. Open the URL in the built-in browser (`navigate`, a new tab if the current one shows something else).
    Use http, never `file://`: a local file there renders as a static snapshot with no scripts, so the
    navigation does not work.
-4. Tell the user the files and change counts in one or two lines, and that `n`/`p` step through changes
-   and **Since last run** shows only what changed since they last looked.
+4. Tell the user the files and change counts in one or two lines, and that `n`/`p` step through changes,
+   `a` accepts one and `r` revisits a selection.
+
+## Accepts and revisits
+
+The server writes both into the output dir:
+
+- `accepted.json` — `{file: {key: "−removed +added"}}`, what the user has signed off on. A key hashes the
+  change plus four words on each side, so an accepted change comes back for review when its text or the
+  words right around it change, and stays accepted when the doc changes elsewhere.
+- `revisit.jsonl` — one request per line: `time`, `file`, `section`, `quote`, `view`, `prompt`, and `text`
+  (the prompt as copied to the clipboard). When the user pastes one or says they sent revisits, read the
+  lines since the last one handled, apply each to the file, and rerun docdiff. To pick requests up
+  without a paste, watch the file with Monitor: `tail -n0 -F <out>/revisit.jsonl`.
 
 ## Proposing wording with it
 
@@ -55,3 +72,5 @@ of this skill.
 - Links between docs and section anchors are not rewritten; the page is for reading changes, not
   for following links.
 - A deleted file shows struck through as a whole; a renamed file diffs against its old path.
+- Accepting and revisiting need the page served by docdiff (`--serve`); two identical changes with the
+  same words around them in one file share a key, so accepting one accepts both.
