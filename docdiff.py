@@ -196,11 +196,15 @@ if(await mark(x.file,[x],on))focus(nx,nx!==x);}
 document.querySelectorAll('.accf').forEach(b=>b.onclick=()=>{const s=b.closest('section'),gs=groups.filter(x=>x.sec===s),on=gs.some(x=>!isOk(x));
 mark(s.dataset.file,on?gs.filter(x=>!isOk(x)):gs,on);});
 function hidePop(){pop.hidden=true;}
-function showPop(t){pa.textContent=isOk(c)?'↺':'✓';pa.title=isOk(c)?'Unaccept (a)':'Accept (a)';pop.hidden=false;
-const r=t.getBoundingClientRect();pop.style.left=Math.max(8,Math.min(r.left,innerWidth-pop.offsetWidth-8))+scrollX+'px';pop.style.top=r.bottom+scrollY+4+'px';}
-document.addEventListener('click',e=>{if(e.target.closest('header,#pop,#rp'))return;
+// Under a clicked change: accept and revisit. Under the end of a text selection: revisit only.
+function showPop(r,withAccept){pa.hidden=!withAccept;pa.textContent=c&&isOk(c)?'↺':'✓';pa.title=c&&isOk(c)?'Unaccept (a)':'Accept (a)';pop.hidden=false;
+pop.style.left=Math.max(8,Math.min(r.left,innerWidth-pop.offsetWidth-8))+scrollX+'px';pop.style.top=r.bottom+scrollY+4+'px';}
+document.addEventListener('click',e=>{if(e.target.closest('header,#pop,#rp')||!getSelection().isCollapsed)return;
 const t=cur==='review'?e.target.closest('.v-diff .chg:not(.ok)'):e.target.closest('.v-diff .chg');
-if(!getSelection().isCollapsed)hidePop();else if(t){focus(groups.find(x=>x.els.includes(t)),false);showPop(t);}else focus(null,false);});
+if(t){focus(groups.find(x=>x.els.includes(t)),false);showPop(t.getBoundingClientRect(),true);}else focus(null,false);});
+document.addEventListener('mouseup',e=>{if(e.target.closest('header,#pop,#rp'))return;setTimeout(()=>{const s=getSelection();
+if(s.isCollapsed||!s.rangeCount||!s.anchorNode.parentElement?.closest('main .v'))return;
+const rs=s.getRangeAt(0).getClientRects();if(rs.length)showPop(rs[rs.length-1],false);});});
 [pa,pr].forEach(b=>b.onmousedown=e=>e.preventDefault());
 pa.onclick=()=>{hidePop();accept();};pr.onclick=()=>{hidePop();openRev(grab());};
 const vb=[...document.querySelectorAll('.seg button')],views=vb.map(b=>b.dataset.v);
