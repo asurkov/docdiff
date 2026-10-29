@@ -240,11 +240,25 @@ if(e.key==='v')view(views[(views.indexOf(cur)+1)%views.length]);
 if(e.key==='r'){e.preventDefault();openRev(grab());}
 if(cur!=='review'&&cur!=='diff')return;
 if(e.key==='n'||e.key==='j')go(1);if(e.key==='p'||e.key==='k')go(-1);if(e.key==='a')accept();});
-status();fetch('accepted.json').then(r=>r.ok?r.json():{}).catch(()=>({})).then(d=>{ok=d;paint();});
+// Every reload keeps the view, the current change and the place in the doc; a rebuild reloads the page,
+// unless a revisit is being typed.
+history.scrollRestoration='manual';
+function place(){const secs=[...document.querySelectorAll('section')];
+for(const x of secs){const b=x.getBoundingClientRect();if(b.bottom>80)return{file:x.dataset.file,r:Math.max(0,80-b.top)/Math.max(1,b.height)};}return null;}
+addEventListener('pagehide',()=>{try{sessionStorage.setItem('docdiff',JSON.stringify({view:cur,at:place(),c:c&&[c.file,c.k],ci:c?gi(c):-1,a:anchor&&[anchor.file,anchor.k]}));}catch(e){}});
+function restore(){let st=null;try{st=JSON.parse(sessionStorage.getItem('docdiff'));}catch(e){}if(!st)return;
+const find=p=>p&&groups.find(x=>x.file===p[0]&&x.k===p[1])||null;
+if(views.includes(st.view)&&st.view!==cur){body.classList.replace('show-'+cur,'show-'+st.view);cur=st.view;vb.forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===cur));}
+anchor=find(st.a);const x=find(st.c)||(st.c&&groups[Math.min(st.ci,groups.length-1)]);if(x)focus(x,false);
+const back=()=>{const s=st.at&&[...document.querySelectorAll('section')].find(z=>z.dataset.file===st.at.file);
+if(s){const b=s.getBoundingClientRect();scrollTo(0,scrollY+b.top+st.at.r*b.height-80);}};
+document.readyState==='complete'?back():addEventListener('load',back);}
+setInterval(()=>fetch('build.json').then(r=>r.json()).then(b=>{if(b.id!==body.dataset.build&&rp.hidden)location.reload();}).catch(()=>{}),1500);
+restore();status();fetch('accepted.json').then(r=>r.ok?r.json():{}).catch(()=>({})).then(d=>{ok=d;paint();});
 '''
 
 
-def build(repo, base, files):
+def build(repo, base, files, build_id):
     sections, nav = [], []
     for k, (old, new) in enumerate(files):
         name = new or old
@@ -274,7 +288,7 @@ def build(repo, base, files):
     buttons = [('review', 'To review'), ('diff', f'Diff vs {base}'), ('old', 'Old'), ('new', 'New')]
     seg = ''.join(f'<button data-v="{v}" aria-pressed="{str(v == "review").lower()}">{label}</button>' for v, label in buttons)
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{html.escape(title)}</title><style>{STYLE}</style></head><body class="show-review" data-view="review" data-repo="{html.escape(str(repo))}">
+<title>{html.escape(title)}</title><style>{STYLE}</style></head><body class="show-review" data-view="review" data-repo="{html.escape(str(repo))}" data-build="{build_id}">
 <header>{" · ".join(nav)}<span style="flex:1"></span>
 <span class="seg">{seg}</span>
 <span id="pos" class="n"></span><button id="prev" class="step">↑ prev</button><button id="next" class="step">next change ↓</button>
@@ -364,8 +378,11 @@ def main():
     out = pathlib.Path(a.out) if a.out else pathlib.Path(tempfile.gettempdir()) / f'docdiff-{repo.name}'
     out.mkdir(parents=True, exist_ok=True)
     files = changed_files(repo, a.base, a.paths)
-    page, shown = build(repo, a.base, files)
+    build_id = str(time.time_ns())
+    page, shown = build(repo, a.base, files, build_id)
     (out / 'index.html').write_text(page)
+    # Written after the page, so an open page that sees the new id reloads into the new page.
+    (out / 'build.json').write_text(json.dumps({'id': build_id}))
     print(f'{shown} changed Markdown file(s) in {repo} vs {a.base} → {out / "index.html"}', flush=True)
     if not shown:
         return
