@@ -147,7 +147,7 @@ button{font:inherit;padding:4px 10px;border:1px solid var(--line);background:var
 .accf{float:right;font:12px -apple-system,BlinkMacSystemFont,sans-serif;padding:1px 8px}
 ins{background:var(--ins);text-decoration:none;box-shadow:inset 0 -2px var(--insb)}
 del{background:var(--del);color:var(--delb);text-decoration:line-through}
-.chg{cursor:pointer} .show-review del.ok{display:none} .show-review ins.ok{background:none;box-shadow:none} .show-diff .ok{opacity:.45}
+.chg{cursor:pointer} .show-review .ok{cursor:auto} .show-review del.ok{display:none} .show-review ins.ok{background:none;box-shadow:none} .show-diff .ok{opacity:.45}
 code{background:var(--code);padding:1px 4px;border-radius:4px;font-size:90%}
 pre{background:var(--code);padding:12px;overflow-x:auto}
 img{max-width:100%}
@@ -198,7 +198,8 @@ mark(s.dataset.file,on?gs.filter(x=>!isOk(x)):gs,on);});
 function hidePop(){pop.hidden=true;}
 function showPop(t){pa.textContent=isOk(c)?'↺':'✓';pa.title=isOk(c)?'Unaccept (a)':'Accept (a)';pop.hidden=false;
 const r=t.getBoundingClientRect();pop.style.left=Math.max(8,Math.min(r.left,innerWidth-pop.offsetWidth-8))+scrollX+'px';pop.style.top=r.bottom+scrollY+4+'px';}
-document.addEventListener('click',e=>{if(e.target.closest('header,#pop,#rp'))return;const t=e.target.closest('.v-diff .chg');
+document.addEventListener('click',e=>{if(e.target.closest('header,#pop,#rp'))return;
+const t=cur==='review'?e.target.closest('.v-diff .chg:not(.ok)'):e.target.closest('.v-diff .chg');
 if(!getSelection().isCollapsed)hidePop();else if(t){focus(groups.find(x=>x.els.includes(t)),false);showPop(t);}else focus(null,false);});
 [pa,pr].forEach(b=>b.onmousedown=e=>e.preventDefault());
 pa.onclick=()=>{hidePop();accept();};pr.onclick=()=>{hidePop();openRev(grab());};
