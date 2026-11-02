@@ -356,8 +356,12 @@ for(const x of secs){const b=x.getBoundingClientRect();if(b.bottom>80){s=x;r=Mat
 body.classList.replace('show-'+cur,'show-'+v);cur=v;vb.forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===v));
 if(c&&!L().includes(c))focus(null,false);else status();
 if(s){const b=s.getBoundingClientRect();scrollTo(0,scrollY+b.top+r*b.height-80);}}
+// The selected text as it now reads: deleted words and folded old blocks left out, unless that is
+// all the selection holds.
+function quoteOf(s){const f=s.getRangeAt(0).cloneContents();f.querySelectorAll('del,.was').forEach(e=>e.remove());
+return f.textContent.replace(/\\s+/g,' ').trim()||s.toString().trim();}
 function grab(){const s=getSelection();
-if(!s.isCollapsed&&s.rangeCount&&!rp.contains(s.anchorNode))return{quote:s.toString().trim(),el:s.anchorNode.parentElement};
+if(!s.isCollapsed&&s.rangeCount&&!rp.contains(s.anchorNode))return{quote:quoteOf(s),el:s.anchorNode.parentElement};
 return c?{quote:summary(c),el:c.els[0]}:null;}
 function heading(el){const v=el.closest('.v');if(!v)return '';
 const h=[...v.querySelectorAll('h1,h2,h3,h4')].filter(h=>h.compareDocumentPosition(el)&Node.DOCUMENT_POSITION_FOLLOWING).pop();
@@ -400,7 +404,7 @@ restore();status();fetch('accepted.json').then(r=>r.ok?r.json():{}).catch(()=>({
 '''
 
 
-def build(repo, base, files, build_id):
+def build(repo, base, files, build_id, keep=()):
     sections, nav = [], []
     for k, (old, new) in enumerate(files):
         name = new or old
@@ -413,7 +417,7 @@ def build(repo, base, files, build_id):
             body, n = block_diff(old_html, new_html, f'f{k}')
         else:
             body, n = f'<del class="chg" data-g="f{k}-1" data-k="deleted">{old_html}</del>', 1
-        if not n:
+        if not n and name not in keep:
             continue
         state = 'new file' if not old else 'deleted' if not new else f'renamed from {old}' if old != new else ''
         sid = f'f{k}'
@@ -520,8 +524,11 @@ def main():
     out = pathlib.Path(a.out) if a.out else pathlib.Path(tempfile.gettempdir()) / f'docdiff-{repo.name}'
     out.mkdir(parents=True, exist_ok=True)
     files = changed_files(repo, a.base, a.paths)
+    # A file named on the command line shows even with no changes, so it can be revised as edits land.
+    named = [p for p in a.paths if (repo / p).is_file() and p not in {new for _, new in files}]
+    files += [(p, p) for p in named]
     build_id = str(time.time_ns())
-    page, shown = build(repo, a.base, files, build_id)
+    page, shown = build(repo, a.base, files, build_id, named)
     (out / 'index.html').write_text(page)
     # Written after the page, so an open page that sees the new id reloads into the new page.
     (out / 'build.json').write_text(json.dumps({'id': build_id}))
