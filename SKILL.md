@@ -12,13 +12,17 @@ list items and tables count as paragraphs), and writes one page. Added paragraph
 a green bar; removed ones fold to a one-line summary with a red bar; a lightly edited one is word-diffed
 inline; consecutive added and removed paragraphs within a section are one change. The page has
 a sticky header with per-file change counts, "change N of M · file", ↑ prev / next change ↓ buttons and
-`n`/`p` (or `j`/`k`) keys, and a view switch (`v` cycles): **To review** (the default: changes not yet
-accepted), **Diff vs base** (all of them, accepted ones dimmed), and **Old** / **New**, each version clean,
-for rewrites too large to read inline; switching keeps the reader at the same place in the doc.
+`n`/`p` (or `j`/`k`) keys, and a view switch (`v` cycles): **To review** (the default: the working tree
+against the accepted copy, so only what changed since the last accepts), **Accepted** (base against the
+accepted copy: what the user has signed off), **Diff vs base** (everything, read-only), and **Old** /
+**New**, each version clean, for rewrites too large to read inline; switching keeps the reader at the
+same place in the doc.
 Whitespace-only rewraps do not count as changes. Relative images are embedded.
 
-**Accept** (`a`, or the ✓ button; "accept file" on each file's bar) marks the current change reviewed: it
-leaves To review and shows as plain text. Clicking a change makes it current and opens a small popup under it: ✓ accepts (↺ undoes), ✎ revisits; selecting text pops up ✎ alone. **Revisit** (`r`, or the
+**Accept** (`a`, or the ✓ button; "accept file" on each file's bar) moves the current change into the
+accepted copy, and the page reloads without it; in Accepted, the same key (↺) takes a change back out.
+Clicking a change makes it current and opens a small popup under it: ✓ (or ↺) and ✎ revisit; selecting
+text pops up ✎ alone. **Revisit** (`r`, or the
 button) takes the selected text, or the current change, and a request typed under it; Send (↵; ⇧↵ adds a line) copies a
 ready prompt to the clipboard and queues the request ([Accepts and revisits](#accepts-and-revisits)).
 
@@ -55,9 +59,10 @@ Read them from the invocation, in any order:
 
 The server writes both into the output dir:
 
-- `accepted.json` — `{file: {key: "−removed +added"}}`, what the user has signed off on. A key hashes the
-  change plus four words on each side, so an accepted change comes back for review when its text or the
-  words right around it change, and stays accepted when the doc changes elsewhere.
+- `accepted/<file>.html` — the accepted copy: the file as the user has accepted it, rendered. It starts as
+  the base; each accept moves one change in, each unaccept takes one out, and the server rebuilds the page.
+  An edit to accepted text then shows in To review as just that edit. (`accepted.json`, the older store of
+  accepted change keys, seeds the copy once with the changes that still match.)
 - `revisit.jsonl` — one request per line: `time`, `file`, `section`, `quote`, `view`, `prompt`, and `text`
   (the prompt as copied to the clipboard). When the user pastes one or says they sent revisits, read the
   lines since the last one handled, apply each to the file, and rerun docdiff.

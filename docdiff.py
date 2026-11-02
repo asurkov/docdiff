@@ -7,8 +7,8 @@ paths are pathspecs relative to the repo root (default: every *.md).
 
 Old = the file at REV (default HEAD); new = the working tree, staged or not, untracked included.
 With --serve, serves --out on a free 127.0.0.1 port, or reuses a server already serving it, and
-prints "URL: ...". The server also stores what the page sends: accepted changes in accepted.json,
-revisit requests in revisit.jsonl, both in --out.
+prints "URL: ...". The server also stores what the page sends, in --out: accepted/<file>.html, the
+file as accepted so far, which To review is diffed against; revisit requests in revisit.jsonl.
 """
 import argparse, base64, difflib, hashlib, html, http.server, json, mimetypes, os, pathlib, re
 import shutil, subprocess, sys, tempfile, threading, time, urllib.request
@@ -97,6 +97,8 @@ def diff(old, new, gid):
     # Per change: CONTEXT words before it, what it removes and adds, the unchanged words inside it,
     # and CONTEXT words after it. Hashed, that is the key an accept is stored under.
     sig, last = {}, []
+    # (group number, old text, new text) per opcode, 0 for unchanged text: what applying one change needs.
+    parts = []
 
     def wrap(tokens, tag, keep_tags):
         run = []
@@ -126,11 +128,13 @@ def diff(old, new, gid):
                 sig[n] += ['|', *text[:CONTEXT]] if split else ['=', *text]
             last = text
             out.extend(seg)
+            parts.append((0, ''.join(a[i1:i2]), ''.join(seg)))
             continue
         if split:
             n, split = n + 1, False
             sig[n] = [*last[-CONTEXT:], '|']
         sig[n] += ['-', *words(a[i1:i2]), '+', *words(b[j1:j2])]
+        parts.append((n, ''.join(a[i1:i2]), ''.join(b[j1:j2])))
         if i2 > i1:
             wrap(a[i1:i2], 'del', False)
         if j2 > j1:
@@ -138,7 +142,7 @@ def diff(old, new, gid):
     keys = {g: hashlib.sha1(' '.join(s).encode()).hexdigest()[:12] for g, s in sig.items()}
     page = re.sub(rf'data-g="{gid}-(\d+)"', lambda m: f'{m.group(0)} data-k="{keys[int(m.group(1))]}"',
                   ''.join(out))
-    return page, n
+    return page, n, [(keys.get(g), x, y) for g, x, y in parts]
 
 
 def split_blocks(page):
@@ -221,51 +225,87 @@ def whole_blocks(run, gid):
         now = f'<div class="now">{inner(new)}</div>' if new else ''
         tag = 'li' if lst else 'div'
         out.append((lst, f'<{tag} class="chg blk" data-kind="{kind}" data-g="{gid}" data-k="{key}">{was}{now}</{tag}>'))
-    return out
+    return out, key
 
 
 def block_diff(old, new, gid):
     """Diff block by block (paragraph, heading, list item, table...): unchanged blocks plain, added,
-    removed and rewritten ones marked whole, and only a lightly edited one word by word."""
+    removed and rewritten ones marked whole, and only a lightly edited one word by word. Also returns
+    the pieces apply() takes: per block, its list tag on each side and [(change key or None, old, new)]."""
     a, b = split_blocks(old), split_blocks(new)
     norm = lambda h: re.sub(r'\s+', ' ', h).strip()
     sm = difflib.SequenceMatcher(None, [norm(h) for _, h in a], [norm(h) for _, h in b], autojunk=False)
-    items, n = [], 0
+    items, pieces, n = [], [], 0
+    run, sides = [], []
+
+    def flush():
+        nonlocal n
+        if run:
+            out, key = whole_blocks(run, f'{gid}-b{len(items)}')
+            items.extend(out)
+            pieces.extend((lo, lw, [(key, o, w)]) for lo, lw, o, w in sides)
+            n += 1
+            run.clear()
+            sides.clear()
+
     for op, i1, i2, j1, j2 in sm.get_opcodes():
         if op == 'equal':
             items += b[j1:j2]
+            pieces += [(x[0], y[0], [(None, x[1], y[1])]) for x, y in zip(a[i1:i2], b[j1:j2])]
             continue
-        run = []
         for i, j in pair([h for _, h in a[i1:i2]], [h for _, h in b[j1:j2]]):
             o = a[i1 + i] if i is not None else None
             w = b[j1 + j] if j is not None else None
             lst = (w or o)[0]
             if o and w and similarity(o[1], w[1]) >= REWRITE:
-                if run:
-                    items += whole_blocks(run, f'{gid}-b{len(items)}')
-                    n, run = n + 1, []
-                body, k = diff(o[1], w[1], f'{gid}-b{len(items)}')
+                flush()
+                body, k, parts = diff(o[1], w[1], f'{gid}-b{len(items)}')
                 items.append((lst, body))
+                pieces.append((o[0], w[0], parts))
                 n += k
             else:
                 # A new section starts a new change.
                 if run and w and re.match(r'<h\d', w[1]):
-                    items += whole_blocks(run, f'{gid}-b{len(items)}')
-                    n, run = n + 1, []
+                    flush()
                 run.append((lst, 'rw' if o and w else 'add' if w else 'del', o and o[1], w and w[1]))
-        if run:
-            items += whole_blocks(run, f'{gid}-b{len(items)}')
-            n += 1
-    # Consecutive items of one list go back into it.
+                sides.append((o[0] if o else '', w[0] if w else '', o[1] if o else '', w[1] if w else ''))
+        flush()
+    return wrap_lists(items), n, pieces
+
+
+def wrap_lists(items):
+    """Blocks [(list tag or '', html)] back into one page: consecutive items of one list go back into it."""
     out, open_ = [], ''
     for lst, h in items:
+        if not h:
+            continue
         if lst != open_:
             out += [f'</{open_[1:3]}>'] if open_ else []
             out += [lst] if lst else []
             open_ = lst
         out.append(h)
     out += [f'</{open_[1:3]}>'] if open_ else []
-    return ''.join(out), n
+    return ''.join(out)
+
+
+def apply(pieces, side, flip):
+    """The page that block_diff() compared, with every change from `side` ('old' or 'new') except the
+    changes whose keys are in `flip`, which come from the other side."""
+    new = lambda k: (side == 'new') != (k in flip)
+    items = []
+    for lst_old, lst_new, parts in pieces:
+        text = []
+        for i, (k, o, w) in enumerate(parts):
+            t = w if new(k) else o
+            # Unchanged text before a change ends in the spacing of whichever side that change takes:
+            # "End " before an inserted word, "End" before a deleted one.
+            if k is None and i + 1 < len(parts):
+                src = w if new(parts[i + 1][0]) else o
+                t = t.rstrip() + src[len(src.rstrip()):]
+            text.append(t)
+        keyed = [k for k, _, _ in parts if k]
+        items.append((lst_new if new(keyed[0] if keyed else None) else lst_old, ''.join(text)))
+    return wrap_lists(items)
 
 
 STYLE = '''
@@ -282,19 +322,19 @@ button{font:inherit;padding:4px 10px;border:1px solid var(--line);background:var
 .accf{float:right;font:12px -apple-system,BlinkMacSystemFont,sans-serif;padding:1px 8px}
 ins{background:var(--ins);text-decoration:none;box-shadow:inset 0 -2px var(--insb)}
 del{background:var(--del);color:var(--delb);text-decoration:line-through}
-.chg{cursor:pointer} .show-review .ok{cursor:auto} .show-review del.ok{display:none} .show-review ins.ok{background:none;box-shadow:none} .show-diff .ok{opacity:.45}
+.chg{cursor:pointer}
 .blk{border-left:3px solid var(--line);padding-left:10px;margin-left:-13px} li.blk{margin-left:0;padding-left:6px}
 .blk[data-kind=add]{border-color:var(--insb)} .blk[data-kind=del]{border-color:var(--delb)} .blk[data-kind=rw]{border-color:var(--rw)}
 .was summary{color:var(--muted);font-size:13px;cursor:pointer} .was summary~*{margin-top:4px}
 .was .old{color:var(--muted);border-left:2px solid var(--delb);padding-left:8px} .old>:first-child,.now>:first-child{margin-top:0}
-.show-review .blk.ok{border-color:transparent} .show-review .blk.ok .was,.show-review .blk.ok[data-kind=del]{display:none}
 code{background:var(--code);padding:1px 4px;border-radius:4px;font-size:90%}
 pre{background:var(--code);padding:12px;overflow-x:auto}
 img{max-width:100%}
 table{border-collapse:collapse;display:block;overflow-x:auto;font-size:14px} td,th{border:1px solid var(--line);padding:4px 8px;vertical-align:top}
 a{color:var(--link)} .cur{outline:2px solid #bf8700;outline-offset:2px}
-body:not(.show-review):not(.show-diff) .v-diff,body:not(.show-old) .v-old,body:not(.show-new) .v-new{display:none}
-body:not(.show-review):not(.show-diff) .step{display:none}
+body:not(.show-review) .v-review,body:not(.show-acc) .v-acc,body:not(.show-diff) .v-diff,body:not(.show-old) .v-old,body:not(.show-new) .v-new{display:none}
+.show-old .step,.show-new .step{display:none}
+body:not(.show-review) .accf[data-a=accept],body:not(.show-acc) .accf[data-a=unaccept]{display:none}
 .seg{display:inline-flex} .seg button{border-radius:0} .seg button:first-child{border-radius:6px 0 0 6px}
 .seg button:last-child{border-radius:0 6px 6px 0} .seg button[aria-pressed=true]{background:var(--fg);color:var(--bg)}
 #rp{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:10px 16px;z-index:2;font-size:14px}
@@ -308,47 +348,44 @@ body:not(.show-review):not(.show-diff) .step{display:none}
 SCRIPT = '''
 const $=id=>document.getElementById(id),body=document.body,repo=body.dataset.repo;
 const pos=$('pos'),next=$('next'),prev=$('prev'),acc=$('acc'),rev=$('rev'),rp=$('rp'),rq=$('rq'),rt=$('rt'),pop=$('pop'),pa=$('pa'),pr=$('pr');
+// Changes per view: To review (accepted copy to now), Accepted (base to accepted copy), Diff vs base.
 const groups=[],byG=new Map();
-for(const e of document.querySelectorAll('.v-diff .chg')){let x=byG.get(e.dataset.g);
-if(!x){const s=e.closest('section');x={k:e.dataset.k,file:s.dataset.file,sec:s,els:[]};byG.set(e.dataset.g,x);groups.push(x);}x.els.push(e);}
-let ok={},cur=body.dataset.view,c=null,anchor=null,req=null;
-const isOk=x=>!!(ok[x.file]||{})[x.k],gi=x=>groups.indexOf(x);
-const L=()=>cur==='review'?groups.filter(x=>!isOk(x)):cur==='diff'?groups:[];
+for(const e of document.querySelectorAll('.v-review .chg,.v-acc .chg,.v-diff .chg')){const v=e.closest('.v').dataset.view;
+let x=byG.get(v+e.dataset.g);if(!x){const s=e.closest('section');x={k:e.dataset.k,file:s.dataset.file,sec:s,view:v,els:[]};
+byG.set(v+e.dataset.g,x);groups.push(x);}x.els.push(e);}
+let cur=body.dataset.view,c=null,anchor=null,req=null;
+const gi=x=>groups.indexOf(x),L=()=>groups.filter(x=>x.view===cur),verb={review:'accept',acc:'unaccept'};
 // A change's removed (-) or added (+) text: an inline <del>/<ins>, or a whole block's old/new part.
 const part=(e,s)=>e.classList.contains('blk')?e.querySelector(s==='-'?'.old':'.now')?.textContent||'':e.tagName===(s==='-'?'DEL':'INS')?e.textContent:'';
 const txt=(x,s)=>x.els.map(e=>part(e,s)).join(' ').replace(/\\s+/g,' ').trim();
 function summary(x){const d=txt(x,'-'),i=txt(x,'+');return [d&&'−'+d,i&&'+'+i].filter(Boolean).join(' ').slice(0,300);}
-function step(d){const l=L(),m=c||anchor,at=m?gi(m):d>0?-1:groups.length;return (d>0?l.find(x=>gi(x)>at):l.findLast(x=>gi(x)<at))||null;}
+function step(d){const l=L(),m=[c,anchor].find(x=>x&&x.view===cur),at=m?gi(m):d>0?-1:groups.length;return (d>0?l.find(x=>gi(x)>at):l.findLast(x=>gi(x)<at))||null;}
 function status(){const l=L(),i=l.indexOf(c);prev.disabled=!step(-1);next.disabled=!step(1);
-acc.disabled=!c;acc.textContent=c&&isOk(c)?'↺ unaccept':'✓ accept';
-pos.textContent=cur!=='review'&&cur!=='diff'?'select text, r to revisit · v view':i>=0?'change '+(i+1)+' of '+l.length+' · '+c.file:
-(l.length||'nothing')+(cur==='review'?' to review':' changes')+' · n / p step · a accept · r revisit · v view';}
+acc.disabled=!c||!verb[cur];acc.textContent=cur==='acc'?'↺ unaccept':'✓ accept';
+pos.textContent=cur==='old'||cur==='new'?'select text, r to revisit · v view':i>=0?'change '+(i+1)+' of '+l.length+' · '+c.file:
+(l.length||'nothing')+({review:' to review',acc:' accepted'}[cur]||' changes')+' · n / p step'+(verb[cur]?' · a '+verb[cur]:'')+' · r revisit · v view';}
 function focus(x,scroll=true){hidePop();if(c)c.els.forEach(e=>e.classList.remove('cur'));c=x;if(x)anchor=x;
 if(c){c.els.forEach(e=>e.classList.add('cur'));if(scroll)c.els.find(e=>e.offsetParent)?.scrollIntoView({block:'center',behavior:'smooth'});}status();}
 function go(d){const x=step(d);if(x)focus(x);}
-function paint(){for(const x of groups)x.els.forEach(e=>e.classList.toggle('ok',isOk(x)));
-for(const s of document.querySelectorAll('section')){const gs=groups.filter(x=>x.sec===s),todo=gs.filter(x=>!isOk(x)).length,b=s.querySelector('.accf');
-$('t-'+s.id).textContent=gs.length?todo?' · '+todo+' to review':' · all accepted':'';b.hidden=!gs.length;b.textContent=todo?'accept file':'unaccept file';}
-if(c&&!L().includes(c))focus(null);else status();}
 async function post(url,data){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
 if(!r.ok)throw new Error(url+' '+r.status);return r.json();}
-async function mark(file,gs,on){try{ok=await post('accept',on?{file,add:Object.fromEntries(gs.map(x=>[x.k,summary(x)]))}:{file,remove:gs.map(x=>x.k)});}
-catch(e){pos.textContent='not saved: '+e.message+' (is the docdiff server running?)';return false;}paint();return true;}
-// After an accept the page stays where it is: the next change becomes current only if it is already in
-// view; otherwise nothing is current and n goes to it.
-async function accept(){if(!c||acc.disabled)return;const x=c,on=!isOk(x),nx=cur==='review'&&on?step(1)||step(-1):x;
-if(!await mark(x.file,[x],on))return;anchor=x;focus(nx&&(nx===x||inView(nx))?nx:null,false);}
+// An accept moves the change into the accepted copy, an unaccept takes it back out; the server rebuilds
+// the page and it reloads. It stays where it is: the next change becomes current only if it is already
+// in view; otherwise nothing is current and n goes to it.
+async function accept(){if(!c||!verb[cur])return;const x=c,l=L(),i=l.indexOf(x),nx=l[i+1]||l[i-1]||null;
+try{await post(verb[cur],{file:x.file,key:x.k});}catch(e){pos.textContent='not saved: '+e.message+' (is the docdiff server running?)';return;}
+focus(nx&&inView(nx)?nx:null,false);if(!c)anchor=l[i-1]||null;location.reload();}
 function inView(x){const top=document.querySelector('header').getBoundingClientRect().bottom;
 return x.els.some(e=>{const r=e.getBoundingClientRect();return e.offsetParent&&r.bottom>top&&r.top<innerHeight;});}
-document.querySelectorAll('.accf').forEach(b=>b.onclick=()=>{const s=b.closest('section'),gs=groups.filter(x=>x.sec===s),on=gs.some(x=>!isOk(x));
-mark(s.dataset.file,on?gs.filter(x=>!isOk(x)):gs,on);});
+document.querySelectorAll('.accf').forEach(b=>b.onclick=async()=>{try{await post(b.dataset.a,{file:b.closest('section').dataset.file,all:true});
+location.reload();}catch(e){pos.textContent='not saved: '+e.message;}});
 function hidePop(){pop.hidden=true;}
 // Under a clicked change: accept and revisit. Under the end of a text selection: revisit only.
-function showPop(r,withAccept){pa.hidden=!withAccept;pa.textContent=c&&isOk(c)?'↺':'✓';pa.title=c&&isOk(c)?'Unaccept (a)':'Accept (a)';pop.hidden=false;
+function showPop(r,withAccept){pa.hidden=!withAccept;pa.textContent=cur==='acc'?'↺':'✓';pa.title=cur==='acc'?'Unaccept (a)':'Accept (a)';pop.hidden=false;
 pop.style.left=Math.max(8,Math.min(r.left,innerWidth-pop.offsetWidth-8))+scrollX+'px';pop.style.top=r.bottom+scrollY+4+'px';}
 document.addEventListener('click',e=>{if(e.target.closest('header,#pop,#rp')||!getSelection().isCollapsed)return;
-const t=cur==='review'?e.target.closest('.v-diff .chg:not(.ok)'):e.target.closest('.v-diff .chg');
-if(t){focus(groups.find(x=>x.els.includes(t)),false);showPop(t.getBoundingClientRect(),true);}else focus(null,false);});
+const t=e.target.closest('.v-'+cur+' .chg');
+if(t){focus(groups.find(x=>x.view===cur&&x.els.includes(t)),false);showPop(t.getBoundingClientRect(),!!verb[cur]);}else focus(null,false);});
 // Runs once the click has settled: clicking inside a selection clears it only after the click handler.
 document.addEventListener('mouseup',e=>{if(e.target.closest('header,#pop,#rp'))return;setTimeout(()=>{const s=getSelection();
 if(s.isCollapsed||!s.rangeCount){if(pa.hidden)hidePop();return;}
@@ -361,7 +398,7 @@ function view(v){if(v===cur)return;hidePop();
 const secs=[...document.querySelectorAll('section')];let s=secs[0],r=0;
 for(const x of secs){const b=x.getBoundingClientRect();if(b.bottom>80){s=x;r=Math.max(0,80-b.top)/Math.max(1,b.height);break;}}
 body.classList.replace('show-'+cur,'show-'+v);cur=v;vb.forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===v));
-if(c&&!L().includes(c))focus(null,false);else status();
+if(c&&c.view!==v)focus(null,false);else status();
 if(s){const b=s.getBoundingClientRect();scrollTo(0,scrollY+b.top+r*b.height-80);}}
 // The selected text as it now reads: deleted words and folded old blocks left out, unless that is
 // all the selection holds.
@@ -395,54 +432,83 @@ document.addEventListener('keydown',e=>{if(e.target.closest('input,textarea')||e
 if(e.key==='Escape')hidePop();
 if(e.key==='v')view(views[(views.indexOf(cur)+1)%views.length]);
 if(e.key==='r'){e.preventDefault();openRev(grab());}
-if(cur!=='review'&&cur!=='diff')return;
+if(cur==='old'||cur==='new')return;
 if(e.key==='n'||e.key==='j')go(1);if(e.key==='p'||e.key==='k')go(-1);if(e.key==='a')accept();});
 // Every reload keeps the view, the current change and the place in the doc; a rebuild reloads the page,
 // unless a revisit is being typed.
 history.scrollRestoration='manual';
 function place(){const secs=[...document.querySelectorAll('section')];
 for(const x of secs){const b=x.getBoundingClientRect();if(b.bottom>80)return{file:x.dataset.file,r:Math.max(0,80-b.top)/Math.max(1,b.height)};}return null;}
-addEventListener('pagehide',()=>{try{sessionStorage.setItem('docdiff',JSON.stringify({view:cur,at:place(),c:c&&[c.file,c.k],ci:c?gi(c):-1,a:anchor&&[anchor.file,anchor.k]}));}catch(e){}});
+addEventListener('pagehide',()=>{try{sessionStorage.setItem('docdiff',JSON.stringify({view:cur,at:place(),c:c&&[c.file,c.k],ci:c?L().indexOf(c):-1,a:anchor&&[anchor.file,anchor.k]}));}catch(e){}});
 function restore(){let st=null;try{st=JSON.parse(sessionStorage.getItem('docdiff'));}catch(e){}if(!st)return;
-const find=p=>p&&groups.find(x=>x.file===p[0]&&x.k===p[1])||null;
+const find=p=>p&&groups.find(x=>x.view===cur&&x.file===p[0]&&x.k===p[1])||null;
 if(views.includes(st.view)&&st.view!==cur){body.classList.replace('show-'+cur,'show-'+st.view);cur=st.view;vb.forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===cur));}
-anchor=find(st.a);const x=find(st.c)||(st.c&&groups[Math.min(st.ci,groups.length-1)]);if(x)focus(x,false);
+anchor=find(st.a);const x=find(st.c)||(st.c&&L()[Math.min(st.ci,L().length-1)]);if(x)focus(x,false);
 const back=()=>{const s=st.at&&[...document.querySelectorAll('section')].find(z=>z.dataset.file===st.at.file);
 if(s){const b=s.getBoundingClientRect();scrollTo(0,scrollY+b.top+st.at.r*b.height-80);}};
 document.readyState==='complete'?back():addEventListener('load',back);}
 setInterval(()=>fetch('build.json').then(r=>r.json()).then(b=>{if(b.id!==body.dataset.build&&rp.hidden)location.reload();}).catch(()=>{}),1500);
-restore();status();fetch('accepted.json').then(r=>r.ok?r.json():{}).catch(()=>({})).then(d=>{ok=d;paint();});
+restore();status();
 '''
 
 
-def build(repo, base, files, build_id, keep=()):
+def htmls(repo, base, old, new):
+    """The file at base and in the working tree, rendered; '' for a side it does not exist on."""
+    old_html = inline_images(render(git(repo, 'show', f'{base}:{old}').stdout), repo, os.path.dirname(old), base,
+                             False) if old else ''
+    new_html = inline_images(render((repo / new).read_bytes()), repo, os.path.dirname(new), base, True) if new else ''
+    return old_html, new_html
+
+
+def accepted_html(out, name, old_html, new_html):
+    """The file as accepted so far: the base until an accept moves a change in. Accepts kept as keys in
+    accepted.json, from before the copy existed, move in the first time it is needed."""
+    copy = out / 'accepted' / f'{name}.html'
+    if copy.exists():
+        return copy.read_text()
+    legacy = out / 'accepted.json'
+    keys = json.loads(legacy.read_text()).get(name, {}) if legacy.exists() else {}
+    pieces = block_diff(old_html, new_html, 'x')[2] if keys else []
+    found = {k for _, _, ps in pieces for k, _, _ in ps if k in keys}
+    if not found:
+        return old_html
+    text = apply(pieces, 'old', found)
+    save_copy(out, name, text)
+    return text
+
+
+def save_copy(out, name, text):
+    copy = out / 'accepted' / f'{name}.html'
+    copy.parent.mkdir(parents=True, exist_ok=True)
+    copy.write_text(text)
+
+
+def build(repo, base, files, build_id, out, keep=()):
     sections, nav = [], []
     for k, (old, new) in enumerate(files):
         name = new or old
-        old_md = git(repo, 'show', f'{base}:{old}').stdout if old else b''
-        new_md = (repo / new).read_bytes() if new else b''
-        rel = os.path.dirname(name)
-        old_html = inline_images(render(old_md), repo, os.path.dirname(old or ''), base, False) if old else ''
-        new_html = inline_images(render(new_md), repo, rel, base, True) if new else ''
-        if new:
-            body, n = block_diff(old_html, new_html, f'f{k}')
-        else:
-            body, n = f'<del class="chg" data-g="f{k}-1" data-k="deleted">{old_html}</del>', 1
+        old_html, new_html = htmls(repo, base, old, new)
+        body, n, _ = block_diff(old_html, new_html, f'f{k}')
         if not n and name not in keep:
             continue
+        copy = accepted_html(out, name, old_html, new_html)
+        review, todo, _ = block_diff(copy, new_html, f'r{k}')
+        done, accepted, _ = block_diff(old_html, copy, f'a{k}')
         state = 'new file' if not old else 'deleted' if not new else f'renamed from {old}' if old != new else ''
         sid = f'f{k}'
         label = html.escape(name)
-        nav.append(f'<a href="#{sid}">{label}</a> <span class="n">{n} change{"s" if n != 1 else ""}'
-                   f'<span id="t-{sid}"></span></span>')
+        nav.append(f'<a href="#{sid}">{label}</a> <span class="n">{todo} to review · {accepted} accepted</span>')
         plain = lambda h, missing: re.sub(r'\sid="[^"]*"', '', h) or f'<p class="n">({missing})</p>'
+        bar = (('<button class="accf" data-a="accept">accept file</button>' if todo else '') +
+               ('<button class="accf" data-a="unaccept">unaccept file</button>' if accepted else ''))
+        view = lambda v, h: f'<div class="v v-{v}" data-view="{v}">{h}</div>'
         sections.append(f'<section id="{sid}" data-file="{label}"><div class="file">{label}'
-                        f'{f" <span class=state>· {html.escape(state)}</span>" if state else ""}'
-                        f'<button class="accf" hidden>accept file</button></div>'
-                        f'<div class="v v-diff">{body}</div><div class="v v-old">{plain(old_html, "new file")}</div>'
-                        f'<div class="v v-new">{plain(new_html, "deleted")}</div></section>')
+                        f'{f" <span class=state>· {html.escape(state)}</span>" if state else ""}{bar}</div>'
+                        f'{view("review", review)}{view("acc", done if accepted else "<p class=n>(nothing accepted yet)</p>")}'
+                        f'{view("diff", body)}{view("old", plain(old_html, "new file"))}{view("new", plain(new_html, "deleted"))}'
+                        f'</section>')
     title = f'docdiff · {repo.name} vs {base}'
-    buttons = [('review', 'To review'), ('diff', f'Diff vs {base}'), ('old', 'Old'), ('new', 'New')]
+    buttons = [('review', 'To review'), ('acc', 'Accepted'), ('diff', f'Diff vs {base}'), ('old', 'Old'), ('new', 'New')]
     seg = ''.join(f'<button data-v="{v}" aria-pressed="{str(v == "review").lower()}">{label}</button>' for v, label in buttons)
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{html.escape(title)}</title><style>{STYLE}</style></head><body class="show-review" data-view="review" data-repo="{html.escape(str(repo))}" data-build="{build_id}">
@@ -457,9 +523,48 @@ def build(repo, base, files, build_id, keep=()):
 <script>{SCRIPT}</script></body></html>''', len(sections)
 
 
+def files_for(repo, base, paths):
+    """Changed files [(old, new)], plus files named in paths that have no changes, so they can be
+    revised as edits land; and the names of those."""
+    files = changed_files(repo, base, paths)
+    named = [p for p in paths if (repo / p).is_file() and p not in {new for _, new in files}]
+    return files + [(p, p) for p in named], named
+
+
+def rebuild(out):
+    """The page for the run recorded in out, then build.json, so an open page reloads into it."""
+    run = json.loads((out / '.run.json').read_text())
+    repo = pathlib.Path(run['repo'])
+    files, named = files_for(repo, run['base'], run['paths'])
+    build_id = str(time.time_ns())
+    page, shown = build(repo, run['base'], files, build_id, out, named)
+    (out / 'index.html').write_text(page)
+    (out / 'build.json').write_text(json.dumps({'id': build_id}))
+    return repo, run['base'], shown
+
+
+def move(out, req, accept):
+    """Accept one change, or the whole file, into the accepted copy, or take it back out; then rebuild."""
+    run = json.loads((out / '.run.json').read_text())
+    repo, base, name = pathlib.Path(run['repo']), run['base'], req['file']
+    old, new = next((f for f in files_for(repo, base, run['paths'])[0] if (f[1] or f[0]) == name), (None, None))
+    old_html, new_html = htmls(repo, base, old, new)
+    copy = accepted_html(out, name, old_html, new_html)
+    if req.get('all'):
+        text = new_html if accept else old_html
+    else:
+        pieces = block_diff(copy, new_html, 'x')[2] if accept else block_diff(old_html, copy, 'x')[2]
+        if req['key'] not in {k for _, _, ps in pieces for k, _, _ in ps}:
+            raise LookupError('that change is gone; reload the page')
+        text = apply(pieces, 'old' if accept else 'new', {req['key']})
+    save_copy(out, name, text)
+    rebuild(out)
+
+
 def handler(out):
     """Static files from out with caching off, so a reload after a rebuild shows the new page, plus
-    the page's two POSTs: /accept updates accepted.json, /revisit appends to revisit.jsonl."""
+    the page's POSTs: /accept and /unaccept move a change into or out of the accepted copy and rebuild
+    the page; /revisit appends to revisit.jsonl."""
     lock = threading.Lock()
 
     class Handler(http.server.SimpleHTTPRequestHandler):
@@ -473,17 +578,12 @@ def handler(out):
         def do_POST(self):
             req = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
             with lock:
-                if self.path == '/accept':
-                    path = out / 'accepted.json'
-                    data = json.loads(path.read_text()) if path.exists() else {}
-                    keys = data.setdefault(req['file'], {})
-                    keys.update(req.get('add', {}))
-                    for k in req.get('remove', []):
-                        keys.pop(k, None)
-                    if not keys:
-                        del data[req['file']]
-                    path.write_text(json.dumps(data, indent=1, ensure_ascii=False))
-                    reply = data
+                if self.path in ('/accept', '/unaccept'):
+                    try:
+                        move(out, req, self.path == '/accept')
+                    except LookupError as e:
+                        return self.send_error(409, str(e))
+                    reply = {}
                 elif self.path == '/revisit':
                     with open(out / 'revisit.jsonl', 'a') as f:
                         f.write(json.dumps({'time': time.strftime('%Y-%m-%dT%H:%M:%S'), **req},
@@ -534,15 +634,9 @@ def main():
         sys.exit(f'unknown revision: {a.base}')
     out = pathlib.Path(a.out) if a.out else pathlib.Path(tempfile.gettempdir()) / f'docdiff-{repo.name}'
     out.mkdir(parents=True, exist_ok=True)
-    files = changed_files(repo, a.base, a.paths)
-    # A file named on the command line shows even with no changes, so it can be revised as edits land.
-    named = [p for p in a.paths if (repo / p).is_file() and p not in {new for _, new in files}]
-    files += [(p, p) for p in named]
-    build_id = str(time.time_ns())
-    page, shown = build(repo, a.base, files, build_id, named)
-    (out / 'index.html').write_text(page)
-    # Written after the page, so an open page that sees the new id reloads into the new page.
-    (out / 'build.json').write_text(json.dumps({'id': build_id}))
+    # The server rebuilds from this after an accept.
+    (out / '.run.json').write_text(json.dumps({'repo': str(repo), 'base': a.base, 'paths': a.paths}))
+    _, _, shown = rebuild(out)
     print(f'{shown} changed Markdown file(s) in {repo} vs {a.base} → {out / "index.html"}', flush=True)
     if not shown:
         return
