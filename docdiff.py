@@ -298,8 +298,9 @@ body:not(.show-review):not(.show-diff) .step{display:none}
 .seg{display:inline-flex} .seg button{border-radius:0} .seg button:first-child{border-radius:6px 0 0 6px}
 .seg button:last-child{border-radius:0 6px 6px 0} .seg button[aria-pressed=true]{background:var(--fg);color:var(--bg)}
 #rp{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:10px 16px;z-index:2;font-size:14px}
-#pop{position:absolute;z-index:3;display:flex;gap:2px;padding:2px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.18)}
-#pop[hidden]{display:none} #pop button{padding:1px 9px;font-size:15px;line-height:1.4}
+#pop{position:absolute;z-index:3;display:flex;background:var(--bg);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12);overflow:hidden}
+#pop[hidden]{display:none} #pop button{border:0;border-radius:0;background:none;color:var(--muted);padding:2px 9px;font-size:14px;line-height:1.5}
+#pop button:hover{background:var(--code);color:var(--fg)} #pop button+button{border-left:1px solid var(--line)}
 #rp blockquote{margin:0 0 8px;padding:2px 10px;border-left:3px solid var(--line);color:var(--muted);max-height:6em;overflow:auto;white-space:pre-wrap}
 #rp textarea{display:block;width:100%;box-sizing:border-box;min-height:4.5em;margin-bottom:8px;font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px}
 '''
