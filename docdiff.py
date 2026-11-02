@@ -376,9 +376,13 @@ async function copy(t){try{await navigator.clipboard.writeText(t);return true;}
 catch(e){const a=document.createElement('textarea');a.value=t;body.append(a);a.select();const done=document.execCommand('copy');a.remove();return done;}}
 async function send(){const ask=rt.value.trim();if(!ask||!req)return;
 const text='Revisit '+repo+'/'+req.file+(req.section?', section "'+req.section+'"':'')+(req.view==='old'?' (old version)':'')+':\\n> '+req.quote.replace(/\\n/g,'\\n> ')+'\\n\\n'+ask;
-const note=[await copy(text)?'copied, paste it in the chat':'copy failed'];
-try{await post('revisit',{...req,prompt:ask,text});note.push('queued');}catch(e){note.push('not queued');}
-closeRev();pos.textContent='revisit: '+note.join(' · ');}
+let queued=true;try{await post('revisit',{...req,prompt:ask,text});}catch(e){queued=false;}
+// A watcher touches the file every second while it waits; with none, the clipboard is the way in.
+const watched=queued&&await watching();
+closeRev();pos.textContent='revisit: '+(watched?'sent, Claude is watching':await copy(text)?
+'copied; nobody is watching, paste it in the chat':'not sent: nobody is watching and copying failed');}
+async function watching(){try{const r=await fetch('watcher',{method:'HEAD'});
+return r.ok&&Date.now()-new Date(r.headers.get('Last-Modified'))<5000;}catch(e){return false;}}
 rev.onmousedown=e=>e.preventDefault();rev.onclick=()=>openRev(grab());
 $('rs').onclick=send;$('rc').onclick=closeRev;
 rt.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();send();}if(e.key==='Escape')closeRev();});

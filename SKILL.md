@@ -60,8 +60,17 @@ The server writes both into the output dir:
   words right around it change, and stays accepted when the doc changes elsewhere.
 - `revisit.jsonl` — one request per line: `time`, `file`, `section`, `quote`, `view`, `prompt`, and `text`
   (the prompt as copied to the clipboard). When the user pastes one or says they sent revisits, read the
-  lines since the last one handled, apply each to the file, and rerun docdiff. To pick requests up
-  without a paste, watch the file with Monitor: `tail -n0 -F <out>/revisit.jsonl`.
+  lines since the last one handled, apply each to the file, and rerun docdiff.
+
+**Watching for revisits.** While the user reviews, keep one background Bash command (`run_in_background`)
+waiting for the next request. It has no time limit, unlike Monitor, and it touches `<out>/watcher` every
+second: on Send the page checks that file, says "sent, Claude is watching" while it is fresh, and
+otherwise copies the prompt for the user to paste. The command exits with the new request; handle it,
+then start the next wait at once.
+
+```bash
+sh -c 'd=<out>; f=$d/revisit.jsonl; touch "$f"; n=$(($(wc -l < "$f"))); while [ $(($(wc -l < "$f"))) -le $n ]; do touch "$d/watcher"; sleep 1; done; tail -n +$((n+1)) "$f"'
+```
 
 ## Proposing wording with it
 
