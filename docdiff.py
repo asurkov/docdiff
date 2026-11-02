@@ -334,8 +334,12 @@ async function post(url,data){const r=await fetch(url,{method:'POST',headers:{'C
 if(!r.ok)throw new Error(url+' '+r.status);return r.json();}
 async function mark(file,gs,on){try{ok=await post('accept',on?{file,add:Object.fromEntries(gs.map(x=>[x.k,summary(x)]))}:{file,remove:gs.map(x=>x.k)});}
 catch(e){pos.textContent='not saved: '+e.message+' (is the docdiff server running?)';return false;}paint();return true;}
+// After an accept the page stays where it is: the next change becomes current only if it is already in
+// view; otherwise nothing is current and n goes to it.
 async function accept(){if(!c||acc.disabled)return;const x=c,on=!isOk(x),nx=cur==='review'&&on?step(1)||step(-1):x;
-if(await mark(x.file,[x],on))focus(nx,nx!==x);}
+if(!await mark(x.file,[x],on))return;anchor=x;focus(nx&&(nx===x||inView(nx))?nx:null,false);}
+function inView(x){const top=document.querySelector('header').getBoundingClientRect().bottom;
+return x.els.some(e=>{const r=e.getBoundingClientRect();return e.offsetParent&&r.bottom>top&&r.top<innerHeight;});}
 document.querySelectorAll('.accf').forEach(b=>b.onclick=()=>{const s=b.closest('section'),gs=groups.filter(x=>x.sec===s),on=gs.some(x=>!isOk(x));
 mark(s.dataset.file,on?gs.filter(x=>!isOk(x)):gs,on);});
 function hidePop(){pop.hidden=true;}
