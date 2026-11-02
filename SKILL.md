@@ -1,7 +1,7 @@
 ---
 name: docdiff
-description: "Show a repo's uncommitted Markdown changes (or changes since a given commit) as one rendered page: each changed doc in full, additions and deletions marked inline, with next/prev navigation, opened in the built-in browser. Use when the user invokes /docdiff, asks to see doc changes or proposed wording rendered \"on the text\", or wants an htmldiff-style view of .md edits."
-argument-hint: "[repo path] [base revision] [paths…]"
+description: "Show a repo's uncommitted Markdown changes (or changes since a given commit, or between two commits such as a PR) as one rendered page: each changed doc in full, additions and deletions marked inline, with next/prev navigation, opened in the built-in browser. ReSpec specs (an index.html with a respecConfig and its includes) are rendered and diffed too. Use when the user invokes /docdiff, asks to see doc changes or proposed wording rendered \"on the text\", wants an htmldiff-style view of .md edits, or wants the rendered diff of a spec PR (e.g. a WICG/webmonetization PR whose pr-preview Diff is empty)."
+argument-hint: "[repo path] [base revision] [head revision | PR] [paths…]"
 ---
 
 # docdiff
@@ -17,7 +17,10 @@ against the accepted copy, so only what changed since the last accepts), **Accep
 accepted copy: what the user has signed off), **Diff vs base** (everything, read-only), and **Old** /
 **New**, each version clean, for rewrites too large to read inline; switching keeps the reader at the
 same place in the doc.
-Whitespace-only rewraps do not count as changes. Relative images are embedded.
+Whitespace-only rewraps do not count as changes. Relative images are embedded. With `--head <rev>`, new
+is the files at that revision instead of the working tree (a PR, say). A changed `.html` file under an
+`index.html` that holds a `respecConfig` stands for that ReSpec spec, which shows as one doc
+([ReSpec specs](#respec-specs)).
 
 **Accept** (`a`, or the ✓ button; "accept file" on each file's bar) moves the current change into the
 accepted copy, and the page reloads without it; in Accepted, the same key (↺) takes a change back out.
@@ -32,7 +35,8 @@ Read them from the invocation, in any order:
 
 - a directory → the repo (default: the current working directory's repo). For the WM docs, that is
   `~/projects/webmonetization/docs` or `~/projects/webmonetization/wm-design-docs`.
-- a revision (`HEAD~1`, a hash, a branch) → the base. Default `HEAD`.
+- a revision (`HEAD~1`, a hash, a branch) → the base. Default `HEAD`. A second revision → `--head`.
+- a PR (URL or number) → base and head from the PR ([Spec PRs](#spec-prs)).
 - file paths → limit to those, as pathspecs relative to the repo root.
 
 ## Steps
@@ -40,18 +44,19 @@ Read them from the invocation, in any order:
 1. Build and serve in one background command (`run_in_background: true`):
 
    ```bash
-   python3 -I ~/.claude/skills/docdiff/docdiff.py --repo <repo> --base <rev> --serve [paths…]
+   python3 -I ~/.claude/skills/docdiff/docdiff.py --repo <repo> --base <rev> [--head <rev>] --serve [paths…]
    ```
 
-   It prints `<k> changed Markdown file(s) … → <out>/index.html`, then `URL: http://127.0.0.1:<port>/index.html`.
+   It prints `<k> changed doc(s) … → <out>/index.html`, then `URL: http://127.0.0.1:<port>/index.html`.
    The output dir defaults to `$TMPDIR/docdiff-<repo name>`. If a server for that dir is already running,
    the script only rebuilds the page, prints the existing URL and exits, so rerunning after more edits
    is cheap: reload the tab.
-2. Read the background command's output file once for the `URL:` line. With `0 changed Markdown file(s)`
+2. Read the background command's output file once for the `URL:` line. With `0 changed doc(s)`
    there is nothing to show: say so and stop.
 3. Open the URL in the built-in browser (`navigate`, a new tab if the current one shows something else).
    Use http, never `file://`: a local file there renders as a static snapshot with no scripts, so the
-   navigation does not work.
+   navigation does not work. Open it on `127.0.0.1` as printed, never `localhost`: specs render on
+   `localhost`, and the server takes posts only from the `127.0.0.1` page.
 4. Tell the user the files and change counts in one or two lines, and that `n`/`p` step through changes,
    `a` accepts one and `r` revisits a selection.
 
@@ -77,6 +82,39 @@ then start the next wait at once.
 sh -c 'd=<out>; f=$d/revisit.jsonl; touch "$f"; n=$(($(wc -l < "$f"))); while [ $(($(wc -l < "$f"))) -le $n ]; do touch "$d/watcher"; sleep 1; done; tail -n +$((n+1)) "$f"'
 ```
 
+## ReSpec specs
+
+A spec renders in the page itself, not in the script: the first load shows the spec's bar with "rendering
+with ReSpec…" while each side loads in a hidden frame, and a few seconds later the page reloads into the
+diff. So the page must be open in the built-in browser, with network access (ReSpec, xref and specref
+load online). Renders are kept in `<out>/rendered/<sources id>.html`, by the hash of the spec's directory
+on that side, so an unchanged side never renders twice. Before diffing, the frame drops the table of
+contents, the index, section numbers and permalinks, and unwraps sections, so the diff pairs headings,
+paragraphs and list items. On "not rendered: …" in the bar, reload the page to retry.
+
+The spec's own scripts run in the frame, served from `localhost` (another origin than the page on
+`127.0.0.1`), so a PR cannot script the page or post accepts or revisits; what the frame sends back is
+stripped of scripts and handlers before it enters the page.
+
+A revisit on a spec names the spec's `index.html` and the section; find the included source file that
+holds the quote (`grep -rl`) and edit that.
+
+### Spec PRs
+
+For a GitHub PR, run against a clone of its repo (with none, a blobless one is enough:
+`git clone --filter=blob:none --no-checkout <repo url> "$TMPDIR/<name>"`):
+
+```bash
+git -C <clone> fetch -q origin main
+git -C <clone> fetch -q origin "pull/<N>/head"
+head=$(git -C <clone> rev-parse FETCH_HEAD)
+base=$(git -C <clone> merge-base origin/main "$head")
+```
+
+then step 1 with `--base $base --head $head --out "$TMPDIR/docdiff-<name>-<N>"`. Base is the merge
+base, as on GitHub, so changes that landed on main since do not show as reverted. Pass hashes, not
+`FETCH_HEAD`: the server re-resolves both on every rebuild.
+
 ## Proposing wording with it
 
 When proposing edits to docs, apply them to the real files (uncommitted), run docdiff, and let the user
@@ -85,7 +123,7 @@ of this skill.
 
 ## Limits
 
-- Needs `pandoc` (`brew install pandoc`).
+- Needs `pandoc` (`brew install pandoc`), and for specs the built-in browser.
 - Links between docs and section anchors are not rewritten; the page is for reading changes, not
   for following links.
 - A deleted file shows struck through as a whole; a renamed file diffs against its old path.

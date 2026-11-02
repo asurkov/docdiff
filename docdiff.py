@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """Render a repo's uncommitted Markdown changes against a base revision as one inline-diff page.
 
-Usage: docdiff.py [--repo PATH] [--base REV] [--out DIR] [--serve] [paths...]
+Usage: docdiff.py [--repo PATH] [--base REV] [--head REV] [--out DIR] [--serve] [paths...]
 
-paths are pathspecs relative to the repo root (default: every *.md).
+paths are pathspecs relative to the repo root (default: every *.md and *.html).
 
-Old = the file at REV (default HEAD); new = the working tree, staged or not, untracked included.
+Old = the file at REV (default HEAD); new = the file at --head, or without it the working tree,
+staged or not, untracked included. A changed .html file under an index.html that holds a
+respecConfig stands for that ReSpec spec, which the page renders in the browser (see SCRIPT).
 With --serve, serves --out on a free 127.0.0.1 port, or reuses a server already serving it, and
 prints "URL: ...". The server also stores what the page sends, in --out: accepted/<file>.html, the
-file as accepted so far, which To review is diffed against; revisit requests in revisit.jsonl.
+file as accepted so far, which To review is diffed against; revisit requests in revisit.jsonl;
+spec renders in rendered/<sources id>.html.
 """
 import argparse, base64, difflib, hashlib, html, http.server, json, mimetypes, os, pathlib, re
-import shutil, subprocess, sys, tempfile, threading, time, urllib.request
+import shutil, subprocess, sys, tempfile, threading, time, urllib.parse, urllib.request
 
 # Tags, entities, words and single punctuation marks, each with its trailing space: "nothing," and
 # "nothing" share the word.
@@ -39,18 +42,49 @@ def git(repo, *args, check=True):
     return r
 
 
-def changed_files(repo, base, paths):
-    spec = ['--', *(paths or ['*.md'])]
-    out = git(repo, 'diff', '--name-status', '--find-renames', base, *spec).stdout.decode()
-    files = []
+def read(repo, rev, path):
+    """A file at rev, or in the working tree with rev None; None where it does not exist."""
+    if rev is None:
+        p = repo / path
+        return p.read_bytes() if p.is_file() else None
+    r = git(repo, 'show', f'{rev}:{path}', check=False)
+    return r.stdout if r.returncode == 0 else None
+
+
+def spec_index(repo, revs, path, memo):
+    """The ReSpec spec a source file belongs to: the nearest index.html at or above it that holds a
+    respecConfig on either side; None if there is none."""
+    d = os.path.dirname(path)
+    if d not in memo:
+        index = os.path.join(d, 'index.html')
+        if any(b'respecConfig' in (read(repo, rev, index) or b'') for rev in revs):
+            memo[d] = index
+        else:
+            memo[d] = spec_index(repo, revs, d, memo) if d else None
+    return memo[d]
+
+
+def changed_files(repo, base, head, paths):
+    """Changed Markdown files and ReSpec specs [(old path or None, new path or None)]."""
+    spec = ['--', *(paths or ['*.md', '*.html'])]
+    out = git(repo, 'diff', '--name-status', '--find-renames', base, *([head] if head else []), *spec).stdout.decode()
+    names = []
     for line in out.splitlines():
-        status, *names = line.split('\t')
-        old, new = (names[0], names[-1])
-        if not new.endswith('.md'):
-            continue
-        files.append((None if status == 'A' else old, None if status == 'D' else new))
-    untracked = git(repo, 'ls-files', '--others', '--exclude-standard', *spec).stdout.decode()
-    files += [(None, f) for f in untracked.splitlines() if f.endswith('.md')]
+        status, *ns = line.split('\t')
+        names.append((None if status == 'A' else ns[0], None if status == 'D' else ns[-1]))
+    if not head:
+        untracked = git(repo, 'ls-files', '--others', '--exclude-standard', *spec).stdout.decode()
+        names += [(None, f) for f in untracked.splitlines()]
+    files, specs, memo = [], set(), {}
+    for old, new in names:
+        name = new or old
+        if name.endswith('.md'):
+            files.append((old, new))
+        elif name.endswith('.html'):
+            index = spec_index(repo, (base, head), name, memo)
+            if index and index not in specs:
+                specs.add(index)
+                files.append(tuple(index if read(repo, rev, index) is not None else None for rev in (base, head)))
     return files
 
 
@@ -335,6 +369,9 @@ pre{background:var(--code);padding:12px;overflow-x:auto}
 img{max-width:100%}
 table{border-collapse:collapse;display:block;overflow-x:auto;font-size:14px} td,th{border:1px solid var(--line);padding:4px 8px;vertical-align:top}
 a{color:var(--link)} .cur{outline:2px solid #bf8700;outline-offset:2px}
+.render{position:fixed;right:0;bottom:0;width:800px;height:600px;border:0;opacity:0;pointer-events:none}
+.note,.issue,.example,.ednote,.warning{border-left:4px solid var(--line);padding:2px 12px;margin:1em 0}
+.issue,.warning{border-color:var(--rw)} .marker{font-weight:600;color:var(--muted)}
 body:not(.show-review) .v-review,body:not(.show-acc) .v-acc,body:not(.show-diff) .v-diff,body:not(.show-old) .v-old,body:not(.show-new) .v-new{display:none}
 .show-old .step,.show-new .step{display:none}
 body:not(.show-review) .accf[data-a=accept],body:not(.show-acc) .accf[data-a=unaccept]{display:none}
@@ -451,16 +488,66 @@ const back=()=>{const s=st.at&&[...document.querySelectorAll('section')].find(z=
 if(s){const b=s.getBoundingClientRect();scrollTo(0,scrollY+b.top+st.at.r*b.height-80);}};
 document.readyState==='complete'?back():addEventListener('load',back);}
 setInterval(()=>fetch('build.json').then(r=>r.json()).then(b=>{if(b.id!==body.dataset.build&&rp.hidden)location.reload();}).catch(()=>{}),1500);
+// Specs not rendered yet: each side loads in a frame on localhost, another origin than this page's
+// 127.0.0.1, so the spec's own scripts cannot reach this page or post to the server. ReSpec renders it
+// there and RENDER posts the result up, which comes into this page only cleaned of anything that runs.
+// The server keeps the renders and rebuilds, and the page reloads into the diff.
+const frames=[...document.querySelectorAll('iframe.render')];
+if(frames.length)Promise.all(frames.map(f=>new Promise(ok=>{const state=f.closest('section').querySelector('.state');
+const fail=m=>{state.textContent='· not rendered: '+m;ok(null);},late=setTimeout(()=>fail('timed out'),120000);
+addEventListener('message',e=>{if(e.source!==f.contentWindow)return;clearTimeout(late);
+typeof e.data?.html==='string'?ok({id:f.dataset.id,html:inert(e.data.html)}):fail(e.data?.error||'no result');});
+f.src='http://localhost:'+location.port+'/'+f.dataset.src;}))).then(rs=>{rs=rs.filter(Boolean);
+if(rs.length)post('rendered',{renders:rs}).catch(e=>{pos.textContent='renders not saved: '+e.message;});});
+function inert(h){const d=new DOMParser().parseFromString(h,'text/html');
+d.querySelectorAll('script,iframe,frame,object,embed,base,meta,link,style,form').forEach(e=>e.remove());
+for(const e of d.body.querySelectorAll('*'))for(const a of [...e.attributes])
+if(/^on/i.test(a.name)||/^\\s*javascript:/i.test(a.value))e.removeAttribute(a.name);
+return d.body.innerHTML;}
 restore();status();
 '''
 
+# Runs in a spec's render frame, after the spec: once ReSpec is done, posts the page the rendered spec
+# cut down to what is worth diffing. Navigation, the index and section numbers go (numbers would mark
+# every heading after an added section); sections and heading wrappers are unwrapped, so headings,
+# paragraphs and list items are the blocks the diff pairs. A framed ReSpec reports progress to its parent
+# through parent.location, which a frame of another origin cannot read, and stops; so the frame
+# keeps its parent for the result and tells ReSpec it has none.
+RENDER = '''(async()=>{const up=parent,t=Date.now(),say=m=>up.postMessage(m,'*');window.parent=window;
+while(!document.respec){if(Date.now()-t>60000)return say({error:'ReSpec did not load'});await new Promise(r=>setTimeout(r,200));}
+try{await document.respec.ready;}catch(e){return say({error:'ReSpec failed: '+e});}
+const b=document.body.cloneNode(true);
+b.querySelectorAll('script,style,link,meta,iframe,#toc,#toc-nav,#index,#respec-ui,.dfn-panel,.self-link,.secno,.respec-button-copy-paste').forEach(e=>e.remove());
+b.querySelectorAll('section,.header-wrapper').forEach(e=>e.replaceWith(...e.childNodes));
+b.querySelectorAll('[id^="ref-for-"]').forEach(e=>e.removeAttribute('id'));
+say({html:b.innerHTML});})();'''
 
-def htmls(repo, base, old, new):
-    """The file at base and in the working tree, rendered; '' for a side it does not exist on."""
+
+def spec_id(repo, rev, index):
+    """Names a spec's sources as they are at rev (None: the working tree): the hash of its directory."""
+    d = os.path.dirname(index)
+    if rev is not None:
+        return git(repo, 'rev-parse', f'{rev}:{d}').stdout.decode().strip()
+    h = hashlib.sha1()
+    for f in sorted(git(repo, 'ls-files', '-co', '--exclude-standard', '--', d or '.').stdout.decode().splitlines()):
+        h.update(f.encode() + b'\0' + (read(repo, None, f) or b'') + b'\0')
+    return h.hexdigest()
+
+
+def htmls(repo, base, head, old, new, out):
+    """The file at base and at head (or in the working tree), rendered; '' for a side it does not exist
+    on. Also the spec sides not rendered yet [(side, path, sources id)]: the page renders a spec."""
+    if (new or old).endswith('.html'):
+        sides = [(s, p, spec_id(repo, rev, p)) for s, rev, p in (('old', base, old), ('new', head, new)) if p]
+        got = {s: out / 'rendered' / f'{i}.html' for s, _, i in sides}
+        pending = [x for x in sides if not got[x[0]].exists()]
+        text = lambda s: got[s].read_text() if s in got and got[s].exists() else ''
+        return text('old'), text('new'), pending
     old_html = inline_images(render(git(repo, 'show', f'{base}:{old}').stdout), repo, os.path.dirname(old), base,
                              False) if old else ''
-    new_html = inline_images(render((repo / new).read_bytes()), repo, os.path.dirname(new), base, True) if new else ''
-    return old_html, new_html
+    new_html = inline_images(render(read(repo, head, new)), repo, os.path.dirname(new), head or base,
+                             not head) if new else ''
+    return old_html, new_html, []
 
 
 def accepted_html(out, name, old_html, new_html):
@@ -486,11 +573,17 @@ def save_copy(out, name, text):
     copy.write_text(text)
 
 
-def build(repo, base, files, build_id, out, keep=()):
+def build(repo, base, head, files, build_id, out, keep=()):
     sections, nav = [], []
     for k, (old, new) in enumerate(files):
         name = new or old
-        old_html, new_html = htmls(repo, base, old, new)
+        old_html, new_html, pending = htmls(repo, base, head, old, new, out)
+        if pending:
+            frames = ''.join(f'<iframe class="render" sandbox="allow-scripts allow-same-origin" data-id="{i}" '
+                             f'data-src="src/{s}/{html.escape(p)}?render=1"></iframe>' for s, p, i in pending)
+            sections.append(f'<section id="f{k}" data-file="{html.escape(name)}"><div class="file">{html.escape(name)}'
+                            f' <span class=state>· rendering with ReSpec…</span></div>{frames}</section>')
+            continue
         body, n, _ = block_diff(old_html, new_html, f'f{k}')
         if not n and name not in keep:
             continue
@@ -510,7 +603,7 @@ def build(repo, base, files, build_id, out, keep=()):
                         f'{view("review", review)}{view("acc", done if accepted else "<p class=n>(nothing accepted yet)</p>")}'
                         f'{view("diff", body)}{view("old", plain(old_html, "new file"))}{view("new", plain(new_html, "deleted"))}'
                         f'</section>')
-    title = f'docdiff · {repo.name} vs {base}'
+    title = f'docdiff · {repo.name} vs {base}' + (f'..{head}' if head else '')
     buttons = [('review', 'To review'), ('acc', 'Accepted'), ('diff', f'Diff vs {base}'), ('old', 'Old'), ('new', 'New')]
     seg = ''.join(f'<button data-v="{v}" aria-pressed="{str(v == "review").lower()}">{label}</button>' for v, label in buttons)
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -526,10 +619,10 @@ def build(repo, base, files, build_id, out, keep=()):
 <script>{SCRIPT}</script></body></html>''', len(sections)
 
 
-def files_for(repo, base, paths):
+def files_for(repo, base, head, paths):
     """Changed files [(old, new)], plus files named in paths that have no changes, so they can be
     revised as edits land; and the names of those."""
-    files = changed_files(repo, base, paths)
+    files = changed_files(repo, base, head, paths)
     named = [p for p in paths if (repo / p).is_file() and p not in {new for _, new in files}]
     return files + [(p, p) for p in named], named
 
@@ -538,9 +631,9 @@ def rebuild(out):
     """The page for the run recorded in out, then build.json, so an open page reloads into it."""
     run = json.loads((out / '.run.json').read_text())
     repo = pathlib.Path(run['repo'])
-    files, named = files_for(repo, run['base'], run['paths'])
+    files, named = files_for(repo, run['base'], run.get('head'), run['paths'])
     build_id = str(time.time_ns())
-    page, shown = build(repo, run['base'], files, build_id, out, named)
+    page, shown = build(repo, run['base'], run.get('head'), files, build_id, out, named)
     (out / 'index.html').write_text(page)
     (out / 'build.json').write_text(json.dumps({'id': build_id}))
     return repo, run['base'], shown
@@ -549,9 +642,11 @@ def rebuild(out):
 def move(out, req, accept):
     """Accept one change, or the whole file, into the accepted copy, or take it back out; then rebuild."""
     run = json.loads((out / '.run.json').read_text())
-    repo, base, name = pathlib.Path(run['repo']), run['base'], req['file']
-    old, new = next((f for f in files_for(repo, base, run['paths'])[0] if (f[1] or f[0]) == name), (None, None))
-    old_html, new_html = htmls(repo, base, old, new)
+    repo, base, head, name = pathlib.Path(run['repo']), run['base'], run.get('head'), req['file']
+    old, new = next((f for f in files_for(repo, base, head, run['paths'])[0] if (f[1] or f[0]) == name), (None, None))
+    old_html, new_html, pending = htmls(repo, base, head, old, new, out)
+    if pending:
+        raise LookupError('that spec is not rendered yet; reload the page')
     copy = accepted_html(out, name, old_html, new_html)
     if req.get('all'):
         text = new_html if accept else old_html
@@ -567,7 +662,9 @@ def move(out, req, accept):
 def handler(out):
     """Static files from out with caching off, so a reload after a rebuild shows the new page, plus
     the page's POSTs: /accept and /unaccept move a change into or out of the accepted copy and rebuild
-    the page; /revisit appends to revisit.jsonl."""
+    the page; /revisit appends to revisit.jsonl; /rendered stores spec renders and rebuilds the page.
+    /src/old/<path> and /src/new/<path> serve a spec's sources from either side, for its render frame;
+    with ?render=1 the entry file also gets RENDER, which posts the rendered spec to the page."""
     lock = threading.Lock()
 
     class Handler(http.server.SimpleHTTPRequestHandler):
@@ -578,7 +675,30 @@ def handler(out):
             self.send_header('Cache-Control', 'no-store')
             super().end_headers()
 
+        def do_GET(self):
+            url = urllib.parse.urlsplit(self.path)
+            m = re.fullmatch(r'/src/(old|new)/(.+)', urllib.parse.unquote(url.path))
+            if not m:
+                return super().do_GET()
+            run = json.loads((out / '.run.json').read_text())
+            path = os.path.normpath(m.group(2))
+            rev = run['base'] if m.group(1) == 'old' else run.get('head')
+            data = None if os.path.isabs(path) or path.startswith('..') else read(pathlib.Path(run['repo']), rev, path)
+            if data is None:
+                return self.send_error(404)
+            if url.query == 'render=1':
+                data += f'<script>{RENDER}</script>'.encode()
+            self.send_response(200)
+            self.send_header('Content-Type', mimetypes.guess_type(path)[0] or 'application/octet-stream')
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
         def do_POST(self):
+            # Only the page posts. A spec's own scripts run in its render frame, on localhost: another
+            # origin, though the same server.
+            if self.headers.get('Origin') != f'http://127.0.0.1:{self.server.server_address[1]}':
+                return self.send_error(403)
             req = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
             with lock:
                 if self.path in ('/accept', '/unaccept'):
@@ -591,6 +711,13 @@ def handler(out):
                     with open(out / 'revisit.jsonl', 'a') as f:
                         f.write(json.dumps({'time': time.strftime('%Y-%m-%dT%H:%M:%S'), **req},
                                            ensure_ascii=False) + '\n')
+                    reply = {}
+                elif self.path == '/rendered':
+                    (out / 'rendered').mkdir(exist_ok=True)
+                    for r in req['renders']:
+                        if re.fullmatch(r'[0-9a-f]{40,64}', r['id']):
+                            (out / 'rendered' / f'{r["id"]}.html').write_text(r['html'])
+                    rebuild(out)
                     reply = {}
                 else:
                     return self.send_error(404)
@@ -625,6 +752,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument('--repo', default='.')
     p.add_argument('--base', default='HEAD')
+    p.add_argument('--head')
     p.add_argument('--out')
     p.add_argument('--serve', action='store_true')
     p.add_argument('paths', nargs='*')
@@ -633,14 +761,16 @@ def main():
         sys.exit('pandoc not found: brew install pandoc')
     top = git(pathlib.Path(a.repo), 'rev-parse', '--show-toplevel').stdout.decode().strip()
     repo = pathlib.Path(top)
-    if git(repo, 'rev-parse', '--verify', '--quiet', f'{a.base}^{{commit}}', check=False).returncode:
-        sys.exit(f'unknown revision: {a.base}')
+    for rev in filter(None, (a.base, a.head)):
+        if git(repo, 'rev-parse', '--verify', '--quiet', f'{rev}^{{commit}}', check=False).returncode:
+            sys.exit(f'unknown revision: {rev}')
     out = pathlib.Path(a.out) if a.out else pathlib.Path(tempfile.gettempdir()) / f'docdiff-{repo.name}'
     out.mkdir(parents=True, exist_ok=True)
     # The server rebuilds from this after an accept.
-    (out / '.run.json').write_text(json.dumps({'repo': str(repo), 'base': a.base, 'paths': a.paths}))
+    (out / '.run.json').write_text(json.dumps({'repo': str(repo), 'base': a.base, 'head': a.head, 'paths': a.paths}))
     _, _, shown = rebuild(out)
-    print(f'{shown} changed Markdown file(s) in {repo} vs {a.base} → {out / "index.html"}', flush=True)
+    print(f'{shown} changed doc(s) in {repo} vs {a.base}{f"..{a.head}" if a.head else ""} → {out / "index.html"}',
+          flush=True)
     if not shown:
         return
     if a.serve:
