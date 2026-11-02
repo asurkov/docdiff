@@ -378,7 +378,7 @@ try{await post('revisit',{...req,prompt:ask,text});note.push('queued');}catch(e)
 closeRev();pos.textContent='revisit: '+note.join(' · ');}
 rev.onmousedown=e=>e.preventDefault();rev.onclick=()=>openRev(grab());
 $('rs').onclick=send;$('rc').onclick=closeRev;
-rt.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();send();}if(e.key==='Escape')closeRev();});
+rt.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();send();}if(e.key==='Escape')closeRev();});
 next.onclick=()=>go(1);prev.onclick=()=>go(-1);acc.onclick=accept;vb.forEach(b=>b.onclick=()=>view(b.dataset.v));
 document.addEventListener('keydown',e=>{if(e.target.closest('input,textarea')||e.metaKey||e.ctrlKey||e.altKey)return;
 if(e.key==='Escape')hidePop();
@@ -440,7 +440,7 @@ def build(repo, base, files, build_id, keep=()):
 <span id="pos" class="n"></span><button id="prev" class="step">↑ prev</button><button id="next" class="step">next change ↓</button>
 <button id="acc" class="step">✓ accept</button><button id="rev">revisit</button></header>
 <main>{"".join(sections)}</main>
-<div id="rp" hidden><blockquote id="rq"></blockquote><textarea id="rt" placeholder="What should change? ⌘↵ sends"></textarea>
+<div id="rp" hidden><blockquote id="rq"></blockquote><textarea id="rt" placeholder="What should change? ↵ sends, ⇧↵ adds a line"></textarea>
 <button id="rs">Send</button> <button id="rc">Cancel</button></div>
 <div id="pop" hidden><button id="pa">✓</button><button id="pr" title="Revisit (r)">✎</button></div>
 <script>{SCRIPT}</script></body></html>''', len(sections)

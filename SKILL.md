@@ -19,7 +19,7 @@ Whitespace-only rewraps do not count as changes. Relative images are embedded.
 
 **Accept** (`a`, or the ✓ button; "accept file" on each file's bar) marks the current change reviewed: it
 leaves To review and shows as plain text. Clicking a change makes it current and opens a small popup under it: ✓ accepts (↺ undoes), ✎ revisits; selecting text pops up ✎ alone. **Revisit** (`r`, or the
-button) takes the selected text, or the current change, and a request typed under it; Send (⌘↵) copies a
+button) takes the selected text, or the current change, and a request typed under it; Send (↵; ⇧↵ adds a line) copies a
 ready prompt to the clipboard and queues the request ([Accepts and revisits](#accepts-and-revisits)).
 
 ## Arguments
