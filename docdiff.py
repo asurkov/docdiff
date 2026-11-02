@@ -94,6 +94,8 @@ def diff(old, new, gid):
     key = lambda t: t if is_tag(t) else t.strip()
     sm = difflib.SequenceMatcher(None, [key(t) for t in a], [key(t) for t in b], autojunk=False)
     out, n, split = [], 0, True
+    # Changes with text to show; one that only changes a tag, a link target say, renders as nothing.
+    shown = set()
     # Per change: CONTEXT words before it, what it removes and adds, the unchanged words inside it,
     # and CONTEXT words after it. Hashed, that is the key an accept is stored under.
     sig, last = {}, []
@@ -106,6 +108,7 @@ def diff(old, new, gid):
         def flush():
             if ''.join(run).strip():
                 out.append(f'<{tag} class="chg" data-g="{gid}-{n}">{"".join(run)}</{tag}>')
+                shown.add(n)
             else:
                 out.extend(run)
             run.clear()
@@ -142,7 +145,7 @@ def diff(old, new, gid):
     keys = {g: hashlib.sha1(' '.join(s).encode()).hexdigest()[:12] for g, s in sig.items()}
     page = re.sub(rf'data-g="{gid}-(\d+)"', lambda m: f'{m.group(0)} data-k="{keys[int(m.group(1))]}"',
                   ''.join(out))
-    return page, n, [(keys.get(g), x, y) for g, x, y in parts]
+    return page, len(shown), [(keys.get(g), x, y) for g, x, y in parts]
 
 
 def split_blocks(page):
