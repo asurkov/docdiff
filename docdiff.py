@@ -345,8 +345,10 @@ pop.style.left=Math.max(8,Math.min(r.left,innerWidth-pop.offsetWidth-8))+scrollX
 document.addEventListener('click',e=>{if(e.target.closest('header,#pop,#rp')||!getSelection().isCollapsed)return;
 const t=cur==='review'?e.target.closest('.v-diff .chg:not(.ok)'):e.target.closest('.v-diff .chg');
 if(t){focus(groups.find(x=>x.els.includes(t)),false);showPop(t.getBoundingClientRect(),true);}else focus(null,false);});
+// Runs once the click has settled: clicking inside a selection clears it only after the click handler.
 document.addEventListener('mouseup',e=>{if(e.target.closest('header,#pop,#rp'))return;setTimeout(()=>{const s=getSelection();
-if(s.isCollapsed||!s.rangeCount||!s.anchorNode.parentElement?.closest('main .v'))return;
+if(s.isCollapsed||!s.rangeCount){if(pa.hidden)hidePop();return;}
+if(!s.anchorNode.parentElement?.closest('main .v'))return;
 const rs=s.getRangeAt(0).getClientRects();if(rs.length)showPop(rs[rs.length-1],false);});});
 [pa,pr].forEach(b=>b.onmousedown=e=>e.preventDefault());
 pa.onclick=()=>{hidePop();accept();};pr.onclick=()=>{hidePop();openRev(grab());};
