@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render a repo's uncommitted Markdown changes against a base revision as one inline-diff page.
 
-Usage: docdiff.py [--repo PATH] [--base REV] [--head REV] [--out DIR] [--serve] [paths...]
+Usage: docdiff.py [--repo PATH] [--base REV] [--head REV] [--out DIR] [--comments FILE] [--serve] [paths...]
 
 paths are pathspecs relative to the repo root (default: every *.md and *.html).
 
@@ -12,6 +12,10 @@ With --serve, serves --out on a free 127.0.0.1 port, or reuses a server already 
 prints "URL: ...". The server also stores what the page sends, in --out: accepted/<file>.html, the
 file as accepted so far, which To review is diffed against; revisit requests in revisit.jsonl;
 spec renders in rendered/<sources id>.html.
+
+--comments FILE: comments made on the old side, {file: [{quote, author, date, text, replies: [{author,
+text}], fate: "goes", "edited" or null}]} as gdocsync's export writes them; each is marked where its
+quote first reads in the old text, its thread in the mark's tooltip.
 """
 import argparse, base64, difflib, hashlib, html, http.server, json, mimetypes, os, pathlib, re
 import shutil, subprocess, sys, tempfile, threading, time, urllib.parse, urllib.request
@@ -369,6 +373,9 @@ pre{background:var(--code);padding:12px;overflow-x:auto}
 img{max-width:100%}
 table{border-collapse:collapse;display:block;overflow-x:auto;font-size:14px} td,th{border:1px solid var(--line);padding:4px 8px;vertical-align:top}
 a{color:var(--link)} .cur{outline:2px solid #bf8700;outline-offset:2px}
+mark.cm{background:rgba(212,167,44,.25);color:inherit;border-bottom:2px solid #d4a72c;cursor:help}
+mark.cm-goes{border-bottom-color:var(--delb)} mark.cm-edited{border-bottom-style:dashed}
+.cmx{font-size:13px;color:var(--muted);margin:0 0 8px} .cmx summary{cursor:pointer} .cmx li{cursor:help}
 .render{position:fixed;right:0;bottom:0;width:800px;height:600px;border:0;opacity:0;pointer-events:none}
 .note,.issue,.example,.ednote,.warning{border-left:4px solid var(--line);padding:2px 12px;margin:1em 0}
 .issue,.warning{border-color:var(--rw)} .marker{font-weight:600;color:var(--muted)}
@@ -387,6 +394,26 @@ body:not(.show-review) .accf[data-a=accept],body:not(.show-acc) .accf[data-a=una
 
 SCRIPT = '''
 const $=id=>document.getElementById(id),body=document.body,repo=body.dataset.repo;
+// Comments made on the old side (--comments): each marked where its quote first reads in the old text,
+// in every view that has it, so not in inserted words, added blocks or the folded summaries; the mark's
+// tooltip holds the thread and what the change does to the comment's anchor.
+function markQuote(root,q,make){const map=[];let s='',sp=true,n;
+const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode:t=>t.parentElement.closest('ins,summary,.now')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT});
+while(n=w.nextNode())for(let k=0;k<n.data.length;k++){const ch=/\\s/.test(n.data[k])?' ':n.data[k];if(ch===' '&&sp)continue;sp=ch===' ';s+=ch;map.push([n,k]);}
+const at=s.indexOf(q);if(at<0)return false;const spans=[];
+for(let k=at;k<at+q.length;k++){const[t,o]=map[k],l=spans[spans.length-1];if(l&&l.t===t)l.e=o+1;else spans.push({t,b:o,e:o+1});}
+for(const x of spans.reverse()){let t=x.t;if(x.e<t.length)t.splitText(x.e);if(x.b)t=t.splitText(x.b);const m=make();t.replaceWith(m);m.append(t);}return true;}
+// A comment whose quote no longer reads in the old text (edited there after the comment was made) is
+// listed under the file's bar instead.
+for(const s of document.querySelectorAll('section')){const j=s.querySelector('script.cm');if(!j)continue;const lost=[];
+for(const c of JSON.parse(j.textContent)){const q=c.quote.replace(/\\s+/g,' ').trim();if(!q)continue;
+const title=[c.author+', '+c.date+': '+c.text,...c.replies.map(r=>'↳ '+r.author+': '+r.text),
+c.fate==='goes'?'The change deletes all of its anchor.':c.fate==='edited'?'The change edits its anchor.':''].filter(Boolean).join('\\n');
+let placed=false;for(const v of s.querySelectorAll('.v-old,.v-diff,.v-review,.v-acc'))placed=markQuote(v,q,()=>{const m=document.createElement('mark');
+m.className='cm'+(c.fate?' cm-'+c.fate:'');m.title=title;return m;})||placed;
+if(!placed){const li=document.createElement('li');li.title=title;li.textContent=c.author+' on “'+q+'”: '+c.text;lost.push(li);}}
+if(lost.length){const d=document.createElement('details');d.className='cmx';d.innerHTML='<summary></summary><ul></ul>';
+d.firstChild.textContent=lost.length+' comment(s) on text that no longer reads here';d.lastChild.append(...lost);s.querySelector('.file').after(d);}}
 const pos=$('pos'),next=$('next'),prev=$('prev'),acc=$('acc'),rev=$('rev'),rp=$('rp'),rq=$('rq'),rt=$('rt'),pop=$('pop'),pa=$('pa'),pr=$('pr');
 // Changes per view: To review (accepted copy to now), Accepted (base to accepted copy), Diff vs base.
 const groups=[],byG=new Map();
@@ -573,7 +600,7 @@ def save_copy(out, name, text):
     copy.write_text(text)
 
 
-def build(repo, base, head, files, build_id, out, keep=()):
+def build(repo, base, head, files, build_id, out, keep=(), comments=None):
     sections, nav = [], []
     for k, (old, new) in enumerate(files):
         name = new or old
@@ -598,7 +625,12 @@ def build(repo, base, head, files, build_id, out, keep=()):
         bar = (('<button class="accf" data-a="accept">accept file</button>' if todo else '') +
                ('<button class="accf" data-a="unaccept">unaccept file</button>' if accepted else ''))
         view = lambda v, h: f'<div class="v v-{v}" data-view="{v}">{h}</div>'
-        sections.append(f'<section id="{sid}" data-file="{label}"><div class="file">{label}'
+        cs = (comments or {}).get(name, [])
+        touched = sum(1 for c in cs if c.get('fate'))
+        state = ' · '.join(filter(None, [state, cs and f'{len(cs)} open comment(s)' + (f', {touched} in text that changes' if touched else '')]))
+        cm = ('<script type="application/json" class="cm">' + json.dumps(cs, ensure_ascii=False).replace('</', '<\\/') +
+              '</script>') if cs else ''
+        sections.append(f'<section id="{sid}" data-file="{label}">{cm}<div class="file">{label}'
                         f'{f" <span class=state>· {html.escape(state)}</span>" if state else ""}{bar}</div>'
                         f'{view("review", review)}{view("acc", done if accepted else "<p class=n>(nothing accepted yet)</p>")}'
                         f'{view("diff", body)}{view("old", plain(old_html, "new file"))}{view("new", plain(new_html, "deleted"))}'
@@ -633,7 +665,9 @@ def rebuild(out):
     repo = pathlib.Path(run['repo'])
     files, named = files_for(repo, run['base'], run.get('head'), run['paths'])
     build_id = str(time.time_ns())
-    page, shown = build(repo, run['base'], run.get('head'), files, build_id, out, named)
+    notes = pathlib.Path(run['comments']) if run.get('comments') else None
+    comments = json.loads(notes.read_text()) if notes and notes.exists() else None
+    page, shown = build(repo, run['base'], run.get('head'), files, build_id, out, named, comments)
     (out / 'index.html').write_text(page)
     (out / 'build.json').write_text(json.dumps({'id': build_id}))
     return repo, run['base'], shown
@@ -754,6 +788,7 @@ def main():
     p.add_argument('--base', default='HEAD')
     p.add_argument('--head')
     p.add_argument('--out')
+    p.add_argument('--comments')
     p.add_argument('--serve', action='store_true')
     p.add_argument('paths', nargs='*')
     a = p.parse_args()
@@ -767,7 +802,8 @@ def main():
     out = pathlib.Path(a.out) if a.out else pathlib.Path(tempfile.gettempdir()) / f'docdiff-{repo.name}'
     out.mkdir(parents=True, exist_ok=True)
     # The server rebuilds from this after an accept.
-    (out / '.run.json').write_text(json.dumps({'repo': str(repo), 'base': a.base, 'head': a.head, 'paths': a.paths}))
+    (out / '.run.json').write_text(json.dumps({'repo': str(repo), 'base': a.base, 'head': a.head, 'paths': a.paths,
+                                               'comments': a.comments and str(pathlib.Path(a.comments).resolve())}))
     _, _, shown = rebuild(out)
     print(f'{shown} changed doc(s) in {repo} vs {a.base}{f"..{a.head}" if a.head else ""} → {out / "index.html"}',
           flush=True)

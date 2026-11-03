@@ -1,6 +1,6 @@
 ---
 name: docdiff
-description: "Show a repo's uncommitted Markdown changes (or changes since a given commit, or between two commits such as a PR) as one rendered page: each changed doc in full, additions and deletions marked inline, with next/prev navigation, opened in the built-in browser. ReSpec specs (an index.html with a respecConfig and its includes) are rendered and diffed too. Use when the user invokes /docdiff, asks to see doc changes or proposed wording rendered \"on the text\", wants an htmldiff-style view of .md edits, or wants the rendered diff of a spec PR (e.g. a WICG/webmonetization PR whose pr-preview Diff is empty)."
+description: "Show a repo's uncommitted Markdown changes (or changes since a given commit, or between two commits such as a PR) as one rendered page: each changed doc in full, additions and deletions marked inline, with next/prev navigation, opened in the built-in browser. ReSpec specs (an index.html with a respecConfig and its includes) are rendered and diffed too. Use when the user invokes /docdiff, asks to see doc changes or proposed wording rendered \"on the text\", wants an htmldiff-style view of .md edits, or wants the rendered diff of a spec PR (e.g. a WICG/webmonetization PR whose pr-preview Diff is empty), or how a Google Doc differs from its Markdown before a /gdocsync push."
 argument-hint: "[repo path] [base revision] [head revision | PR] [paths…]"
 ---
 
@@ -114,6 +114,26 @@ base=$(git -C <clone> merge-base origin/main "$head")
 then step 1 with `--base $base --head $head --out "$TMPDIR/docdiff-<name>-<N>"`. Base is the merge
 base, as on GitHub, so changes that landed on main since do not show as reverted. Pass hashes, not
 `FETCH_HEAD`: the server re-resolves both on every rebuild.
+
+## Google Doc vs Markdown
+
+What a `/gdocsync` push would change in a Google Doc, with the doc's open comments on it:
+
+```bash
+python3 -I ~/.claude/skills/gdocsync/gdocsync.py --repo <repo> export [file.md…]
+```
+
+writes `~/.gdocsync/<repo name>/<repo name>-google/`, a git repo whose tag `google` holds each Google
+Doc's text and whose working tree holds its Markdown's. Then step 1 with `--repo <that dir> --base google
+--comments <that dir>/comments.json`. Old is the Google Doc, new the Markdown, both as the plain text a
+push compares: inline styles and link targets do not show, since a push sets them from the Markdown.
+
+Each open comment is marked where its quote reads in the old text: amber, underlined red when the change
+deletes all of its anchor and dashed when it edits it, the thread in the tooltip. A comment whose quote
+no longer reads there (the Google Doc was edited after it was made) is listed under the file's bar.
+
+A revisit there names the export's file: apply it to the same file in the real repo, export again and
+rerun docdiff.
 
 ## Proposing wording with it
 
