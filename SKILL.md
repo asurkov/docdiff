@@ -75,6 +75,9 @@ The server writes both into the output dir:
 - `revisit.jsonl` — one request per line: `time`, `file`, `section`, `quote`, `view`, `prompt`, and `text`
   (the prompt as copied to the clipboard). When the user pastes one or says they sent revisits, read the
   lines since the last one handled, apply each to the file, and rerun docdiff.
+  Open each reply with the request as sent, since the chat does not show it: the section and the quote
+  as a blockquote, then the prompt, e.g. `> **Terms** · "visits a monetized document."` and
+  `> monetized document or monetized page?`.
 
 **Watching for revisits.** While the user reviews, keep one background Bash command (`run_in_background`)
 waiting for the next request. It has no time limit, unlike Monitor, and it touches `<out>/watcher` every
