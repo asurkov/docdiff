@@ -439,6 +439,8 @@ b.href=href;b.target='_blank';b.rel='noopener';b.onmousedown=e=>e.preventDefault
 pop.hidden=false;
 pop.style.left=Math.max(8,Math.min(r.left,innerWidth-pop.offsetWidth-8))+scrollX+'px';pop.style.top=r.bottom+scrollY+4+'px';}
 document.addEventListener('click',e=>{if(e.target.closest('header,#pop,#rp')||!getSelection().isCollapsed)return;
+// A removed block's summary only folds and unfolds it.
+if(e.target.closest('summary')){hidePop();return;}
 const t=e.target.closest('.v-'+cur+' .chg');
 if(t){focus(groups.find(x=>x.view===cur&&x.els.includes(t)),false);showPop(t.getBoundingClientRect(),!!verb[cur],c);}else focus(null,false);});
 // Runs once the click has settled: clicking inside a selection clears it only after the click handler.
