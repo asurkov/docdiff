@@ -52,14 +52,16 @@ def actions(run):
         for k in {k for k, _ in first}:
             if (old, new, k) not in done:
                 side = 'R' if (k, 'R') in first else 'L'
-                done[old, new, k] = [(LABEL, KEY, link(url, sources[old, new][side], side, *first[k, side]))]
+                label, href = link(url, sources[old, new][side], side, *first[k, side])
+                done[old, new, k] = [(label, KEY, href)]
         return {k: done[old, new, k] for k, _ in first}
     return act
 
 
 def link(url, files, side, ws, s):
-    """The change's link: to the line its word ws[s] comes from, in the file that holds the longest run
-    of the words around it."""
+    """The change's button label and link: to the line its word ws[s] comes from, in the file that holds
+    the longest run of the words around it. The label names the file and line, as GitHub highlights the
+    line but does not scroll to it."""
     lo = max(0, s - CONTEXT)
     win, s = ws[lo:s + CONTEXT], s - lo
     best, at = None, (0, 0, 0)
@@ -69,7 +71,9 @@ def link(url, files, side, ws, s):
         if m.size > at[2]:
             best, at = f, m
     if not best or at[2] < min(RUN, len(win)):
-        return url + (f'#diff-{anchor(files[0]["path"])}' if len(files) == 1 else '')
+        if len(files) != 1:
+            return LABEL, url
+        return f'{LABEL} {os.path.basename(files[0]["path"])}', f'{url}#diff-{anchor(files[0]["path"])}'
     # Aligned near the run: the word matched nearest the change's own.
     i, j, _ = at
     a0 = max(0, j - 2 * i - 20)
@@ -77,7 +81,8 @@ def link(url, files, side, ws, s):
                                              autojunk=False).get_matching_blocks() if m.size]
     a, b, n = min(ms, key=lambda m: max(m.a - s, s - (m.a + m.size - 1), 0))
     line = best['lines'][a0 + b + min(max(s - a, 0), n - 1)]
-    return f'{url}#diff-{anchor(best["path"])}{side}{line}'
+    label = f'{LABEL} {os.path.basename(best["path"])}:{line}' + (' (old)' if side == 'L' else '')
+    return label, f'{url}#diff-{anchor(best["path"])}{side}{line}'
 
 
 def anchor(path):

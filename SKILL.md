@@ -190,7 +190,8 @@ below; `load_plugins()` in `docdiff.py` has their exact shapes. `run` is the run
 Files changed view at its line, where review comments go:
 `https://github.com/<owner>/<repo>/pull/<N>/files#diff-<sha256 of the path>R<line>`, the anchor GitHub's
 own line links use. The line is the head file's line of the change's first added word, or, when the
-change only removes, `L<line>` in the base file.
+change only removes, `L<line>` in the base file. GitHub highlights the line but does not scroll to it,
+so the button names the file and line: **GitHub ↗ terms.html:23**, with "(old)" for a base line.
 
 To find it, the change's block (up to 40 words on each side of it) is matched word by word against the
 files the PR changes, for a spec everything it changes in the spec's directory: the file holding the
