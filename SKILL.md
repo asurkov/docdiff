@@ -67,8 +67,11 @@ The server writes both into the output dir:
 
 - `accepted/<file>.html` — the accepted copy: the file as the user has accepted it, rendered. It starts as
   the base; each accept moves one change in, each unaccept takes one out, and the server rebuilds the page.
-  An edit to accepted text then shows in To review as just that edit. (`accepted.json`, the older store of
-  accepted change keys, seeds the copy once with the changes that still match.)
+  An edit to accepted text then shows in To review as just that edit. When the base moves (a commit, a
+  new export), the accepted changes that still read the same carry over onto it and the others come back
+  to review, so the copy never keeps text the new base dropped (`<file>.base` records the base commit).
+  (`accepted.json`, the older store of accepted change keys, seeds the copy once with the changes that
+  still match.)
 - `revisit.jsonl` — one request per line: `time`, `file`, `section`, `quote`, `view`, `prompt`, and `text`
   (the prompt as copied to the clipboard). When the user pastes one or says they sent revisits, read the
   lines since the last one handled, apply each to the file, and rerun docdiff.
@@ -136,6 +139,20 @@ no longer reads there (the Google Doc was edited after it was made) is listed un
 
 A revisit there names the export's file: apply it to the same file in the real repo, export again and
 rerun docdiff.
+
+**Publishing accepted changes.** Add `--publish` with gdocsync's push of the accepted copy, then its
+export:
+
+```bash
+--publish "python3 -I ~/.claude/skills/gdocsync/gdocsync.py --repo <repo> push {file} --target {target} && python3 -I ~/.claude/skills/gdocsync/gdocsync.py --repo <repo> export {file}"
+```
+
+Each file with accepted changes then has "publish accepted" on its bar. After a confirm, the server
+writes the accepted copy as Markdown (`{target}`), runs the command and shows what it printed; on
+success the page reloads with the published changes in the old side and the rest still to review. A
+push refused because the Google Doc or the Markdown changed since the export publishes nothing: export
+again, rerun docdiff (accepts that still apply carry over), and publish again. The click is the user's
+go: never press it on a doc other people read.
 
 ## Proposing wording with it
 

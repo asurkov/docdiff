@@ -2,7 +2,7 @@
 """Render a repo's uncommitted Markdown changes against a base revision as one inline-diff page.
 
 Usage: docdiff.py [--repo PATH] [--base REV] [--head REV] [--out DIR] [--comments FILE] [--new-label TEXT]
-                  [--serve] [paths...]
+                  [--publish CMD] [--serve] [paths...]
 
 paths are pathspecs relative to the repo root (default: every *.md and *.html).
 
@@ -20,9 +20,14 @@ quote first reads in the old text, its thread in the mark's tooltip.
 
 The page's header names both sides: a revision with its commit, or the working tree; --new-label TEXT
 names the new side instead, for a working tree that stands for something else.
+
+--publish CMD puts "publish accepted" on the bar of each file with accepted changes. It writes the
+accepted copy as Markdown and runs CMD in a shell, {file} replaced by the file's name and {target} by
+that Markdown's path; CMD is to publish it and bring the base up to date, after which the accepted copy
+starts over from the base. gdocsync's push --target, then its export, is such a command.
 """
 import argparse, base64, difflib, hashlib, html, http.server, json, mimetypes, os, pathlib, re
-import shutil, subprocess, sys, tempfile, threading, time, urllib.parse, urllib.request
+import shlex, shutil, subprocess, sys, tempfile, threading, time, urllib.parse, urllib.request
 
 # Tags, entities, words and single punctuation marks, each with its trailing space: "nothing," and
 # "nothing" share the word.
@@ -371,7 +376,7 @@ button:disabled{opacity:.4;cursor:default}
 button{font:inherit;padding:4px 10px;border:1px solid var(--line);background:var(--code);color:var(--fg);border-radius:6px;cursor:pointer}
 .file{margin:48px 0 8px;padding:6px 10px;background:var(--code);border:1px solid var(--line);border-radius:6px;font:600 14px ui-monospace,Menlo,monospace}
 .state{color:var(--muted);font-weight:400}
-.accf{float:right;font:12px -apple-system,BlinkMacSystemFont,sans-serif;padding:1px 8px}
+.accf,.pub{float:right;font:12px -apple-system,BlinkMacSystemFont,sans-serif;padding:1px 8px}
 ins{background:var(--ins);text-decoration:none;box-shadow:inset 0 -2px var(--insb)}
 del{background:var(--del);color:var(--delb);text-decoration:line-through}
 .chg{cursor:pointer}
@@ -457,6 +462,11 @@ function inView(x){const top=document.querySelector('header').getBoundingClientR
 return x.els.some(e=>{const r=e.getBoundingClientRect();return e.offsetParent&&r.bottom>top&&r.top<innerHeight;});}
 document.querySelectorAll('.accf').forEach(b=>b.onclick=async()=>{try{await post(b.dataset.a,{file:b.closest('section').dataset.file,all:true});
 location.reload();}catch(e){pos.textContent='not saved: '+e.message;}});
+// Publish runs the --publish command on the accepted changes and shows what it printed.
+document.querySelectorAll('.pub').forEach(b=>b.onclick=async()=>{const f=b.closest('section').dataset.file;
+if(!confirm('Publish the '+b.dataset.n+' accepted change(s) of '+f+'?'))return;b.disabled=true;b.textContent='publishing…';
+try{const r=await fetch('publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file:f})});
+const t=await r.text();alert((r.ok?'Published:\\n\\n':'Not published:\\n\\n')+t);}catch(e){alert('Not published: '+e.message);}location.reload();});
 function hidePop(){pop.hidden=true;}
 // Under a clicked change: accept and revisit. Under the end of a text selection: revisit only.
 function showPop(r,withAccept){pa.hidden=!withAccept;pa.textContent=cur==='acc'?'↺':'✓';pa.title=cur==='acc'?'Unaccept (a)':'Accept (a)';pop.hidden=false;
@@ -588,30 +598,44 @@ def htmls(repo, base, head, old, new, out):
     return old_html, new_html, []
 
 
-def accepted_html(out, name, old_html, new_html):
-    """The file as accepted so far: the base until an accept moves a change in. Accepts kept as keys in
-    accepted.json, from before the copy existed, move in the first time it is needed."""
-    copy = out / 'accepted' / f'{name}.html'
+def accepted_html(repo, base, head, out, old, new, old_html, new_html):
+    """The file as accepted so far: the base until an accept moves a change in. When the base has moved
+    since (a commit, a new export), the accepted changes that still read the same move onto the new base,
+    and the others come back to review: the copy never keeps text the new base dropped. Accepts kept as
+    keys in accepted.json, from before the copy existed, move in the first time it is needed."""
+    name = new or old
+    copy, was = out / 'accepted' / f'{name}.html', out / 'accepted' / f'{name}.base'
     if copy.exists():
-        return copy.read_text()
-    legacy = out / 'accepted.json'
-    keys = json.loads(legacy.read_text()).get(name, {}) if legacy.exists() else {}
+        then = was.read_text() if was.exists() else None
+        if then in (None, commit(repo, base)) or git(repo, 'cat-file', '-e', f'{then}^{{commit}}', check=False).returncode:
+            return copy.read_text()
+        then_html, _, pending = htmls(repo, then, head, old, new, out)
+        if pending:
+            return copy.read_text()
+        keys = {k for _, _, ps in block_diff(then_html, copy.read_text(), 'x')[2] for k, _, _ in ps}
+    else:
+        legacy = out / 'accepted.json'
+        keys = json.loads(legacy.read_text()).get(name, {}) if legacy.exists() else {}
     pieces = block_diff(old_html, new_html, 'x')[2] if keys else []
     found = {k for _, _, ps in pieces for k, _, _ in ps if k in keys}
-    if not found:
-        return old_html
-    text = apply(pieces, 'old', found)
-    save_copy(out, name, text)
+    text = apply(pieces, 'old', found) if found else old_html
+    if found or copy.exists():
+        save_copy(repo, base, out, name, text)
     return text
 
 
-def save_copy(out, name, text):
+def save_copy(repo, base, out, name, text):
     copy = out / 'accepted' / f'{name}.html'
     copy.parent.mkdir(parents=True, exist_ok=True)
     copy.write_text(text)
+    (out / 'accepted' / f'{name}.base').write_text(commit(repo, base))
 
 
-def build(repo, base, head, files, build_id, out, keep=(), comments=None, new_label=None):
+def commit(repo, rev):
+    return git(repo, 'rev-parse', f'{rev}^{{commit}}').stdout.decode().strip()
+
+
+def build(repo, base, head, files, build_id, out, keep=(), comments=None, new_label=None, publish=False):
     sections, nav = [], []
     for k, (old, new) in enumerate(files):
         name = new or old
@@ -625,7 +649,7 @@ def build(repo, base, head, files, build_id, out, keep=(), comments=None, new_la
         body, n, _ = block_diff(old_html, new_html, f'f{k}')
         if not n and name not in keep:
             continue
-        copy = accepted_html(out, name, old_html, new_html)
+        copy = accepted_html(repo, base, head, out, old, new, old_html, new_html)
         review, todo, _ = block_diff(copy, new_html, f'r{k}')
         done, accepted, _ = block_diff(old_html, copy, f'a{k}')
         state = 'new file' if not old else 'deleted' if not new else f'renamed from {old}' if old != new else ''
@@ -634,7 +658,8 @@ def build(repo, base, head, files, build_id, out, keep=(), comments=None, new_la
         nav.append(f'<a href="#{sid}">{label}</a> <span class="n">{todo} to review · {accepted} accepted</span>')
         plain = lambda h, missing: re.sub(r'\sid="[^"]*"', '', h) or f'<p class="n">({missing})</p>'
         bar = (('<button class="accf" data-a="accept">accept file</button>' if todo else '') +
-               ('<button class="accf" data-a="unaccept">unaccept file</button>' if accepted else ''))
+               ('<button class="accf" data-a="unaccept">unaccept file</button>' if accepted else '') +
+               (f'<button class="pub" data-n="{accepted}">publish accepted</button>' if publish and accepted else ''))
         view = lambda v, h: f'<div class="v v-{v}" data-view="{v}">{h}</div>'
         cs = (comments or {}).get(name, [])
         touched = sum(1 for c in cs if c.get('fate'))
@@ -679,7 +704,8 @@ def rebuild(out):
     build_id = str(time.time_ns())
     notes = pathlib.Path(run['comments']) if run.get('comments') else None
     comments = json.loads(notes.read_text()) if notes and notes.exists() else None
-    page, shown = build(repo, run['base'], run.get('head'), files, build_id, out, named, comments, run.get('new_label'))
+    page, shown = build(repo, run['base'], run.get('head'), files, build_id, out, named, comments, run.get('new_label'),
+                        bool(run.get('publish')))
     (out / 'index.html').write_text(page)
     (out / 'build.json').write_text(json.dumps({'id': build_id}))
     return repo, run['base'], shown
@@ -693,7 +719,7 @@ def move(out, req, accept):
     old_html, new_html, pending = htmls(repo, base, head, old, new, out)
     if pending:
         raise LookupError('that spec is not rendered yet; reload the page')
-    copy = accepted_html(out, name, old_html, new_html)
+    copy = accepted_html(repo, base, head, out, old, new, old_html, new_html)
     if req.get('all'):
         text = new_html if accept else old_html
     else:
@@ -701,14 +727,41 @@ def move(out, req, accept):
         if req['key'] not in {k for _, _, ps in pieces for k, _, _ in ps}:
             raise LookupError('that change is gone; reload the page')
         text = apply(pieces, 'old' if accept else 'new', {req['key']})
-    save_copy(out, name, text)
+    save_copy(repo, base, out, name, text)
     rebuild(out)
+
+
+def publish(out, name):
+    """Runs the --publish command on the file's accepted copy, written as Markdown, and returns what it
+    printed; once it succeeds, the accepted copy starts over from the base, which the command updated."""
+    run = json.loads((out / '.run.json').read_text())
+    copy, target = out / 'accepted' / f'{name}.html', out / 'accepted' / f'{name}.md'
+    if name not in {new or old for old, new in files_for(pathlib.Path(run['repo']), run['base'], run.get('head'), run['paths'])[0]}:
+        raise LookupError('no such file in this diff')
+    if not copy.exists():
+        raise LookupError('nothing accepted in that file')
+    # Links are the render's own (bare addresses), not the text's, and would come back as Markdown links.
+    page = re.sub(r'</?a\b[^>]*>', '', copy.read_text())
+    r = subprocess.run(['pandoc', '-f', 'html', '-t', 'gfm', '--wrap=none'], input=page, capture_output=True, text=True)
+    if r.returncode:
+        raise RuntimeError(f'pandoc: {r.stderr.strip()}')
+    target.write_text(r.stdout)
+    cmd = run['publish'].replace('{file}', shlex.quote(name)).replace('{target}', shlex.quote(str(target)))
+    r = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    printed = (r.stdout + r.stderr).strip()
+    if r.returncode:
+        raise RuntimeError(printed or f'{cmd}: exit {r.returncode}')
+    for f in (copy, target, out / 'accepted' / f'{name}.base'):
+        f.unlink(missing_ok=True)
+    rebuild(out)
+    return printed
 
 
 def handler(out):
     """Static files from out with caching off, so a reload after a rebuild shows the new page, plus
     the page's POSTs: /accept and /unaccept move a change into or out of the accepted copy and rebuild
-    the page; /revisit appends to revisit.jsonl; /rendered stores spec renders and rebuilds the page.
+    the page; /revisit appends to revisit.jsonl; /rendered stores spec renders and rebuilds the page;
+    /publish runs the --publish command on a file's accepted changes (see publish()).
     /src/old/<path> and /src/new/<path> serve a spec's sources from either side, for its render frame;
     with ?render=1 the entry file also gets RENDER, which posts the rendered spec to the page."""
     lock = threading.Lock()
@@ -758,6 +811,16 @@ def handler(out):
                         f.write(json.dumps({'time': time.strftime('%Y-%m-%dT%H:%M:%S'), **req},
                                            ensure_ascii=False) + '\n')
                     reply = {}
+                elif self.path == '/publish':
+                    try:
+                        data, code = publish(out, req['file']).encode(), 200
+                    except (LookupError, RuntimeError) as e:
+                        data, code = str(e).encode(), 409 if isinstance(e, LookupError) else 500
+                    self.send_response(code)
+                    self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                    self.send_header('Content-Length', str(len(data)))
+                    self.end_headers()
+                    return self.wfile.write(data)
                 elif self.path == '/rendered':
                     (out / 'rendered').mkdir(exist_ok=True)
                     for r in req['renders']:
@@ -802,6 +865,7 @@ def main():
     p.add_argument('--out')
     p.add_argument('--comments')
     p.add_argument('--new-label')
+    p.add_argument('--publish')
     p.add_argument('--serve', action='store_true')
     p.add_argument('paths', nargs='*')
     a = p.parse_args()
@@ -817,7 +881,7 @@ def main():
     # The server rebuilds from this after an accept.
     (out / '.run.json').write_text(json.dumps({'repo': str(repo), 'base': a.base, 'head': a.head, 'paths': a.paths,
                                                'comments': a.comments and str(pathlib.Path(a.comments).resolve()),
-                                               'new_label': a.new_label}))
+                                               'new_label': a.new_label, 'publish': a.publish}))
     _, _, shown = rebuild(out)
     print(f'{shown} changed doc(s) in {repo} vs {a.base}{f"..{a.head}" if a.head else ""} → {out / "index.html"}',
           flush=True)
