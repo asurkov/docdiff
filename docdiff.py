@@ -428,18 +428,24 @@ const groups=[],byG=new Map();
 for(const e of document.querySelectorAll('.v-review .chg,.v-acc .chg,.v-diff .chg')){const v=e.closest('.v').dataset.view;
 let x=byG.get(v+e.dataset.g);if(!x){const s=e.closest('section');x={k:e.dataset.k,file:s.dataset.file,sec:s,view:v,els:[]};
 byG.set(v+e.dataset.g,x);groups.push(x);}x.els.push(e);}
-let cur=body.dataset.view,c=null,anchor=null,req=null;
+let cur=body.dataset.view,c=null,anchor=null,mark=null,req=null;
 const gi=x=>groups.indexOf(x),L=()=>groups.filter(x=>x.view===cur),verb={review:'accept',acc:'unaccept'};
 // A change's removed (-) or added (+) text: an inline <del>/<ins>, or a whole block's old/new part.
 const part=(e,s)=>e.classList.contains('blk')?e.querySelector(s==='-'?'.old':'.now')?.textContent||'':e.tagName===(s==='-'?'DEL':'INS')?e.textContent:'';
 const txt=(x,s)=>x.els.map(e=>part(e,s)).join(' ').replace(/\\s+/g,' ').trim();
 function summary(x){const d=txt(x,'-'),i=txt(x,'+');return [d&&'−'+d,i&&'+'+i].filter(Boolean).join(' ').slice(0,300);}
-function step(d){const l=L(),m=[c,anchor].find(x=>x&&x.view===cur),at=m?gi(m):d>0?-1:groups.length;return (d>0?l.find(x=>gi(x)>at):l.findLast(x=>gi(x)<at))||null;}
+// n and p step from the current change; with none, from the height clicked last (mark, in page
+// coordinates) or else the change current last, while on screen; otherwise from the top of the screen.
+function step(d){const l=L(),top=document.querySelector('header').getBoundingClientRect().bottom;
+const m=c&&c.view===cur?c:mark===null&&anchor&&anchor.view===cur&&inView(anchor)?anchor:null;
+if(m)return (d>0?l.find(x=>gi(x)>gi(m)):l.findLast(x=>gi(x)<gi(m)))||null;
+const y=mark!==null&&mark-scrollY>top&&mark-scrollY<innerHeight?mark-scrollY:top,r=x=>x.els.find(e=>e.offsetParent)?.getBoundingClientRect();
+return (d>0?l.find(x=>r(x)?.bottom>y):l.findLast(x=>r(x)?.top<y))||null;}
 function status(){const l=L(),i=l.indexOf(c);prev.disabled=!step(-1);next.disabled=!step(1);
 acc.disabled=!c||!verb[cur];acc.textContent=cur==='acc'?'↺ unaccept':'✓ accept';
 pos.textContent=cur==='old'||cur==='new'?'select text, r to revisit · v view':i>=0?'change '+(i+1)+' of '+l.length+' · '+c.file:
 (l.length||'nothing')+({review:' to review',acc:' accepted'}[cur]||' changes')+' · n / p step'+(verb[cur]?' · a '+verb[cur]:'')+' · r revisit · v view';}
-function focus(x,scroll=true){hidePop();if(c)c.els.forEach(e=>e.classList.remove('cur'));c=x;if(x)anchor=x;
+function focus(x,scroll=true){hidePop();if(c)c.els.forEach(e=>e.classList.remove('cur'));c=x;if(x){anchor=x;mark=null;}
 if(c){c.els.forEach(e=>e.classList.add('cur'));if(scroll)c.els.find(e=>e.offsetParent)?.scrollIntoView({block:'center',behavior:'smooth'});}status();}
 function go(d){const x=step(d);if(x)focus(x);}
 async function post(url,data){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
@@ -474,11 +480,15 @@ document.addEventListener('click',e=>{if(e.target.closest('header,#pop,#rp')||!g
 // A removed block's summary only folds and unfolds it.
 if(e.target.closest('summary')){hidePop();return;}
 const t=e.target.closest('.v-'+cur+' .chg');
-if(t){focus(groups.find(x=>x.view===cur&&x.els.includes(t)),false);showPop(t.getBoundingClientRect(),!!verb[cur],c);}else focus(null,false);});
+if(t){focus(groups.find(x=>x.view===cur&&x.els.includes(t)),false);showPop(t.getBoundingClientRect(),!!verb[cur],c);}
+else{mark=e.clientY+scrollY;focus(null,false);}});
+// Without a current change, where n and p start moves with the screen.
+addEventListener('scroll',()=>{if(!c)status();},{passive:true});
 // Runs once the click has settled: clicking inside a selection clears it only after the click handler.
 document.addEventListener('mouseup',e=>{if(e.target.closest('header,#pop,#rp'))return;setTimeout(()=>{const s=getSelection();
 if(s.isCollapsed||!s.rangeCount){if(!popX)hidePop();return;}
 if(!s.anchorNode.parentElement?.closest('main .v'))return;
+mark=e.clientY+scrollY;if(!c)status();
 const rs=s.getRangeAt(0).getClientRects();if(rs.length)showPop(rs[rs.length-1],false);});});
 [pa,pr].forEach(b=>b.onmousedown=e=>e.preventDefault());
 pa.onclick=()=>{hidePop();accept();};pr.onclick=()=>{hidePop();openRev(grab());};

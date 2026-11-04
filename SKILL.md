@@ -16,7 +16,8 @@ a sticky header with per-file change counts, "change N of M · file", ↑ prev /
 against the accepted copy, so only what changed since the last accepts), **Accepted** (base against the
 accepted copy: what the user has signed off), **Diff vs base** (everything, read-only), and **Old** /
 **New**, each version clean, for rewrites too large to read inline; switching keeps the reader at the
-same place in the doc. The header's last line names both sides: the base revision with its commit, and
+same place in the doc. `n`/`p` step from the current change; with none, from where the reader last clicked
+or selected, while that is on screen, and otherwise from the top of the screen. The header's last line names both sides: the base revision with its commit, and
 `--head`'s or the working tree (`--new-label` names it otherwise).
 Whitespace-only rewraps do not count as changes. Relative images are embedded. With `--head <rev>`, new
 is the files at that revision instead of the working tree (a PR, say). A changed `.html` file under an
