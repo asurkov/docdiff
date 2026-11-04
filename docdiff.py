@@ -1,22 +1,16 @@
 #!/usr/bin/env python3
 """Render a repo's uncommitted Markdown changes against a base revision as one inline-diff page.
 
-Usage: docdiff.py [--repo PATH] [--base REV] [--head REV] [--out DIR] [--comments FILE] [--new-label TEXT]
-                  [--publish CMD] [--serve] [paths...]
+Usage: docdiff.py [--repo PATH] [--base REV] [--head REV] [--out DIR] [--new-label TEXT] [--publish CMD]
+                  [--serve] [plugins' options] [paths...]
 
-paths are pathspecs relative to the repo root (default: every *.md and *.html).
+paths are pathspecs relative to the repo root (default: every *.md, and the files plugins make docs of).
 
 Old = the file at REV (default HEAD); new = the file at --head, or without it the working tree,
-staged or not, untracked included. A changed .html file under an index.html that holds a
-respecConfig stands for that ReSpec spec, which the page renders in the browser (see SCRIPT).
-With --serve, serves --out on a free 127.0.0.1 port, or reuses a server already serving it, and
-prints "URL: ...". The server also stores what the page sends, in --out: accepted/<file>.html, the
-file as accepted so far, which To review is diffed against; revisit requests in revisit.jsonl;
-spec renders in rendered/<sources id>.html.
-
---comments FILE: comments made on the old side, {file: [{quote, author, date, text, replies: [{author,
-text}], fate: "goes", "edited" or null}]} as gdocsync's export writes them; each is marked where its
-quote first reads in the old text, its thread in the mark's tooltip.
+staged or not, untracked included. With --serve, serves --out on a free 127.0.0.1 port, or reuses a
+server already serving it, and prints "URL: ...". The server also stores what the page sends, in
+--out: accepted/<file>.html, the file as accepted so far, which To review is diffed against; revisit
+requests in revisit.jsonl.
 
 The page's header names both sides: a revision with its commit, or the working tree; --new-label TEXT
 names the new side instead, for a working tree that stands for something else.
@@ -26,7 +20,9 @@ accepted copy as Markdown and runs CMD in a shell, {file} replaced by the file's
 that Markdown's path; CMD is to publish it and bring the base up to date, after which the accepted copy
 starts over from the base. gdocsync's push --target, then its export, is such a command.
 
-Plugins, the modules in plugins/, add their own arguments and buttons (see load_plugins).
+Plugins, the modules in plugins/, add their own arguments, docs and buttons (see load_plugins):
+respec.py diffs ReSpec specs, gdoc_comments.py marks a Google Doc's comments (--comments), github_pr.py
+links changes to a GitHub PR (--pr).
 """
 import argparse, base64, difflib, hashlib, html, http.server, importlib.util, json, mimetypes, os, pathlib, re
 import shlex, shutil, subprocess, sys, tempfile, threading, time, urllib.parse, urllib.request
@@ -73,22 +69,9 @@ def read(repo, rev, path):
     return r.stdout if r.returncode == 0 else None
 
 
-def spec_index(repo, revs, path, memo):
-    """The ReSpec spec a source file belongs to: the nearest index.html at or above it that holds a
-    respecConfig on either side; None if there is none."""
-    d = os.path.dirname(path)
-    if d not in memo:
-        index = os.path.join(d, 'index.html')
-        if any(b'respecConfig' in (read(repo, rev, index) or b'') for rev in revs):
-            memo[d] = index
-        else:
-            memo[d] = spec_index(repo, revs, d, memo) if d else None
-    return memo[d]
-
-
 def changed_files(repo, base, head, paths):
-    """Changed Markdown files and ReSpec specs [(old path or None, new path or None)]."""
-    spec = ['--', *(paths or ['*.md', '*.html'])]
+    """Changed Markdown files and plugins' docs, ReSpec specs say: [(old path or None, new path or None)]."""
+    spec = ['--', *(paths or ['*.md', *(p for m in PLUGINS for p in getattr(m, 'PATHS', []))])]
     out = git(repo, 'diff', '--name-status', '--find-renames', base, *([head] if head else []), *spec).stdout.decode()
     names = []
     for line in out.splitlines():
@@ -97,16 +80,17 @@ def changed_files(repo, base, head, paths):
     if not head:
         untracked = git(repo, 'ls-files', '--others', '--exclude-standard', *spec).stdout.decode()
         names += [(None, f) for f in untracked.splitlines()]
-    files, specs, memo = [], set(), {}
+    files, docs, memo = [], set(), {}
     for old, new in names:
         name = new or old
         if name.endswith('.md'):
             files.append((old, new))
-        elif name.endswith('.html'):
-            index = spec_index(repo, (base, head), name, memo)
-            if index and index not in specs:
-                specs.add(index)
-                files.append(tuple(index if read(repo, rev, index) is not None else None for rev in (base, head)))
+            continue
+        # Any other file stands for the doc a plugin makes of it, if one does.
+        doc = next(filter(None, (m.doc(repo, (base, head), name, memo) for m in PLUGINS if hasattr(m, 'doc'))), None)
+        if doc and doc not in docs:
+            docs.add(doc)
+            files.append(tuple(doc if read(repo, rev, doc) is not None else None for rev in (base, head)))
     return files
 
 
@@ -391,12 +375,6 @@ pre{background:var(--code);padding:12px;overflow-x:auto}
 img{max-width:100%}
 table{border-collapse:collapse;display:block;overflow-x:auto;font-size:14px} td,th{border:1px solid var(--line);padding:4px 8px;vertical-align:top}
 a{color:var(--link)} .cur{outline:2px solid #bf8700;outline-offset:2px}
-mark.cm{background:rgba(212,167,44,.25);color:inherit;border-bottom:2px solid #d4a72c;cursor:help}
-mark.cm-goes{border-bottom-color:var(--delb)} mark.cm-edited{border-bottom-style:dashed}
-.cmx{font-size:13px;color:var(--muted);margin:0 0 8px} .cmx summary{cursor:pointer} .cmx li{cursor:help}
-.render{position:fixed;right:0;bottom:0;width:800px;height:600px;border:0;opacity:0;pointer-events:none}
-.note,.issue,.example,.ednote,.warning{border-left:4px solid var(--line);padding:2px 12px;margin:1em 0}
-.issue,.warning{border-color:var(--rw)} .marker{font-weight:600;color:var(--muted)}
 body:not(.show-review) .v-review,body:not(.show-acc) .v-acc,body:not(.show-diff) .v-diff,body:not(.show-old) .v-old,body:not(.show-new) .v-new{display:none}
 .show-old .step,.show-new .step{display:none}
 body:not(.show-review) .accf[data-a=accept],body:not(.show-acc) .accf[data-a=unaccept]{display:none}
@@ -412,26 +390,6 @@ body:not(.show-review) .accf[data-a=accept],body:not(.show-acc) .accf[data-a=una
 
 SCRIPT = '''
 const $=id=>document.getElementById(id),body=document.body,repo=body.dataset.repo;
-// Comments made on the old side (--comments): each marked where its quote first reads in the old text,
-// in every view that has it, so not in inserted words, added blocks or the folded summaries; the mark's
-// tooltip holds the thread and what the change does to the comment's anchor.
-function markQuote(root,q,make){const map=[];let s='',sp=true,n;
-const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode:t=>t.parentElement.closest('ins,summary,.now')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT});
-while(n=w.nextNode())for(let k=0;k<n.data.length;k++){const ch=/\\s/.test(n.data[k])?' ':n.data[k];if(ch===' '&&sp)continue;sp=ch===' ';s+=ch;map.push([n,k]);}
-const at=s.indexOf(q);if(at<0)return false;const spans=[];
-for(let k=at;k<at+q.length;k++){const[t,o]=map[k],l=spans[spans.length-1];if(l&&l.t===t)l.e=o+1;else spans.push({t,b:o,e:o+1});}
-for(const x of spans.reverse()){let t=x.t;if(x.e<t.length)t.splitText(x.e);if(x.b)t=t.splitText(x.b);const m=make();t.replaceWith(m);m.append(t);}return true;}
-// A comment whose quote no longer reads in the old text (edited there after the comment was made) is
-// listed under the file's bar instead.
-for(const s of document.querySelectorAll('section')){const j=s.querySelector('script.cm');if(!j)continue;const lost=[];
-for(const c of JSON.parse(j.textContent)){const q=c.quote.replace(/\\s+/g,' ').trim();if(!q)continue;
-const title=[c.author+', '+c.date+': '+c.text,...c.replies.map(r=>'↳ '+r.author+': '+r.text),
-c.fate==='goes'?'The change deletes all of its anchor.':c.fate==='edited'?'The change edits its anchor.':''].filter(Boolean).join('\\n');
-let placed=false;for(const v of s.querySelectorAll('.v-old,.v-diff,.v-review,.v-acc'))placed=markQuote(v,q,()=>{const m=document.createElement('mark');
-m.className='cm'+(c.fate?' cm-'+c.fate:'');m.title=title;return m;})||placed;
-if(!placed){const li=document.createElement('li');li.title=title;li.textContent=c.author+' on “'+q+'”: '+c.text;lost.push(li);}}
-if(lost.length){const d=document.createElement('details');d.className='cmx';d.innerHTML='<summary></summary><ul></ul>';
-d.firstChild.textContent=lost.length+' comment(s) on text that no longer reads here';d.lastChild.append(...lost);s.querySelector('.file').after(d);}}
 const pos=$('pos'),next=$('next'),prev=$('prev'),acc=$('acc'),rev=$('rev'),rp=$('rp'),rq=$('rq'),rt=$('rt'),pop=$('pop'),pa=$('pa'),pr=$('pr');
 // Changes per view: To review (accepted copy to now), Accepted (base to accepted copy), Diff vs base.
 const groups=[],byG=new Map();
@@ -546,66 +504,23 @@ const back=()=>{const s=st.at&&[...document.querySelectorAll('section')].find(z=
 if(s){const b=s.getBoundingClientRect();scrollTo(0,scrollY+b.top+st.at.r*b.height-80);}};
 document.readyState==='complete'?back():addEventListener('load',back);}
 setInterval(()=>fetch('build.json').then(r=>r.json()).then(b=>{if(b.id!==body.dataset.build&&rp.hidden)location.reload();}).catch(()=>{}),1500);
-// Specs not rendered yet: each side loads in a frame on localhost, another origin than this page's
-// 127.0.0.1, so the spec's own scripts cannot reach this page or post to the server. ReSpec renders it
-// there and RENDER posts the result up, which comes into this page only cleaned of anything that runs.
-// The server keeps the renders and rebuilds, and the page reloads into the diff.
-const frames=[...document.querySelectorAll('iframe.render')];
-if(frames.length)Promise.all(frames.map(f=>new Promise(ok=>{const state=f.closest('section').querySelector('.state');
-const fail=m=>{state.textContent='· not rendered: '+m;ok(null);},late=setTimeout(()=>fail('timed out'),120000);
-addEventListener('message',e=>{if(e.source!==f.contentWindow)return;clearTimeout(late);
-typeof e.data?.html==='string'?ok({id:f.dataset.id,html:inert(e.data.html)}):fail(e.data?.error||'no result');});
-f.src='http://localhost:'+location.port+'/'+f.dataset.src;}))).then(rs=>{rs=rs.filter(Boolean);
-if(rs.length)post('rendered',{renders:rs}).catch(e=>{pos.textContent='renders not saved: '+e.message;});});
-function inert(h){const d=new DOMParser().parseFromString(h,'text/html');
-d.querySelectorAll('script,iframe,frame,object,embed,base,meta,link,style,form').forEach(e=>e.remove());
-for(const e of d.body.querySelectorAll('*'))for(const a of [...e.attributes])
-if(/^on/i.test(a.name)||/^\\s*javascript:/i.test(a.value))e.removeAttribute(a.name);
-return d.body.innerHTML;}
 restore();status();
 '''
-
-# Runs in a spec's render frame, after the spec: once ReSpec is done, posts the page the rendered spec
-# cut down to what is worth diffing. Navigation, the index and section numbers go (numbers would mark
-# every heading after an added section); sections and heading wrappers are unwrapped, so headings,
-# paragraphs and list items are the blocks the diff pairs. A framed ReSpec reports progress to its parent
-# through parent.location, which a frame of another origin cannot read, and stops; so the frame
-# keeps its parent for the result and tells ReSpec it has none.
-RENDER = '''(async()=>{const up=parent,t=Date.now(),say=m=>up.postMessage(m,'*');window.parent=window;
-while(!document.respec){if(Date.now()-t>60000)return say({error:'ReSpec did not load'});await new Promise(r=>setTimeout(r,200));}
-try{await document.respec.ready;}catch(e){return say({error:'ReSpec failed: '+e});}
-const b=document.body.cloneNode(true);
-b.querySelectorAll('script,style,link,meta,iframe,#toc,#toc-nav,#index,#respec-ui,.dfn-panel,.self-link,.secno,.respec-button-copy-paste').forEach(e=>e.remove());
-b.querySelectorAll('section,.header-wrapper').forEach(e=>e.replaceWith(...e.childNodes));
-b.querySelectorAll('[id^="ref-for-"]').forEach(e=>e.removeAttribute('id'));
-say({html:b.innerHTML});})();'''
-
-
-def spec_id(repo, rev, index):
-    """Names a spec's sources as they are at rev (None: the working tree): the hash of its directory."""
-    d = os.path.dirname(index)
-    if rev is not None:
-        return git(repo, 'rev-parse', f'{rev}:{d}').stdout.decode().strip()
-    h = hashlib.sha1()
-    for f in sorted(git(repo, 'ls-files', '-co', '--exclude-standard', '--', d or '.').stdout.decode().splitlines()):
-        h.update(f.encode() + b'\0' + (read(repo, None, f) or b'') + b'\0')
-    return h.hexdigest()
 
 
 def htmls(repo, base, head, old, new, out):
     """The file at base and at head (or in the working tree), rendered; '' for a side it does not exist
-    on. Also the spec sides not rendered yet [(side, path, sources id)]: the page renders a spec."""
-    if (new or old).endswith('.html'):
-        sides = [(s, p, spec_id(repo, rev, p)) for s, rev, p in (('old', base, old), ('new', head, new)) if p]
-        got = {s: out / 'rendered' / f'{i}.html' for s, _, i in sides}
-        pending = [x for x in sides if not got[x[0]].exists()]
-        text = lambda s: got[s].read_text() if s in got and got[s].exists() else ''
-        return text('old'), text('new'), pending
+    on. Also, while a plugin's doc is not rendered yet, what to show for it instead (see load_plugins);
+    None for a doc that is."""
+    for m in PLUGINS:
+        got = hasattr(m, 'htmls') and m.htmls(repo, base, head, old, new, out)
+        if got:
+            return got
     old_html = inline_images(render(git(repo, 'show', f'{base}:{old}').stdout), repo, os.path.dirname(old), base,
                              False) if old else ''
     new_html = inline_images(render(read(repo, head, new)), repo, os.path.dirname(new), head or base,
                              not head) if new else ''
-    return old_html, new_html, []
+    return old_html, new_html, None
 
 
 def accepted_html(repo, base, head, out, old, new, old_html, new_html):
@@ -619,8 +534,8 @@ def accepted_html(repo, base, head, out, old, new, old_html, new_html):
         then = was.read_text() if was.exists() else None
         if then in (None, commit(repo, base)) or git(repo, 'cat-file', '-e', f'{then}^{{commit}}', check=False).returncode:
             return copy.read_text()
-        then_html, _, pending = htmls(repo, then, head, old, new, out)
-        if pending:
+        then_html, _, wait = htmls(repo, then, head, old, new, out)
+        if wait:
             return copy.read_text()
         keys = {k for _, _, ps in block_diff(then_html, copy.read_text(), 'x')[2] for k, _, _ in ps}
     else:
@@ -646,16 +561,30 @@ def commit(repo, rev):
 
 
 def load_plugins():
-    """The modules in plugins/. A plugin may define add_args(parser), to add its arguments, and
-    actions(run), run being the run's arguments as .run.json holds them: None where the plugin does not
-    apply, or else a function (old path, new path, blocks) that returns buttons for the popup of a
-    file's changes, {change key: [(label, key, href)]}; the button opens href in a new tab, and so does
-    the key on the current change. blocks is the file's diff as text, per block [(change key or None,
-    old text, new text)], as block_diff() pairs them."""
+    """The modules in plugins/, each with this module as `docdiff` in it, for git(), read() and the
+    like. run below is the run's arguments as .run.json holds them. A plugin may define:
+
+    add_args(parser): its arguments, which go into .run.json with the rest.
+    PATHS and doc(repo, (base, head), path, memo): pathspecs of the files it makes docs of, beside *.md,
+      and the doc a changed file stands for, None for none; memo lasts one listing of the changes.
+    htmls(repo, base, head, old, new, out): None for a doc not its own, else as htmls() returns it: both
+      sides rendered, and while they are not, (state, html) for the file's section, words for its bar
+      and what gets the page to render it.
+    section(run, name): None, or (state, html) to add to a file's section: words for its bar, data for
+      the page.
+    actions(run): None where the plugin does not apply, or else a function (old path, new path, blocks)
+      that returns buttons for the popup of a file's changes, {change key: [(label, key, href)]}; the
+      button opens href in a new tab, and so does the key on the current change. blocks is the file's
+      diff as text, per block [(change key or None, old text, new text)], as block_diff() pairs them.
+    STYLE, SCRIPT: CSS and JavaScript for the page, after docdiff's own.
+    get(run, path, query), post(out, path, req): the server's routes. None for a path not its own, else
+      (data, content type) with data None for a 404, or the reply to a post, after which the page
+      rebuilds."""
     mods = []
     for f in sorted((pathlib.Path(__file__).parent / 'plugins').glob('*.py')):
         spec = importlib.util.spec_from_file_location(f'docdiff_{f.stem}', f)
         mods.append(importlib.util.module_from_spec(spec))
+        mods[-1].docdiff = sys.modules[__name__]
         spec.loader.exec_module(mods[-1])
     return mods
 
@@ -675,16 +604,14 @@ def plugin_actions(actors, old, new, *diffs):
     return acts
 
 
-def build(repo, base, head, files, build_id, out, keep=(), comments=None, new_label=None, publish=False, actors=()):
+def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=None, publish=False, actors=()):
     sections, nav = [], []
     for k, (old, new) in enumerate(files):
         name = new or old
-        old_html, new_html, pending = htmls(repo, base, head, old, new, out)
-        if pending:
-            frames = ''.join(f'<iframe class="render" sandbox="allow-scripts allow-same-origin" data-id="{i}" '
-                             f'data-src="src/{s}/{html.escape(p)}?render=1"></iframe>' for s, p, i in pending)
+        old_html, new_html, wait = htmls(repo, base, head, old, new, out)
+        if wait:
             sections.append(f'<section id="f{k}" data-file="{html.escape(name)}"><div class="file">{html.escape(name)}'
-                            f' <span class=state>· rendering with ReSpec…</span></div>{frames}</section>')
+                            f' <span class=state>· {html.escape(wait[0])}</span></div>{wait[1]}</section>')
             continue
         body, n, pieces = block_diff(old_html, new_html, f'f{k}')
         if not n and name not in keep:
@@ -702,14 +629,12 @@ def build(repo, base, head, files, build_id, out, keep=(), comments=None, new_la
                ('<button class="accf" data-a="unaccept">unaccept file</button>' if accepted else '') +
                (f'<button class="pub" data-n="{accepted}">publish accepted</button>' if publish and accepted else ''))
         view = lambda v, h: f'<div class="v v-{v}" data-view="{v}">{h}</div>'
-        cs = (comments or {}).get(name, [])
-        touched = sum(1 for c in cs if c.get('fate'))
-        state = ' · '.join(filter(None, [state, cs and f'{len(cs)} open comment(s)' + (f', {touched} in text that changes' if touched else '')]))
-        cm = ('<script type="application/json" class="cm">' + json.dumps(cs, ensure_ascii=False).replace('</', '<\\/') +
-              '</script>') if cs else ''
-        am = ('<script type="application/json" class="acts">' + json.dumps(acts, ensure_ascii=False).replace('</', '<\\/') +
-              '</script>') if acts else ''
-        sections.append(f'<section id="{sid}" data-file="{label}">{cm}{am}<div class="file">{label}'
+        # What plugins add to the file: words for its bar, data for the page.
+        extra = [x for x in (m.section(run, name) for m in PLUGINS if hasattr(m, 'section')) if x]
+        state = ' · '.join(filter(None, [state, *(s for s, _ in extra)]))
+        data = ''.join(h for _, h in extra) + (('<script type="application/json" class="acts">' +
+                                                json.dumps(acts, ensure_ascii=False).replace('</', '<\\/') + '</script>') if acts else '')
+        sections.append(f'<section id="{sid}" data-file="{label}">{data}<div class="file">{label}'
                         f'{f" <span class=state>· {html.escape(state)}</span>" if state else ""}{bar}</div>'
                         f'{view("review", review)}{view("acc", done if accepted else "<p class=n>(nothing accepted yet)</p>")}'
                         f'{view("diff", body)}{view("old", plain(old_html, "new file"))}{view("new", plain(new_html, "deleted"))}'
@@ -718,7 +643,7 @@ def build(repo, base, head, files, build_id, out, keep=(), comments=None, new_la
     buttons = [('review', 'To review'), ('acc', 'Accepted'), ('diff', f'Diff vs {base}'), ('old', 'Old'), ('new', 'New')]
     seg = ''.join(f'<button data-v="{v}" aria-pressed="{str(v == "review").lower()}">{label}</button>' for v, label in buttons)
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{html.escape(title)}</title><style>{STYLE}</style></head><body class="show-review" data-view="review" data-repo="{html.escape(str(repo))}" data-build="{build_id}">
+<title>{html.escape(title)}</title><style>{STYLE}{"".join(getattr(m, 'STYLE', '') for m in PLUGINS)}</style></head><body class="show-review" data-view="review" data-repo="{html.escape(str(repo))}" data-build="{build_id}">
 <header>{" · ".join(nav)}<span style="flex:1"></span>
 <span class="seg">{seg}</span>
 <span id="pos" class="n"></span><button id="prev" class="step">↑ prev</button><button id="next" class="step">next change ↓</button>
@@ -728,7 +653,7 @@ def build(repo, base, head, files, build_id, out, keep=(), comments=None, new_la
 <div id="rp" hidden><blockquote id="rq"></blockquote><textarea id="rt" placeholder="What should change? ↵ sends, ⇧↵ adds a line"></textarea>
 <button id="rs">Send</button> <button id="rc">Cancel</button></div>
 <div id="pop" hidden><button id="pa">✓</button><button id="pr" title="Revisit (r)">✎</button></div>
-<script>{SCRIPT}</script></body></html>''', len(sections)
+<script>{SCRIPT}{"".join(getattr(m, 'SCRIPT', '') for m in PLUGINS)}</script></body></html>''', len(sections)
 
 
 def files_for(repo, base, head, paths):
@@ -745,10 +670,8 @@ def rebuild(out):
     repo = pathlib.Path(run['repo'])
     files, named = files_for(repo, run['base'], run.get('head'), run['paths'])
     build_id = str(time.time_ns())
-    notes = pathlib.Path(run['comments']) if run.get('comments') else None
-    comments = json.loads(notes.read_text()) if notes and notes.exists() else None
     actors = [f for f in (m.actions(run) for m in PLUGINS if hasattr(m, 'actions')) if f]
-    page, shown = build(repo, run['base'], run.get('head'), files, build_id, out, named, comments, run.get('new_label'),
+    page, shown = build(repo, run['base'], run.get('head'), files, build_id, out, named, run, run.get('new_label'),
                         bool(run.get('publish')), actors)
     (out / 'index.html').write_text(page)
     (out / 'build.json').write_text(json.dumps({'id': build_id}))
@@ -760,9 +683,9 @@ def move(out, req, accept):
     run = json.loads((out / '.run.json').read_text())
     repo, base, head, name = pathlib.Path(run['repo']), run['base'], run.get('head'), req['file']
     old, new = next((f for f in files_for(repo, base, head, run['paths'])[0] if (f[1] or f[0]) == name), (None, None))
-    old_html, new_html, pending = htmls(repo, base, head, old, new, out)
-    if pending:
-        raise LookupError('that spec is not rendered yet; reload the page')
+    old_html, new_html, wait = htmls(repo, base, head, old, new, out)
+    if wait:
+        raise LookupError('that file is not rendered yet; reload the page')
     copy = accepted_html(repo, base, head, out, old, new, old_html, new_html)
     if req.get('all'):
         text = new_html if accept else old_html
@@ -804,10 +727,8 @@ def publish(out, name):
 def handler(out):
     """Static files from out with caching off, so a reload after a rebuild shows the new page, plus
     the page's POSTs: /accept and /unaccept move a change into or out of the accepted copy and rebuild
-    the page; /revisit appends to revisit.jsonl; /rendered stores spec renders and rebuilds the page;
-    /publish runs the --publish command on a file's accepted changes (see publish()).
-    /src/old/<path> and /src/new/<path> serve a spec's sources from either side, for its render frame;
-    with ?render=1 the entry file also gets RENDER, which posts the rendered spec to the page."""
+    the page; /revisit appends to revisit.jsonl; /publish runs the --publish command on a file's
+    accepted changes (see publish()). Plugins add routes of their own (see load_plugins)."""
     lock = threading.Lock()
 
     class Handler(http.server.SimpleHTTPRequestHandler):
@@ -820,19 +741,16 @@ def handler(out):
 
         def do_GET(self):
             url = urllib.parse.urlsplit(self.path)
-            m = re.fullmatch(r'/src/(old|new)/(.+)', urllib.parse.unquote(url.path))
-            if not m:
-                return super().do_GET()
             run = json.loads((out / '.run.json').read_text())
-            path = os.path.normpath(m.group(2))
-            rev = run['base'] if m.group(1) == 'old' else run.get('head')
-            data = None if os.path.isabs(path) or path.startswith('..') else read(pathlib.Path(run['repo']), rev, path)
+            got = next(filter(None, (m.get(run, urllib.parse.unquote(url.path), url.query)
+                                     for m in PLUGINS if hasattr(m, 'get'))), None)
+            if not got:
+                return super().do_GET()
+            data, mime = got
             if data is None:
                 return self.send_error(404)
-            if url.query == 'render=1':
-                data += f'<script>{RENDER}</script>'.encode()
             self.send_response(200)
-            self.send_header('Content-Type', mimetypes.guess_type(path)[0] or 'application/octet-stream')
+            self.send_header('Content-Type', mime)
             self.send_header('Content-Length', str(len(data)))
             self.end_headers()
             self.wfile.write(data)
@@ -865,15 +783,12 @@ def handler(out):
                     self.send_header('Content-Length', str(len(data)))
                     self.end_headers()
                     return self.wfile.write(data)
-                elif self.path == '/rendered':
-                    (out / 'rendered').mkdir(exist_ok=True)
-                    for r in req['renders']:
-                        if re.fullmatch(r'[0-9a-f]{40,64}', r['id']):
-                            (out / 'rendered' / f'{r["id"]}.html').write_text(r['html'])
-                    rebuild(out)
-                    reply = {}
                 else:
-                    return self.send_error(404)
+                    reply = next(filter(lambda r: r is not None, (m.post(out, self.path, req)
+                                                                  for m in PLUGINS if hasattr(m, 'post'))), None)
+                    if reply is None:
+                        return self.send_error(404)
+                    rebuild(out)
             data = json.dumps(reply).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
@@ -907,7 +822,6 @@ def main():
     p.add_argument('--base', default='HEAD')
     p.add_argument('--head')
     p.add_argument('--out')
-    p.add_argument('--comments')
     p.add_argument('--new-label')
     p.add_argument('--publish')
     p.add_argument('--serve', action='store_true')
@@ -926,8 +840,7 @@ def main():
     out = pathlib.Path(a.out) if a.out else pathlib.Path(tempfile.gettempdir()) / f'docdiff-{repo.name}'
     out.mkdir(parents=True, exist_ok=True)
     # The server rebuilds from this after an accept; plugins read their arguments from it.
-    (out / '.run.json').write_text(json.dumps({**vars(a), 'repo': str(repo),
-                                               'comments': a.comments and str(pathlib.Path(a.comments).resolve())}))
+    (out / '.run.json').write_text(json.dumps({**vars(a), 'repo': str(repo)}))
     _, _, shown = rebuild(out)
     print(f'{shown} changed doc(s) in {repo} vs {a.base}{f"..{a.head}" if a.head else ""} → {out / "index.html"}',
           flush=True)

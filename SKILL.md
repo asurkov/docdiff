@@ -88,10 +88,10 @@ sh -c 'd=<out>; f=$d/revisit.jsonl; touch "$f"; n=$(($(wc -l < "$f"))); while [ 
 
 ## ReSpec specs
 
-A spec renders in the page itself, not in the script: the first load shows the spec's bar with "rendering
-with ReSpec…" while each side loads in a hidden frame, and a few seconds later the page reloads into the
-diff. So the page must be open in the built-in browser, with network access (ReSpec, xref and specref
-load online). Renders are kept in `<out>/rendered/<sources id>.html`, by the hash of the spec's directory
+`plugins/respec.py`. A spec renders in the page itself, not in the script: the first load shows the
+spec's bar with "rendering with ReSpec…" while each side loads in a hidden frame, and a few seconds later
+the page reloads into the diff. So the page must be open in the built-in browser, with network access
+(ReSpec, xref and specref load online). Renders are kept in `<out>/rendered/<sources id>.html`, by the hash of the spec's directory
 on that side, so an unchanged side never renders twice. Before diffing, the frame drops the table of
 contents, the index, section numbers and permalinks, and unwraps sections, so the diff pairs headings,
 paragraphs and list items. On "not rendered: …" in the bar, reload the page to retry.
@@ -134,9 +134,10 @@ Doc's text and whose working tree holds its Markdown's. Then step 1 with `--repo
 (the header shows when it was read, from the export's commit), new the Markdown, both as the plain text a
 push compares: inline styles and link targets do not show, since a push sets them from the Markdown.
 
-Each open comment is marked where its quote reads in the old text: amber, underlined red when the change
-deletes all of its anchor and dashed when it edits it, the thread in the tooltip. A comment whose quote
-no longer reads there (the Google Doc was edited after it was made) is listed under the file's bar.
+Each open comment (`plugins/gdoc_comments.py`) is marked where its quote reads in the old text: amber,
+underlined red when the change deletes all of its anchor and dashed when it edits it, the thread in the
+tooltip. A comment whose quote no longer reads there (the Google Doc was edited after it was made) is
+listed under the file's bar.
 
 A revisit there names the export's file: apply it to the same file in the real repo, export again and
 rerun docdiff.
@@ -158,18 +159,29 @@ go: never press it on a doc other people read.
 ## Plugins
 
 Source-specific features are plugins: the Python modules in `plugins/` next to `docdiff.py`, each loaded
-on every run and used where it applies. A plugin may define:
+on every run and used where it applies.
 
-- `add_args(parser)`: its command-line arguments. Their values go into `<out>/.run.json` with the rest,
-  so the server's rebuilds see them.
-- `actions(run)`, `run` being that `.run.json` as a dict: `None` where the plugin does not apply, or else a
-  function `(old path, new path, blocks)` that returns `{change key: [(label, key, href)]}`, called per
-  file and view. `blocks` is the file's diff as text, per block (paragraph, list item, heading…) a list of
-  `(change key or None, old text, new text)`. Each action is a link in the change's popup that opens
-  `href` in a new tab; `key` does the same on the current change, so it must not be one of docdiff's own
-  (`n p j k a r v`).
+- `respec.py`: ReSpec specs ([ReSpec specs](#respec-specs)).
+- `gdoc_comments.py`: `--comments`, a Google Doc's comments marked on the old side
+  ([Google Doc vs Markdown](#google-doc-vs-markdown)).
+- `github_pr.py`: `--pr`, a link from each change to its line in a GitHub PR ([GitHub PR](#github-pr)).
 
-That is all the seam holds so far: arguments and per-change links.
+A plugin sees docdiff itself as `docdiff` (`git()`, `read()` and the like) and may define the hooks
+below; `load_plugins()` in `docdiff.py` has their exact shapes. `run` is the run's arguments as
+`<out>/.run.json` keeps them.
+
+- `add_args(parser)`: its command-line arguments, kept in `.run.json` with the rest, so the server's
+  rebuilds see them.
+- `PATHS` and `doc(…)`: the files it makes docs of beside `*.md`, and the doc a changed one stands for
+  (a spec's `index.html` for a section file).
+- `htmls(…)`: its docs rendered, both sides, or while they are not, what the file's section shows instead.
+- `section(run, name)`: words for a file's bar and data for the page.
+- `actions(run)`: links in a change's popup, `[(label, key, href)]` per change, made from the file's diff
+  as text: per block (paragraph, list item, heading…) a list of `(change key or None, old text, new
+  text)`. A link opens `href` in a new tab, and so does `key` on the current change, so the key must not
+  be one of docdiff's own (`n p j k a r v`).
+- `STYLE`, `SCRIPT`: CSS and JavaScript for the page, after docdiff's own.
+- `get(run, path, query)`, `post(out, path, req)`: the server's routes; the page rebuilds after a post.
 
 ### GitHub PR
 
