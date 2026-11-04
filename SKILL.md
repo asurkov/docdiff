@@ -16,7 +16,8 @@ a sticky header with per-file change counts, "change N of M · file", ↑ prev /
 against the accepted copy, so only what changed since the last accepts), **Accepted** (base against the
 accepted copy: what the user has signed off), **Diff vs base** (everything, read-only), and **Old** /
 **New**, each version clean, for rewrites too large to read inline; switching keeps the reader at the
-same place in the doc.
+same place in the doc. The header's last line names both sides: the base revision with its commit, and
+`--head`'s or the working tree (`--new-label` names it otherwise).
 Whitespace-only rewraps do not count as changes. Relative images are embedded. With `--head <rev>`, new
 is the files at that revision instead of the working tree (a PR, say). A changed `.html` file under an
 `index.html` that holds a `respecConfig` stands for that ReSpec spec, which shows as one doc
@@ -125,7 +126,8 @@ python3 -I ~/.claude/skills/gdocsync/gdocsync.py --repo <repo> export [file.md�
 
 writes `~/.gdocsync/<repo name>/<repo name>-google/`, a git repo whose tag `google` holds each Google
 Doc's text and whose working tree holds its Markdown's. Then step 1 with `--repo <that dir> --base google
---comments <that dir>/comments.json`. Old is the Google Doc, new the Markdown, both as the plain text a
+--comments <that dir>/comments.json --new-label "Markdown of <repo>, as exported"`. Old is the Google Doc
+(the header shows when it was read, from the export's commit), new the Markdown, both as the plain text a
 push compares: inline styles and link targets do not show, since a push sets them from the Markdown.
 
 Each open comment is marked where its quote reads in the old text: amber, underlined red when the change

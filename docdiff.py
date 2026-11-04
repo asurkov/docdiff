@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Render a repo's uncommitted Markdown changes against a base revision as one inline-diff page.
 
-Usage: docdiff.py [--repo PATH] [--base REV] [--head REV] [--out DIR] [--comments FILE] [--serve] [paths...]
+Usage: docdiff.py [--repo PATH] [--base REV] [--head REV] [--out DIR] [--comments FILE] [--new-label TEXT]
+                  [--serve] [paths...]
 
 paths are pathspecs relative to the repo root (default: every *.md and *.html).
 
@@ -16,6 +17,9 @@ spec renders in rendered/<sources id>.html.
 --comments FILE: comments made on the old side, {file: [{quote, author, date, text, replies: [{author,
 text}], fate: "goes", "edited" or null}]} as gdocsync's export writes them; each is marked where its
 quote first reads in the old text, its thread in the mark's tooltip.
+
+The page's header names both sides: a revision with its commit, or the working tree; --new-label TEXT
+names the new side instead, for a working tree that stands for something else.
 """
 import argparse, base64, difflib, hashlib, html, http.server, json, mimetypes, os, pathlib, re
 import shutil, subprocess, sys, tempfile, threading, time, urllib.parse, urllib.request
@@ -44,6 +48,13 @@ def git(repo, *args, check=True):
     if check and r.returncode:
         sys.exit(f'git {" ".join(args)}: {r.stderr.decode().strip()}')
     return r
+
+
+def side(repo, rev):
+    """One side of the diff in words: the revision and its commit, or the working tree."""
+    if not rev:
+        return 'working tree of ' + str(repo).replace(str(pathlib.Path.home()), '~', 1)
+    return f'{rev} ({git(repo, "log", "-1", "--format=%h %s", rev).stdout.decode().strip()})'
 
 
 def read(repo, rev, path):
@@ -355,7 +366,7 @@ STYLE = '''
 body{background:var(--bg);color:var(--fg);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0}
 main{max-width:920px;margin:0 auto;padding:16px 16px 40vh}
 header{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 16px;z-index:1;display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;font-size:14px}
-header a{color:var(--fg);font-weight:600} .n{color:var(--muted)}
+header a{color:var(--fg);font-weight:600} .n{color:var(--muted)} .sides{flex-basis:100%;font-size:13px}
 button:disabled{opacity:.4;cursor:default}
 button{font:inherit;padding:4px 10px;border:1px solid var(--line);background:var(--code);color:var(--fg);border-radius:6px;cursor:pointer}
 .file{margin:48px 0 8px;padding:6px 10px;background:var(--code);border:1px solid var(--line);border-radius:6px;font:600 14px ui-monospace,Menlo,monospace}
@@ -600,7 +611,7 @@ def save_copy(out, name, text):
     copy.write_text(text)
 
 
-def build(repo, base, head, files, build_id, out, keep=(), comments=None):
+def build(repo, base, head, files, build_id, out, keep=(), comments=None, new_label=None):
     sections, nav = [], []
     for k, (old, new) in enumerate(files):
         name = new or old
@@ -643,7 +654,8 @@ def build(repo, base, head, files, build_id, out, keep=(), comments=None):
 <header>{" · ".join(nav)}<span style="flex:1"></span>
 <span class="seg">{seg}</span>
 <span id="pos" class="n"></span><button id="prev" class="step">↑ prev</button><button id="next" class="step">next change ↓</button>
-<button id="acc" class="step">✓ accept</button><button id="rev">revisit</button></header>
+<button id="acc" class="step">✓ accept</button><button id="rev">revisit</button>
+<span class="sides n">Old: {html.escape(side(repo, base))} — New: {html.escape(new_label or side(repo, head))}</span></header>
 <main>{"".join(sections)}</main>
 <div id="rp" hidden><blockquote id="rq"></blockquote><textarea id="rt" placeholder="What should change? ↵ sends, ⇧↵ adds a line"></textarea>
 <button id="rs">Send</button> <button id="rc">Cancel</button></div>
@@ -667,7 +679,7 @@ def rebuild(out):
     build_id = str(time.time_ns())
     notes = pathlib.Path(run['comments']) if run.get('comments') else None
     comments = json.loads(notes.read_text()) if notes and notes.exists() else None
-    page, shown = build(repo, run['base'], run.get('head'), files, build_id, out, named, comments)
+    page, shown = build(repo, run['base'], run.get('head'), files, build_id, out, named, comments, run.get('new_label'))
     (out / 'index.html').write_text(page)
     (out / 'build.json').write_text(json.dumps({'id': build_id}))
     return repo, run['base'], shown
@@ -789,6 +801,7 @@ def main():
     p.add_argument('--head')
     p.add_argument('--out')
     p.add_argument('--comments')
+    p.add_argument('--new-label')
     p.add_argument('--serve', action='store_true')
     p.add_argument('paths', nargs='*')
     a = p.parse_args()
@@ -803,7 +816,8 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     # The server rebuilds from this after an accept.
     (out / '.run.json').write_text(json.dumps({'repo': str(repo), 'base': a.base, 'head': a.head, 'paths': a.paths,
-                                               'comments': a.comments and str(pathlib.Path(a.comments).resolve())}))
+                                               'comments': a.comments and str(pathlib.Path(a.comments).resolve()),
+                                               'new_label': a.new_label}))
     _, _, shown = rebuild(out)
     print(f'{shown} changed doc(s) in {repo} vs {a.base}{f"..{a.head}" if a.head else ""} → {out / "index.html"}',
           flush=True)
