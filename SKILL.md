@@ -25,8 +25,8 @@ is the files at that revision instead of the working tree (a PR, say). A changed
 
 **Accept** (`a`, or the ✓ button; "accept file" on each file's bar) moves the current change into the
 accepted copy, and the page reloads without it; in Accepted, the same key (↺) takes a change back out.
-Clicking a change makes it current and opens a small popup under it: ✓ (or ↺) and ✎ revisit; selecting
-text pops up ✎ alone. **Revisit** (`r`, or the
+Clicking a change makes it current and opens a small popup under it: ✓ (or ↺), ✎ revisit and the buttons
+plugins add, such as GitHub ↗ for a PR ([Plugins](#plugins)); selecting text pops up ✎ alone. **Revisit** (`r`, or the
 button) takes the selected text, or the current change, and a request typed under it; Send (↵; ⇧↵ adds a line) copies a
 ready prompt to the clipboard and queues the request ([Accepts and revisits](#accepts-and-revisits)).
 
@@ -115,9 +115,10 @@ head=$(git -C <clone> rev-parse FETCH_HEAD)
 base=$(git -C <clone> merge-base origin/main "$head")
 ```
 
-then step 1 with `--base $base --head $head --out "$TMPDIR/docdiff-<name>-<N>"`. Base is the merge
-base, as on GitHub, so changes that landed on main since do not show as reverted. Pass hashes, not
-`FETCH_HEAD`: the server re-resolves both on every rebuild.
+then step 1 with `--base $base --head $head --pr <owner>/<repo>#<N> --out "$TMPDIR/docdiff-<name>-<N>"`.
+Base is the merge base, as on GitHub, so changes that landed on main since do not show as reverted. Pass
+hashes, not `FETCH_HEAD`: the server re-resolves both on every rebuild. `--pr` gives each change a button
+to its line on GitHub ([GitHub PR](#github-pr)).
 
 ## Google Doc vs Markdown
 
@@ -153,6 +154,40 @@ success the page reloads with the published changes in the old side and the rest
 push refused because the Google Doc or the Markdown changed since the export publishes nothing: export
 again, rerun docdiff (accepts that still apply carry over), and publish again. The click is the user's
 go: never press it on a doc other people read.
+
+## Plugins
+
+Source-specific features are plugins: the Python modules in `plugins/` next to `docdiff.py`, each loaded
+on every run and used where it applies. A plugin may define:
+
+- `add_args(parser)`: its command-line arguments. Their values go into `<out>/.run.json` with the rest,
+  so the server's rebuilds see them.
+- `actions(run)`, `run` being that `.run.json` as a dict: `None` where the plugin does not apply, or else a
+  function `(old path, new path, blocks)` that returns `{change key: [(label, key, href)]}`, called per
+  file and view. `blocks` is the file's diff as text, per block (paragraph, list item, heading…) a list of
+  `(change key or None, old text, new text)`. Each action is a link in the change's popup that opens
+  `href` in a new tab; `key` does the same on the current change, so it must not be one of docdiff's own
+  (`n p j k a r v`).
+
+That is all the seam holds so far: arguments and per-change links.
+
+### GitHub PR
+
+`plugins/github_pr.py`. With `--pr <PR URL | owner/repo#N | N>` (N alone takes the repo from the clone's
+`origin` remote; needs `--head`), each change's popup gets **GitHub ↗** (`g`): the change in the PR's
+Files changed view at its line, where review comments go:
+`https://github.com/<owner>/<repo>/pull/<N>/files#diff-<sha256 of the path>R<line>`, the anchor GitHub's
+own line links use. The line is the head file's line of the change's first added word, or, when the
+change only removes, `L<line>` in the base file.
+
+To find it, the change's block (up to 40 words on each side of it) is matched word by word against the
+files the PR changes, for a spec everything it changes in the spec's directory: the file holding the
+longest run of the block's words wins, and aligning the two puts the change's word on a line. Tags and
+punctuation do not count, so ReSpec's rewrites (`[=term=]`, `{{IDL}}`, `|var|`) cost only the words they
+change; a `title` attribute counts, as ReSpec shows a note's or an example's title as its caption. A
+Markdown file's words take their lines from pandoc's source positions (`gfm+sourcepos`). A change with no
+run of 4 words anywhere, text ReSpec makes such as the references, links to its file without a line, or to
+the PR's files when a spec has several.
 
 ## Proposing wording with it
 

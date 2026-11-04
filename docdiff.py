@@ -25,8 +25,10 @@ names the new side instead, for a working tree that stands for something else.
 accepted copy as Markdown and runs CMD in a shell, {file} replaced by the file's name and {target} by
 that Markdown's path; CMD is to publish it and bring the base up to date, after which the accepted copy
 starts over from the base. gdocsync's push --target, then its export, is such a command.
+
+Plugins, the modules in plugins/, add their own arguments and buttons (see load_plugins).
 """
-import argparse, base64, difflib, hashlib, html, http.server, json, mimetypes, os, pathlib, re
+import argparse, base64, difflib, hashlib, html, http.server, importlib.util, json, mimetypes, os, pathlib, re
 import shlex, shutil, subprocess, sys, tempfile, threading, time, urllib.parse, urllib.request
 
 # Tags, entities, words and single punctuation marks, each with its trailing space: "nothing," and
@@ -402,8 +404,8 @@ body:not(.show-review) .accf[data-a=accept],body:not(.show-acc) .accf[data-a=una
 .seg button:last-child{border-radius:0 6px 6px 0} .seg button[aria-pressed=true]{background:var(--fg);color:var(--bg)}
 #rp{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:10px 16px;z-index:2;font-size:14px}
 #pop{position:absolute;z-index:3;display:flex;background:var(--bg);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12);overflow:hidden}
-#pop[hidden]{display:none} #pop button{border:0;border-radius:0;background:none;color:var(--muted);padding:2px 9px;font-size:14px;line-height:1.5}
-#pop button:hover{background:var(--code);color:var(--fg)} #pop button+button{border-left:1px solid var(--line)}
+#pop[hidden]{display:none} #pop button,#pop a{border:0;border-radius:0;background:none;color:var(--muted);padding:2px 9px;font-size:14px;line-height:1.5;text-decoration:none}
+#pop button:hover,#pop a:hover{background:var(--code);color:var(--fg)} #pop button+button,#pop button+a{border-left:1px solid var(--line)}
 #rp blockquote{margin:0 0 8px;padding:2px 10px;border-left:3px solid var(--line);color:var(--muted);max-height:6em;overflow:auto;white-space:pre-wrap}
 #rp textarea{display:block;width:100%;box-sizing:border-box;min-height:4.5em;margin-bottom:8px;font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px}
 '''
@@ -467,16 +469,23 @@ document.querySelectorAll('.pub').forEach(b=>b.onclick=async()=>{const f=b.close
 if(!confirm('Publish the '+b.dataset.n+' accepted change(s) of '+f+'?'))return;b.disabled=true;b.textContent='publishing…';
 try{const r=await fetch('publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file:f})});
 const t=await r.text();alert((r.ok?'Published:\\n\\n':'Not published:\\n\\n')+t);}catch(e){alert('Not published: '+e.message);}location.reload();});
-function hidePop(){pop.hidden=true;}
-// Under a clicked change: accept and revisit. Under the end of a text selection: revisit only.
-function showPop(r,withAccept){pa.hidden=!withAccept;pa.textContent=cur==='acc'?'↺':'✓';pa.title=cur==='acc'?'Unaccept (a)':'Accept (a)';pop.hidden=false;
+function hidePop(){pop.hidden=true;popX=null;}
+// Plugins' buttons per change (see load_plugins): [label, key, href], href opened in a new tab.
+const acts=new Map([...document.querySelectorAll('script.acts')].map(j=>[j.closest('section'),JSON.parse(j.textContent)]));
+const actsOf=x=>x&&acts.get(x.sec)?.[x.k]||[];let popX=null;
+// Under a clicked change x: accept, revisit and the plugins' buttons. Under the end of a text selection: revisit only.
+function showPop(r,withAccept,x){pa.hidden=!withAccept;pa.textContent=cur==='acc'?'↺':'✓';pa.title=cur==='acc'?'Unaccept (a)':'Accept (a)';popX=x||null;
+pop.querySelectorAll('.act').forEach(b=>b.remove());
+for(const[label,key,href]of actsOf(x)){const b=document.createElement('a');b.className='act';b.textContent=label;b.title=label+' ('+key+')';
+b.href=href;b.target='_blank';b.rel='noopener';b.onmousedown=e=>e.preventDefault();b.onclick=hidePop;pop.append(b);}
+pop.hidden=false;
 pop.style.left=Math.max(8,Math.min(r.left,innerWidth-pop.offsetWidth-8))+scrollX+'px';pop.style.top=r.bottom+scrollY+4+'px';}
 document.addEventListener('click',e=>{if(e.target.closest('header,#pop,#rp')||!getSelection().isCollapsed)return;
 const t=e.target.closest('.v-'+cur+' .chg');
-if(t){focus(groups.find(x=>x.view===cur&&x.els.includes(t)),false);showPop(t.getBoundingClientRect(),!!verb[cur]);}else focus(null,false);});
+if(t){focus(groups.find(x=>x.view===cur&&x.els.includes(t)),false);showPop(t.getBoundingClientRect(),!!verb[cur],c);}else focus(null,false);});
 // Runs once the click has settled: clicking inside a selection clears it only after the click handler.
 document.addEventListener('mouseup',e=>{if(e.target.closest('header,#pop,#rp'))return;setTimeout(()=>{const s=getSelection();
-if(s.isCollapsed||!s.rangeCount){if(pa.hidden)hidePop();return;}
+if(s.isCollapsed||!s.rangeCount){if(!popX)hidePop();return;}
 if(!s.anchorNode.parentElement?.closest('main .v'))return;
 const rs=s.getRangeAt(0).getClientRects();if(rs.length)showPop(rs[rs.length-1],false);});});
 [pa,pr].forEach(b=>b.onmousedown=e=>e.preventDefault());
@@ -521,7 +530,8 @@ if(e.key==='Escape')hidePop();
 if(e.key==='v')view(views[(views.indexOf(cur)+1)%views.length]);
 if(e.key==='r'){e.preventDefault();openRev(grab());}
 if(cur==='old'||cur==='new')return;
-if(e.key==='n'||e.key==='j')go(1);if(e.key==='p'||e.key==='k')go(-1);if(e.key==='a')accept();});
+if(e.key==='n'||e.key==='j')go(1);if(e.key==='p'||e.key==='k')go(-1);if(e.key==='a')accept();
+const a=actsOf(c).find(a=>a[1]===e.key);if(a)open(a[2],'_blank','noopener');});
 // Every reload keeps the view, the current change and the place in the doc; a rebuild reloads the page,
 // unless a revisit is being typed.
 history.scrollRestoration='manual';
@@ -635,7 +645,37 @@ def commit(repo, rev):
     return git(repo, 'rev-parse', f'{rev}^{{commit}}').stdout.decode().strip()
 
 
-def build(repo, base, head, files, build_id, out, keep=(), comments=None, new_label=None, publish=False):
+def load_plugins():
+    """The modules in plugins/. A plugin may define add_args(parser), to add its arguments, and
+    actions(run), run being the run's arguments as .run.json holds them: None where the plugin does not
+    apply, or else a function (old path, new path, blocks) that returns buttons for the popup of a
+    file's changes, {change key: [(label, key, href)]}; the button opens href in a new tab, and so does
+    the key on the current change. blocks is the file's diff as text, per block [(change key or None,
+    old text, new text)], as block_diff() pairs them."""
+    mods = []
+    for f in sorted((pathlib.Path(__file__).parent / 'plugins').glob('*.py')):
+        spec = importlib.util.spec_from_file_location(f'docdiff_{f.stem}', f)
+        mods.append(importlib.util.module_from_spec(spec))
+        spec.loader.exec_module(mods[-1])
+    return mods
+
+
+PLUGINS = load_plugins()
+
+
+def plugin_actions(actors, old, new, *diffs):
+    """The buttons plugins give a file's changes, from the pieces of each view's block_diff()."""
+    acts = {}
+    for act in actors:
+        got = {}
+        for pieces in diffs:
+            got.update(act(old, new, [[(key, text(o), text(w)) for key, o, w in parts] for _, _, parts in pieces]))
+        for key, a in got.items():
+            acts.setdefault(key, []).extend(a)
+    return acts
+
+
+def build(repo, base, head, files, build_id, out, keep=(), comments=None, new_label=None, publish=False, actors=()):
     sections, nav = [], []
     for k, (old, new) in enumerate(files):
         name = new or old
@@ -646,12 +686,13 @@ def build(repo, base, head, files, build_id, out, keep=(), comments=None, new_la
             sections.append(f'<section id="f{k}" data-file="{html.escape(name)}"><div class="file">{html.escape(name)}'
                             f' <span class=state>· rendering with ReSpec…</span></div>{frames}</section>')
             continue
-        body, n, _ = block_diff(old_html, new_html, f'f{k}')
+        body, n, pieces = block_diff(old_html, new_html, f'f{k}')
         if not n and name not in keep:
             continue
         copy = accepted_html(repo, base, head, out, old, new, old_html, new_html)
-        review, todo, _ = block_diff(copy, new_html, f'r{k}')
-        done, accepted, _ = block_diff(old_html, copy, f'a{k}')
+        review, todo, review_pieces = block_diff(copy, new_html, f'r{k}')
+        done, accepted, done_pieces = block_diff(old_html, copy, f'a{k}')
+        acts = plugin_actions(actors, old, new, review_pieces, done_pieces, pieces)
         state = 'new file' if not old else 'deleted' if not new else f'renamed from {old}' if old != new else ''
         sid = f'f{k}'
         label = html.escape(name)
@@ -666,7 +707,9 @@ def build(repo, base, head, files, build_id, out, keep=(), comments=None, new_la
         state = ' · '.join(filter(None, [state, cs and f'{len(cs)} open comment(s)' + (f', {touched} in text that changes' if touched else '')]))
         cm = ('<script type="application/json" class="cm">' + json.dumps(cs, ensure_ascii=False).replace('</', '<\\/') +
               '</script>') if cs else ''
-        sections.append(f'<section id="{sid}" data-file="{label}">{cm}<div class="file">{label}'
+        am = ('<script type="application/json" class="acts">' + json.dumps(acts, ensure_ascii=False).replace('</', '<\\/') +
+              '</script>') if acts else ''
+        sections.append(f'<section id="{sid}" data-file="{label}">{cm}{am}<div class="file">{label}'
                         f'{f" <span class=state>· {html.escape(state)}</span>" if state else ""}{bar}</div>'
                         f'{view("review", review)}{view("acc", done if accepted else "<p class=n>(nothing accepted yet)</p>")}'
                         f'{view("diff", body)}{view("old", plain(old_html, "new file"))}{view("new", plain(new_html, "deleted"))}'
@@ -704,8 +747,9 @@ def rebuild(out):
     build_id = str(time.time_ns())
     notes = pathlib.Path(run['comments']) if run.get('comments') else None
     comments = json.loads(notes.read_text()) if notes and notes.exists() else None
+    actors = [f for f in (m.actions(run) for m in PLUGINS if hasattr(m, 'actions')) if f]
     page, shown = build(repo, run['base'], run.get('head'), files, build_id, out, named, comments, run.get('new_label'),
-                        bool(run.get('publish')))
+                        bool(run.get('publish')), actors)
     (out / 'index.html').write_text(page)
     (out / 'build.json').write_text(json.dumps({'id': build_id}))
     return repo, run['base'], shown
@@ -868,6 +912,9 @@ def main():
     p.add_argument('--publish')
     p.add_argument('--serve', action='store_true')
     p.add_argument('paths', nargs='*')
+    for m in PLUGINS:
+        if hasattr(m, 'add_args'):
+            m.add_args(p)
     a = p.parse_args()
     if not shutil.which('pandoc'):
         sys.exit('pandoc not found: brew install pandoc')
@@ -878,10 +925,9 @@ def main():
             sys.exit(f'unknown revision: {rev}')
     out = pathlib.Path(a.out) if a.out else pathlib.Path(tempfile.gettempdir()) / f'docdiff-{repo.name}'
     out.mkdir(parents=True, exist_ok=True)
-    # The server rebuilds from this after an accept.
-    (out / '.run.json').write_text(json.dumps({'repo': str(repo), 'base': a.base, 'head': a.head, 'paths': a.paths,
-                                               'comments': a.comments and str(pathlib.Path(a.comments).resolve()),
-                                               'new_label': a.new_label, 'publish': a.publish}))
+    # The server rebuilds from this after an accept; plugins read their arguments from it.
+    (out / '.run.json').write_text(json.dumps({**vars(a), 'repo': str(repo),
+                                               'comments': a.comments and str(pathlib.Path(a.comments).resolve())}))
     _, _, shown = rebuild(out)
     print(f'{shown} changed doc(s) in {repo} vs {a.base}{f"..{a.head}" if a.head else ""} → {out / "index.html"}',
           flush=True)
