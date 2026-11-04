@@ -129,6 +129,21 @@ def words(tokens):
     return [t.strip() for t in tokens if not is_tag(t) and t.strip()]
 
 
+def nesting(page):
+    """What a piece of a block does to its nesting: its block tags, less each open tag its close tag
+    follows and each close tag an open tag of the same name follows (an item split in two)."""
+    out = []
+    for m in TAG.finditer(page):
+        if not BLOCK.match(m.group(0)):
+            continue
+        t = (m.group(1), m.group(2).lower())
+        if out and out[-1][1] == t[1] and out[-1][0] != t[0]:
+            out.pop()
+        else:
+            out.append(t)
+    return out
+
+
 def diff(old, new, gid):
     a, b = TOKEN.findall(old), TOKEN.findall(new)
     key = lambda t: t if is_tag(t) else t.strip()
@@ -182,10 +197,27 @@ def diff(old, new, gid):
             wrap(a[i1:i2], 'del', False)
         if j2 > j1:
             wrap(b[j1:j2], 'ins', True)
-    keys = {g: hashlib.sha1(' '.join(s).encode()).hexdigest()[:12] for g, s in sig.items()}
-    page = re.sub(rf'data-g="{gid}-(\d+)"', lambda m: f'{m.group(0)} data-k="{keys[int(m.group(1))]}"',
+    # A change that opens block tags a later one closes (list items folded into a paragraph, say) is one
+    # change with it: accepted alone, either would leave the accepted copy's tags unbalanced.
+    olds, news, head, merged = {}, {}, None, {}
+    for g, x, y in parts:
+        if g:
+            olds[g], news[g] = olds.get(g, '') + x, news.get(g, '') + y
+    acc = ['', '']
+    for g in sorted(sig):
+        head = head or g
+        merged[g] = head
+        acc = [acc[0] + olds[g], acc[1] + news[g]]
+        if nesting(acc[0]) == nesting(acc[1]):
+            head, acc = None, ['', '']
+    sigs = {}
+    for g in sorted(sig):
+        sigs.setdefault(merged[g], []).extend(sig[g])
+    keys = {g: hashlib.sha1(' '.join(sigs[merged[g]]).encode()).hexdigest()[:12] for g in sig}
+    page = re.sub(rf'data-g="{gid}-(\d+)"',
+                  lambda m: f'data-g="{gid}-{merged[int(m.group(1))]}" data-k="{keys[int(m.group(1))]}"',
                   ''.join(out))
-    return page, len(shown), [(keys.get(g), x, y) for g, x, y in parts]
+    return page, len({merged[g] for g in shown}), [(keys.get(g), x, y) for g, x, y in parts]
 
 
 def split_blocks(page):
