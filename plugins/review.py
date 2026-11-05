@@ -53,6 +53,7 @@ STYLE = '''
 .rvpr{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:2px 0 10px} .rvpr .rvx{margin:0} .rvpr .rvm{margin-right:2px}
 .rvgone{display:none} .rvstub{opacity:.65} .rvdup{opacity:.6} .rvrep>summary{font-size:12px;color:var(--muted);cursor:pointer} .rvrep[open]>blockquote{opacity:.7}
 .rvused{color:var(--insb)}
+header .rvn button,header .rvn button:hover{border:0;background:none;padding:0;height:auto;line-height:inherit;font:inherit;color:var(--link);cursor:pointer}
 #rvp blockquote,#rvc blockquote{margin:4px 0;padding:0 8px;border-left:3px solid var(--line);color:var(--muted);max-height:4.8em;overflow:hidden}
 .rva{border-left:3px solid var(--insb);padding-left:8px;margin-top:6px} .rva>:first-child{margin-top:0} .rva>:last-child{margin-bottom:0}
 #rvp .rva blockquote,#rvc .rva blockquote{max-height:none;margin:6px 0 2px} .rvi-new{box-shadow:inset 3px 0 var(--insb)} .rvi-new>.rvm{font-weight:600}
@@ -96,15 +97,16 @@ while(n=w.nextNode()){first.set(n,s.length);for(let i=0;i<n.data.length;i++){con
 const hs=[...v.querySelectorAll('h1,h2,h3,h4')].map(h=>{const t=document.createTreeWalker(h,NodeFilter.SHOW_TEXT),k=h.cloneNode(true);let m;
 while((m=t.nextNode())&&!first.has(m));k.querySelectorAll('del').forEach(d=>d.remove());return{at:m?first.get(m):-1,name:k.textContent.trim()};}).filter(h=>h.at>=0);
 return{s,ns,os,hs};}
-// Where q ends in that text, or the word it ends in; among repeats, one in its section sec first, then one
-// of whole words, then one in an element that matches chg, then the one the text before it, b, best leads up to.
+// Where q ends in that text, or the word it ends in, and where it starts and ends in it. Among repeats:
+// one in its section sec first, then one of whole words, then one partly in an element that matches chg,
+// then the one the text before it, b, best leads up to.
 function findEnd(x,q,b,sec,chg){q=norm(q);b=norm(b);if(!q)return null;let best=-1,most=-1;const w=ch=>/\\w/.test(ch||'');
 const secs=x.hs.flatMap((h,i)=>h.name===sec?[[h.at,(x.hs[i+1]||{at:Infinity}).at]]:[]);
 for(let at=x.s.indexOf(q);at>=0;at=x.s.indexOf(q,at+1)){const p=x.s.slice(Math.max(0,at-b.length-1),at).trimEnd(),e=at+q.length;let k=0;
 while(k<b.length&&k<p.length&&p[p.length-1-k]===b[b.length-1-k])k++;
-k+=(secs.some(([l,h])=>at>=l&&at<h)?2e6:0)+(w(q[0])&&w(x.s[at-1])||w(q[q.length-1])&&w(x.s[e])?0:1e6)+(chg&&x.ns[at].parentElement.closest(chg)?5e5:0);
+k+=(secs.some(([l,h])=>at>=l&&at<h)?2e6:0)+(w(q[0])&&w(x.s[at-1])||w(q[q.length-1])&&w(x.s[e])?0:1e6)+(chg&&x.ns.slice(at,e).some(n=>n.parentElement.closest(chg))?5e5:0);
 if(k>most){most=k;best=at;}}
-if(best<0)return null;let e=best+q.length;while(w(x.s[e-1])&&w(x.s[e])&&x.ns[e]===x.ns[e-1])e++;return[x.ns[e-1],x.os[e-1]+1];}
+if(best<0)return null;let e=best+q.length;while(w(x.s[e-1])&&w(x.s[e])&&x.ns[e]===x.ns[e-1])e++;return[x.ns[e-1],x.os[e-1]+1,best,e];}
 // On a change in view v: after its last inline part, or at the end of its block's new text (in its
 // folded summary when it only removes).
 function onChange(v,k){const els=v.querySelectorAll('.chg[data-k="'+k+'"]'),e=els[els.length-1];if(!e)return null;
@@ -138,13 +140,18 @@ function badge(it){const r=it.kind==='r',st=!r?'':it.done?' rvb-done':it.wait?' 
 const b=mk('span',{className:'rvb rvb-'+it.kind+st,title:!r?it.body:it.members.map(m=>m.prompt).join('\\n')+
 (it.done?'\\n\\n(resolved: click to reopen)':it.wait?'\\n\\n(pending: no answer yet)':it.unread?'\\n\\n(new answer: click to read)':'')});
 b.onmousedown=e=>e.preventDefault();b.onclick=e=>{e.preventDefault();e.stopPropagation();it.kind==='c'?openCm(it):showCard(it,b);};return b;}
-// Marks every comment and revisit; it.at holds its mark per view.
+// Marks every comment and revisit; it.at holds its mark per view, and it.on the keys of the changes it is
+// on there: its change's, or those its quote's text is part of.
 function paint(){document.querySelectorAll('.rvb').forEach(b=>{const p=b.parentNode;b.remove();p.normalize();});
 const texts=new Map(),text=(v,side)=>{let m=texts.get(v);if(!m)texts.set(v,m={});return m[side]||(m[side]=textOf(v,side));},put=[];
 items=[...data.comments.map(x=>({...x,kind:'c'})),...threads(data.revisits)];
-for(const it of items){it.at={};for(const s of document.querySelectorAll('section'))if(s.dataset.file===it.file)for(const v of s.querySelectorAll('.v')){
-const b=badge(it),on=it.key&&onChange(v,it.key),end=!on&&findEnd(text(v,it.side),it.quote,it.before,it.section,it.chg);
-if(on)on(b);else if(end)put.push([...end,b]);else continue;it.at[v.dataset.view]=b;}}
+for(const it of items){it.at={};it.on={};for(const s of document.querySelectorAll('section'))if(s.dataset.file===it.file)for(const v of s.querySelectorAll('.v')){
+// Made on a change, it is looked for in change markup first where its change has another key.
+const w=v.dataset.view,b=badge(it),on=it.key&&onChange(v,it.key),x=!on&&text(v,it.side),
+end=x&&findEnd(x,it.quote,it.before,it.section,it.chg||(it.key?it.side==='L'?'del,.old':'ins,.now':''));
+if(on){on(b);it.on[w]=new Set([it.key]);}
+else if(end){put.push([end[0],end[1],b]);it.on[w]=new Set(x.ns.slice(end[2],end[3]).map(n=>n.parentElement.closest('.chg')?.dataset.k).filter(Boolean));}
+else continue;it.at[w]=b;}}
 // From the end of the doc back, so splitting a text node leaves the places before it where they were;
 // in a removed block's folded text, on its summary.
 put.sort((x,y)=>x[0]===y[0]?y[1]-x[1]:x[0].compareDocumentPosition(y[0])&Node.DOCUMENT_POSITION_FOLLOWING?1:-1);
@@ -152,9 +159,17 @@ for(const[t,o,b]of put){const f=t.parentElement.closest('.was');if(f)f.querySele
 const ts=items.filter(i=>i.kind==='r'&&!i.done),np=ts.filter(t=>t.wait).length,nn=ts.filter(t=>t.unread).length;
 rvt.textContent='💬 '+data.comments.length+(ts.length?' · ✎ '+ts.length:'')+(np?' · '+np+' pending':'')+(nn?' · '+nn+' new':'');
 rvt.classList.toggle('rvt-new',nn>0);if(!lp.hidden)list();
-const open=!card.hidden&&items.find(i=>i.kind==='r'&&i.time===carded);if(open){const y=card.scrollTop;fillCard(open);card.scrollTop=y;}}
+const open=!card.hidden&&items.find(i=>i.kind==='r'&&i.time===carded);if(open){const y=card.scrollTop;fillCard(open);card.scrollTop=y;}tally();}
+// Accepted (reviewed) changes that carry comments or open questions, counted on each file's line in the
+// header, so they are not lost once they leave To review; a count steps through them in the Accepted view.
+function tally(){document.querySelectorAll('.rvn').forEach(e=>e.remove());
+for(const s of document.querySelectorAll('section')){const n=document.querySelector('header a[href="#'+s.id+'"]')?.nextElementSibling;if(!n)continue;
+const on=f=>new Set(items.filter(it=>f(it)&&it.at.acc?.closest('section')===s).flatMap(it=>[...it.on.acc]));
+for(const[ks,w]of[[on(it=>it.kind==='c'),k=>k>1?' with comments':' with a comment'],[on(it=>it.kind==='r'&&!it.done),k=>' open question'+(k>1?'s':'')]]){if(!ks.size)continue;
+const b=mk('button',{textContent:ks.size+w(ks.size),title:'Step through them in the '+W.Accepted+' view'}),x=mk('span',{className:'rvn'});
+b.onclick=()=>{if(cur!=='acc')view('acc');const l=groups.filter(g=>g.view==='acc'&&g.sec===s&&ks.has(g.k));if(l.length)focus(l[(l.indexOf(c)+1)%l.length]);};x.append(' · ',b);n.append(x);}}}
 function take(d){data=d;seen=JSON.stringify(d);paint();}
-async function load(){try{const r=await fetch('review');if(!r.ok)throw new Error(r.status);const d=await r.json();rvt.disabled=false;rvt.title='Review: comments and revisits';
+async function load(){try{const r=await fetch('review');if(!r.ok)throw new Error(r.status);const d=await r.json();rvt.disabled=false;rvt.title='Review: comments and '+W.revisits;
 if(JSON.stringify(d)!==seen)take(d);}catch(e){rvt.disabled=true;rvt.title='review: not served (restart the docdiff server)';}}
 function openCm(it){if(!it){pos.textContent='select text, or step to a change, then press c';return;}
 hidePop();card.hidden=true;draft=it;cq.textContent=it.quote;ct.value=it.body||'';cd.hidden=!it.id;cp.hidden=false;ct.focus();}

@@ -383,6 +383,25 @@ def apply(pieces, side, flip):
     return wrap_lists(items)
 
 
+# The actions' words. On your own docs (the working tree, or a Google Doc's export) an accept takes a change
+# into the accepted copy and a revisit asks for an edit; on commits (--head: a PR, say) there is nothing to
+# edit, so an accept only records that the change was reviewed, and a revisit is a question about it.
+WORDS = {
+    False: {'accept': '✓ accept', 'unaccept': '↺ unaccept', 'accept_key': 'Accept (a)', 'unaccept_key': 'Unaccept (a)',
+            'accept_title': 'Accept the current change (a)', 'unaccept_title': 'Unaccept the current change (a)',
+            'accepted': 'accepted', 'Accepted': 'Accepted', 'accept_file': 'accept file', 'unaccept_file': 'unaccept file',
+            'revisit': '✎ revisit', 'revisit_key': 'Revisit (r)', 'revisit_title': 'Revisit the selection or the current change (r)',
+            'select': 'select text to revisit', 'question': 'What should change?', 'prompt': 'Revisit ', 'sent': 'revisit',
+            'revisits': 'revisits'},
+    True: {'accept': '✓ looks good', 'unaccept': '↺ not reviewed', 'accept_key': 'Looks good (a)', 'unaccept_key': 'Not reviewed (a)',
+           'accept_title': 'Looks good: the current change is reviewed (a)',
+           'unaccept_title': 'Not reviewed: the current change goes back to review (a)',
+           'accepted': 'reviewed', 'Accepted': 'Reviewed', 'accept_file': 'file looks good', 'unaccept_file': 'file not reviewed',
+           'revisit': '✎ ask', 'revisit_key': 'Ask (r)', 'revisit_title': 'Ask Claude about the selection or the current change (r)',
+           'select': 'select text to ask about', 'question': 'What do you want to know?', 'prompt': 'Ask about ', 'sent': 'ask',
+           'revisits': 'questions'},
+}
+
 STYLE = '''
 :root{--bg:#fff;--fg:#1f2328;--muted:#59636e;--line:#d1d9e0;--ins:#dafbe1;--insb:#1a7f37;--del:#ffebe9;--delb:#cf222e;--rw:#bf8700;--code:#f6f8fa;--link:#0969da;--btn:#f6f8fa;--btnh:#eff2f5}
 @media (prefers-color-scheme: dark){:root{--bg:#0d1117;--fg:#e6edf3;--muted:#9198a1;--line:#3d444d;--ins:#033a16;--insb:#3fb950;--del:#4b1113;--delb:#f85149;--rw:#d29922;--code:#161b22;--link:#4493f8;--btn:#212830;--btnh:#262c36}}
@@ -432,7 +451,7 @@ header button,.panel button{height:28px;padding:0 12px;line-height:26px;font-siz
 '''
 
 SCRIPT = '''
-const $=id=>document.getElementById(id),body=document.body,repo=body.dataset.repo;
+const $=id=>document.getElementById(id),body=document.body,repo=body.dataset.repo,W=JSON.parse($('words').textContent);
 const pos=$('pos'),next=$('next'),prev=$('prev'),acc=$('acc'),rev=$('rev'),rp=$('rp'),rq=$('rq'),rt=$('rt'),pop=$('pop'),pa=$('pa'),pr=$('pr');
 // Changes per view: To review (accepted copy to now), Accepted (base to accepted copy), Diff vs base.
 const groups=[],byG=new Map();
@@ -453,10 +472,10 @@ if(m)return (d>0?l.find(x=>gi(x)>gi(m)):l.findLast(x=>gi(x)<gi(m)))||null;
 const y=mark!==null&&mark-scrollY>top&&mark-scrollY<innerHeight?mark-scrollY:top,r=x=>x.els.find(e=>e.offsetParent)?.getBoundingClientRect();
 return (d>0?l.find(x=>r(x)?.bottom>y):l.findLast(x=>r(x)?.top<y))||null;}
 function status(){const l=L(),i=l.indexOf(c);prev.disabled=!step(-1);next.disabled=!step(1);
-acc.disabled=!c||!verb[cur];acc.textContent=cur==='acc'?'↺ unaccept':'✓ accept';acc.classList.toggle('primary',cur!=='acc');
-acc.title=(cur==='acc'?'Unaccept':'Accept')+' the current change (a)';
-pos.textContent=cur==='old'||cur==='new'?'select text to revisit':i>=0?'change '+(i+1)+' of '+l.length+' · '+c.file:
-(l.length||'nothing')+({review:' to review',acc:' accepted'}[cur]||' changes');}
+acc.disabled=!c||!verb[cur];acc.textContent=cur==='acc'?W.unaccept:W.accept;acc.classList.toggle('primary',cur!=='acc');
+acc.title=cur==='acc'?W.unaccept_title:W.accept_title;
+pos.textContent=cur==='old'||cur==='new'?W.select:i>=0?'change '+(i+1)+' of '+l.length+' · '+c.file:
+(l.length||'nothing')+({review:' to review',acc:' '+W.accepted}[cur]||' changes');}
 function focus(x,scroll=true){hidePop();if(c)c.els.forEach(e=>e.classList.remove('cur'));c=x;if(x){anchor=x;mark=null;}
 if(c){c.els.forEach(e=>e.classList.add('cur'));if(scroll)c.els.find(e=>e.offsetParent)?.scrollIntoView({block:'center',behavior:'smooth'});}status();}
 function go(d){const x=step(d);if(x)focus(x);}
@@ -482,7 +501,7 @@ function hidePop(){pop.hidden=true;popX=null;}
 const acts=new Map([...document.querySelectorAll('script.acts')].map(j=>[j.closest('section'),JSON.parse(j.textContent)]));
 const actsOf=x=>x&&acts.get(x.sec)?.[x.k]||[];let popX=null;
 // Under a clicked change x: accept, revisit and the plugins' buttons. Under the end of a text selection: revisit only.
-function showPop(r,withAccept,x){pa.hidden=!withAccept;pa.textContent=cur==='acc'?'↺':'✓';pa.title=cur==='acc'?'Unaccept (a)':'Accept (a)';popX=x||null;
+function showPop(r,withAccept,x){pa.hidden=!withAccept;pa.textContent=cur==='acc'?'↺':'✓';pa.title=cur==='acc'?W.unaccept_key:W.accept_key;popX=x||null;
 pop.querySelectorAll('.act').forEach(b=>b.remove());
 for(const[label,key,href]of actsOf(x)){const b=document.createElement('a');b.className='act';b.textContent=label;b.title=label+' ('+key+')';
 b.href=href;b.target='_blank';b.rel='noopener';b.onmousedown=e=>e.preventDefault();b.onclick=hidePop;pop.append(b);}
@@ -528,11 +547,11 @@ function closeRev(){rp.hidden=true;rt.value='';req=null;}
 async function copy(t){try{await navigator.clipboard.writeText(t);return true;}
 catch(e){const a=document.createElement('textarea');a.value=t;body.append(a);a.select();const done=document.execCommand('copy');a.remove();return done;}}
 async function send(){const ask=rt.value.trim();if(!ask||!req)return;
-const text='Revisit '+repo+'/'+req.file+(req.section?', section "'+req.section+'"':'')+(req.view==='old'?' (old version)':'')+':\\n> '+req.quote.replace(/\\n/g,'\\n> ')+'\\n\\n'+ask;
+const text=W.prompt+repo+'/'+req.file+(req.section?', section "'+req.section+'"':'')+(req.view==='old'?' (old version)':'')+':\\n> '+req.quote.replace(/\\n/g,'\\n> ')+'\\n\\n'+ask;
 let queued=true;try{await post('revisit',{...req,prompt:ask,text});}catch(e){queued=false;}
 // A watcher touches the file every second while it waits; with none, the clipboard is the way in.
 const watched=queued&&await watching();
-closeRev();pos.textContent='revisit: '+(watched?'sent, Claude is watching':await copy(text)?
+closeRev();pos.textContent=W.sent+': '+(watched?'sent, Claude is watching':await copy(text)?
 'copied; nobody is watching, paste it in the chat':'not sent: nobody is watching and copying failed');}
 async function watching(){try{const r=await fetch('watcher',{method:'HEAD'});
 return r.ok&&Date.now()-new Date(r.headers.get('Last-Modified'))<5000;}catch(e){return false;}}
@@ -667,7 +686,8 @@ def plugin_actions(actors, old, new, *diffs):
 
 
 def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=None, publish=False, actors=()):
-    sections, nav = [], []
+    sections, nav, words = [], [], WORDS[bool(head)]
+    none_yet = f'<p class=n>(nothing {words["accepted"]} yet)</p>'
     for k, (old, new) in enumerate(files):
         name = new or old
         old_html, new_html, wait = htmls(repo, base, head, old, new, out)
@@ -685,10 +705,10 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
         state = 'new file' if not old else 'deleted' if not new else f'renamed from {old}' if old != new else ''
         sid = f'f{k}'
         label = html.escape(name)
-        nav.append(f'<a href="#{sid}">{label}</a> <span class="n">{todo} to review · {accepted} accepted</span>')
+        nav.append(f'<a href="#{sid}">{label}</a> <span class="n">{todo} to review · {accepted} {words["accepted"]}</span>')
         plain = lambda h, missing: re.sub(r'\sid="[^"]*"', '', h) or f'<p class="n">({missing})</p>'
-        bar = (('<button class="accf" data-a="accept">accept file</button>' if todo else '') +
-               ('<button class="accf" data-a="unaccept">unaccept file</button>' if accepted else '') +
+        bar = ((f'<button class="accf" data-a="accept">{words["accept_file"]}</button>' if todo else '') +
+               (f'<button class="accf" data-a="unaccept">{words["unaccept_file"]}</button>' if accepted else '') +
                (f'<button class="pub" data-n="{accepted}">publish accepted</button>' if publish and accepted else ''))
         view = lambda v, h: f'<div class="v v-{v}" data-view="{v}">{h}</div>'
         # What plugins add to the file: words for its bar, data for the page.
@@ -698,23 +718,24 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
                                                 json.dumps(acts, ensure_ascii=False).replace('</', '<\\/') + '</script>') if acts else '')
         sections.append(f'<section id="{sid}" data-file="{label}">{data}<div class="file">{label}'
                         f'{f" <span class=state>· {html.escape(state)}</span>" if state else ""}{bar}</div>'
-                        f'{view("review", review)}{view("acc", done if accepted else "<p class=n>(nothing accepted yet)</p>")}'
+                        f'{view("review", review)}{view("acc", done if accepted else none_yet)}'
                         f'{view("diff", body)}{view("old", plain(old_html, "new file"))}{view("new", plain(new_html, "deleted"))}'
                         f'</section>')
     title = f'docdiff · {repo.name} vs {base}' + (f'..{head}' if head else '')
-    buttons = [('review', 'To review'), ('acc', 'Accepted'), ('diff', f'Diff vs {base}'), ('old', 'Old'), ('new', 'New')]
+    buttons = [('review', 'To review'), ('acc', words['Accepted']), ('diff', f'Diff vs {base}'), ('old', 'Old'), ('new', 'New')]
     seg = ''.join(f'<button data-v="{v}" aria-pressed="{str(v == "review").lower()}">{label}</button>' for v, label in buttons)
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{html.escape(title)}</title><style>{STYLE}{"".join(getattr(m, 'STYLE', '') for m in PLUGINS)}</style></head><body class="show-review" data-view="review" data-repo="{html.escape(str(repo))}" data-build="{build_id}">
 <header>{" · ".join(nav)}<span style="flex:1"></span>
 <span class="seg" data-key="v" title="v cycles the views">{seg}</span>
 <div class="bar"><span id="pos" class="n"></span><span class="tools"><span class="pair step"><button id="prev" class="step" data-key="p" title="Previous change (p or k)">↑ prev</button><button id="next" class="step" data-key="n" title="Next change (n or j)">next change ↓</button></span>
-<button id="acc" class="step primary" data-key="a">✓ accept</button><button id="rev" data-key="r" title="Revisit the selection or the current change (r)">✎ revisit</button></span></div>
+<button id="acc" class="step primary" data-key="a">{words['accept']}</button><button id="rev" data-key="r" title="{words['revisit_title']}">{words['revisit']}</button></span></div>
 <span class="sides n">Old: {html.escape(side(repo, base))} — New: {html.escape(new_label or side(repo, head))}</span></header>
 <main>{"".join(sections)}</main>
-<div id="rp" class="panel" hidden><blockquote id="rq"></blockquote><textarea id="rt" placeholder="What should change?"></textarea>
+<div id="rp" class="panel" hidden><blockquote id="rq"></blockquote><textarea id="rt" placeholder="{words['question']}"></textarea>
 <span class="hint n">⇧↵ adds a line</span><button id="rc" data-key="esc">Cancel</button><button id="rs" class="primary" data-key="↵">Send</button></div>
-<div id="pop" hidden><button id="pa">✓</button><button id="pr" title="Revisit (r)">✎</button></div>
+<div id="pop" hidden><button id="pa">✓</button><button id="pr" title="{words['revisit_key']}">✎</button></div>
+<script type="application/json" id="words">{json.dumps(words, ensure_ascii=False)}</script>
 <script>{SCRIPT}{"".join(getattr(m, 'SCRIPT', '') for m in PLUGINS)}</script></body></html>''', len(sections)
 
 

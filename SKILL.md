@@ -32,6 +32,14 @@ plugins add, such as 💬 comment ([Review comments](#review-comments)) and GitH
 button) takes the selected text, or the current change, and a request typed under it; Send (↵; ⇧↵ adds a line) copies a
 ready prompt to the clipboard and queues the request ([Accepts and revisits](#accepts-and-revisits)).
 
+**Reviewing commits** (`--head`: a PR, say), where there is nothing to edit or publish, the same actions
+read as a review: accept is **✓ looks good** (`a`) and ↺ **not reviewed**, the Accepted view is
+**Reviewed** ("22 to review · 28 reviewed"), and revisit is **✎ ask** (`r`), a question to Claude about
+the change; 💬 comment (`c`) is the remark for the PR's author. Reviewed and commented are independent: a
+reviewed change keeps its 💬 and ✎ marks in Reviewed, and the header counts the reviewed changes that
+carry comments or open questions ("· 3 with comments · 1 open question"), each count stepping through
+them there.
+
 ## Arguments
 
 Read them from the invocation, in any order:
@@ -78,8 +86,9 @@ The server writes both into the output dir:
   change's, for a revisit of a change) and `text` (the prompt as copied to the clipboard); a revision of a
   drafted comment ([Review comments](#review-comments)) also has `thread` (its thread's first revisit's
   time) and `revises` (the draft's id), and quotes the draft. When the user pastes one or says they sent
-  revisits, read the lines since the last one handled, apply each to the file, and rerun docdiff. A
-  revision asks to rework the draft it quotes: answer with the new draft as a blockquote.
+  revisits, read the lines since the last one handled, apply each to the file, and rerun docdiff; with
+  `--head` (commits, a PR) a revisit is a question (its prompt starts "Ask about"): answer it, editing
+  nothing. A revision asks to rework the draft it quotes: answer with the new draft as a blockquote.
   Open each reply with the request as sent, since the chat does not show it: the section and the quote
   as a blockquote, then the prompt, e.g. `> **Terms** · "visits a monetized document."` and
   `> monetized document or monetized page?`.
