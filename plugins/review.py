@@ -238,17 +238,25 @@ r.append(mk('span',{className:'rvm rvused',textContent:'✓ used'}),act('💬 Op
 r.append(...(p.revising?[mk('span',{className:'rvm',textContent:'revising…'})]:[]),act('💬 Use','A new comment of this draft, open to edit',()=>use(it,[p],p.text)),
 act('✎ Revise','Ask Claude to rework this draft',()=>revise(it,p)),act('Dismiss','Fold it away',()=>setProposal(p,'dismissed')));q.after(r);}
 const state=it=>it.done?'resolved':it.wait?'pending':it.unread?'new answer':it.handled?'drafts handled':'answered';
-// A thread's action, at the top of its card and of its panel entry, so it stays in reach of a long thread:
-// Resolve (urged once every draft is used or dismissed) or Reopen.
+// A thread's actions, at the top of its card and of its panel entry, so they stay in reach of a long
+// thread: Ask more (r while its card is open), and Resolve (urged once every draft is used or dismissed)
+// or Reopen.
 const actions=it=>{const b=act(it.done?'↺ Reopen':'✓ Resolve',it.done?'Back to the open revisits':'Done with it: its mark folds to a dot',()=>{card.hidden=true;setThread(it,{resolve:!it.done});});
-if(it.handled&&!it.done)b.classList.add('primary');return[b];};
+if(it.handled&&!it.done)b.classList.add('primary');
+return[act('✎ '+W.sent[0].toUpperCase()+W.sent.slice(1)+' more','Go on in this thread (r): it gets the new '+(W.sent==='ask'?'question':'request')+', and reopens if resolved',()=>more(it)),b];};
 async function setThread(it,req){try{take(await post('review',{revisits:it.members.map(m=>m.time),...req}));}catch(e){pos.textContent='not saved: '+e.message+' (is the docdiff server running?)';}}
 const setProposal=(p,state)=>post('review',{proposals:[p.id],state}).then(take).catch(e=>{pos.textContent='not saved: '+e.message+' (is the docdiff server running?)';});
 // Use: the drafts become a comment on the thread's change or quote, opened to edit.
 async function use(it,ps,body){try{const st=await post('review',{file:it.file,view:it.view,key:it.key,quote:it.quote,side:it.side,before:it.before,after:it.after,section:it.section,body,uses:ps.map(p=>p.id)});
 take(st);card.hidden=true;openCm({...st.comments[st.comments.length-1],kind:'c'});}catch(e){pos.textContent='comment not made: '+e.message+' (is the docdiff server running?)';}}
-// Revise: a revisit of the draft, in the thread; its answer's draft replaces it.
-function revise(it,p){card.hidden=true;openRev({quote:p.text,el:it.at[cur]||Object.values(it.at)[0]||[...document.querySelectorAll('section')].find(s=>s.dataset.file===it.file),key:it.key,fields:{thread:it.time,revises:p.id}});}
+// Revise: a revisit of the draft, in the thread; its answer's draft replaces it. Ask more: a revisit of the
+// thread's own text that adds to the thread. Both name the thread (thread: its first revisit's time), so
+// they join it whatever text the request quotes, and the panel says which thread they go on from.
+const elOf=it=>it.at[cur]||Object.values(it.at)[0]||[...document.querySelectorAll('section')].find(s=>s.dataset.file===it.file);
+const first=it=>short((it.members.find(m=>!m.revises)||it.members[0]).prompt);
+function revise(it,p){card.hidden=true;openRev({quote:p.text,el:elOf(it),key:it.key,fields:{thread:it.time,revises:p.id,section:it.section},
+context:'revises a draft in “'+first(it)+'”'});}
+function more(it){card.hidden=true;openRev({quote:it.sent,el:elOf(it),key:it.key,fields:{thread:it.time,section:it.section},context:'goes on from “'+first(it)+'”'});}
 // A thread's card, under its mark or, with more room there, over it: its header (state and actions) stays
 // at the top while the thread scrolls under it. It follows the thread's changes while open; opening it
 // reads its answers.
@@ -323,6 +331,9 @@ pc.onmousedown=e=>e.preventDefault();pc.onclick=()=>{const a=anchorOf();hidePop(
 // The doc's own click and selection handling leaves the panel and the card alone.
 for(const e of [lp,card])for(const t of ['click','mouseup'])e.addEventListener(t,ev=>ev.stopPropagation());
 document.addEventListener('click',e=>{if(!e.target.closest('#rvc'))card.hidden=true;});
+// With a thread's card open, r asks more in that thread, before the page's own r sees it.
+addEventListener('keydown',e=>{if(e.key!=='r'||card.hidden||!carded||e.target.closest('input,textarea')||e.metaKey||e.ctrlKey||e.altKey)return;
+const it=items.find(i=>i.kind==='r'&&i.time===carded);if(!it)return;e.preventDefault();e.stopImmediatePropagation();more(it);},true);
 document.addEventListener('keydown',e=>{if(e.target.closest('input,textarea')||e.metaKey||e.ctrlKey||e.altKey)return;
 if(e.key==='Escape')card.hidden=true;if(e.key==='c'){e.preventDefault();openCm(anchorOf());}});
 try{const st=JSON.parse(sessionStorage.getItem('docdiff-review'))||{};filter=st.filter||filter;folded=st.folded!==false;if(st.on)toggle(true);}catch(e){}

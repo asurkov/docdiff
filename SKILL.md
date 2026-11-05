@@ -84,12 +84,16 @@ The server writes both into the output dir:
   (`accepted.json`, the older store of accepted change keys, seeds the copy once with the changes that
   still match.)
 - `revisit.jsonl` — one request per line: `time`, `file`, `section`, `quote`, `view`, `prompt`, `key` (the
-  change's, for a revisit of a change) and `text` (the prompt as copied to the clipboard); a revision of a
-  drafted comment ([Review comments](#review-comments)) also has `thread` (its thread's first revisit's
-  time) and `revises` (the draft's id), and quotes the draft. When the user pastes one or says they sent
+  change's, for a revisit of a change) and `text` (the prompt as copied to the clipboard). One asked from a
+  thread ([Review comments](#review-comments)) also has `thread`, its thread's first revisit's time: a
+  follow-up (Ask more) quotes the thread's text, a revision of a drafted comment also has `revises` (the
+  draft's id) and quotes the draft. Older lines have neither. When the user pastes one or says they sent
   revisits, read the lines since the last one handled, apply each to the file, and rerun docdiff; with
   `--head` (commits, a PR) a revisit is a question (its prompt starts "Ask about"): answer it, editing
-  nothing. A revision asks to rework the draft it quotes: answer with the new draft as a blockquote.
+  nothing. Before answering one with `thread`, read the thread so far: the revisit.jsonl lines whose
+  `time` or `thread` is that time (or whose quote is its quote), and their answers in answers.jsonl, and
+  answer the new question in that light. A revision asks to rework the draft it quotes: answer with the
+  new draft as a blockquote.
   Open each reply with the request as sent, since the chat does not show it: the section and the quote
   as a blockquote, then the prompt, e.g. `> **Terms** · "visits a monetized document."` and
   `> monetized document or monetized page?`.
@@ -268,9 +272,11 @@ bold, counted in the header) while an answer is unread, until its card is opened
 user says so: ✓ Resolve on its card or in the Review panel. Accepting a change resolves nothing, and asking
 again reopens the thread. A resolved thread folds to a faint dot in the text, which opens its card to
 ↺ Reopen, and in the panel into a folded Resolved group under the open ones (Open / Resolved / All
-filter). A thread's card keeps its header, the state with ✓ Resolve (↺ Reopen), at its top while a long
-thread scrolls under it; in the Review panel each entry has it on its first line, and a long entry folds to
-a few lines with Show more.
+filter). A thread's card keeps its header, the state with ✎ Ask more and ✓ Resolve (↺ Reopen), at its
+top while a long thread scrolls under it; in the Review panel each entry has them on its first line, and a
+long entry folds to a few lines with Show more. **Ask more** (or `r` while the card is open) opens the
+revisit panel on the thread's own text, saying which thread it goes on from: the question joins that
+thread whatever text is selected, and reopens it if it was resolved.
 
 Each drafted comment in an answer (a blockquote) is a **proposal**, shown once per thread however many
 answers repeat it, with its actions under it. **💬 Use** makes it a comment on the thread's change or quote

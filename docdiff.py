@@ -444,7 +444,7 @@ header button,.panel button{height:28px;padding:0 12px;line-height:26px;font-siz
 [data-key]::after{content:attr(data-key);display:inline-block;margin-left:7px;padding:0 4px;min-width:7px;border:1px solid color-mix(in srgb,currentColor 25%,transparent);border-radius:4px;font:11px/15px ui-monospace,SFMono-Regular,Menlo,monospace;color:color-mix(in srgb,currentColor 70%,transparent);text-align:center;vertical-align:1px}
 .seg[data-key]::after{align-self:center;color:var(--muted);border-color:var(--line)} @media (max-width:640px){[data-key]::after{display:none}}
 .panel{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);box-shadow:0 -2px 8px rgba(0,0,0,.06);padding:12px max(16px,calc(50% - 444px));z-index:2;font-size:14px;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px}
-.panel[hidden]{display:none} .panel>blockquote,.panel>textarea{flex:1 0 100%;box-sizing:border-box} .panel .hint{margin-right:auto;font-size:12px}
+.panel[hidden]{display:none} .panel>blockquote,.panel>textarea,.panel>#rx{flex:1 0 100%;box-sizing:border-box} #rx{font-size:12px} .panel .hint{margin-right:auto;font-size:12px}
 #pop{position:absolute;z-index:3;display:flex;background:var(--bg);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12);overflow:hidden}
 #pop[hidden]{display:none} #pop button,#pop a{border:0;border-radius:0;background:none;color:var(--muted);padding:2px 9px;font-size:14px;line-height:1.5;text-decoration:none}
 #pop button:hover,#pop a:hover{background:var(--code);color:var(--fg)} #pop button+button,#pop button+a{border-left:1px solid var(--line)}
@@ -546,9 +546,11 @@ return c?{quote:summary(c),el:c.els[0],key:c.k}:null;}
 function heading(el){const v=el.closest('.v');if(!v)return '';
 const h=[...v.querySelectorAll('h1,h2,h3,h4')].filter(h=>h.compareDocumentPosition(el)&Node.DOCUMENT_POSITION_FOLLOWING).pop();
 if(!h)return '';const k=h.cloneNode(true);k.querySelectorAll('del').forEach(d=>d.remove());return k.textContent.trim();}
-// g: the text revisited (quote), an element in it (el), its change's key, and fields plugins add to the request.
+// g: the text revisited (quote), an element in it (el), its change's key, fields plugins add to the
+// request, and words on what it goes on from (context), shown above the quote.
 function openRev(g){const s=g&&g.el.closest('section');if(!s){pos.textContent='select text, or step to a change, then press r';return;}
-req={file:s.dataset.file,section:heading(g.el),quote:g.quote,view:cur,key:g.key,...g.fields};rq.textContent=g.quote;rp.hidden=false;rt.focus();}
+req={file:s.dataset.file,section:heading(g.el),quote:g.quote,view:cur,key:g.key,...g.fields};rq.textContent=g.quote;
+$('rx').textContent=g.context||'';$('rx').hidden=!g.context;rp.hidden=false;rt.focus();}
 function closeRev(){rp.hidden=true;rt.value='';req=null;}
 async function copy(t){try{await navigator.clipboard.writeText(t);return true;}
 catch(e){const a=document.createElement('textarea');a.value=t;body.append(a);a.select();const done=document.execCommand('copy');a.remove();return done;}}
@@ -666,8 +668,9 @@ def load_plugins():
     STYLE, SCRIPT: CSS and JavaScript for the page, after docdiff's own. An element of class panel holds
       off the reload after a rebuild while it shows, and clicks in it leave the doc alone, as they do in
       an element of class ui (a card or side panel), which does not hold off the reload; openRev(g) opens
-      the revisit panel on g.quote, g.fields adding to the request it sends; wordsOf(x), which a plugin
-      may replace, gives the words for accepting change x, W (WORDS for the run's mode) by default.
+      the revisit panel on g.quote, g.fields adding to the request it sends and g.context shown above
+      it; wordsOf(x), which a plugin may replace, gives the words for accepting change x, W (WORDS for
+      the run's mode) by default.
     get(run, path, query), post(out, path, req): the server's routes. None for a path not its own, else
       (data, content type) with data None for a 404, or the reply to a post, after which the page
       rebuilds, unless the path is in the plugin's IN_PLACE: posts the page shows in place."""
@@ -742,7 +745,7 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
 <button id="acc" class="step primary" data-key="a">{words['accept']}</button><button id="rev" data-key="r" title="{words['revisit_title']}">{words['revisit']}</button></span></div>
 <span class="sides n">Old: {html.escape(side(repo, base))} — New: {html.escape(new_label or side(repo, head))}</span></header>
 <main>{"".join(sections)}</main>
-<div id="rp" class="panel" hidden><blockquote id="rq"></blockquote><textarea id="rt" placeholder="{words['question']}"></textarea>
+<div id="rp" class="panel" hidden><div id="rx" class="n" hidden></div><blockquote id="rq"></blockquote><textarea id="rt" placeholder="{words['question']}"></textarea>
 <span class="hint n">⇧↵ adds a line</span><button id="rc" data-key="esc">Cancel</button><button id="rs" class="primary" data-key="↵">Send</button></div>
 <div id="pop" hidden><button id="pa">✓</button><button id="pr" title="{words['revisit_key']}">✎</button></div>
 <script type="application/json" id="words">{json.dumps(words, ensure_ascii=False)}</script>
