@@ -12,8 +12,10 @@ quote reads, the text before it picking among repeats: so a comment stays on a c
 accepted. Revisits are marked the same way, from revisit.jsonl, each with the answers Claude appends to
 answers.jsonl, {time: the revisit's time, answer: Markdown}. Revisits of one change or one quote are one
 thread under one mark: pending while the last has no answer, new while an answer is unread, and resolved,
-folded to a dot, while all of them are; asking again reopens it. review.json keeps that by revisit time,
-{revisits: {time: {resolved, seen}}}, seen the number of its answers read.
+folded to a dot, while all of them are; asking again reopens it. On commits, accepting a change resolves the answered threads on it alone, and taking it
+back reopens those. review.json keeps that by revisit time, {revisits: {time: {resolved, resolved_by,
+seen}}}, resolved_by 'accept' for a thread its change's accept resolved, seen the number of its answers
+read.
 
 An answer's blockquotes are its drafted comments, each a proposal: used (made into a comment), dismissed,
 or replaced (a revisit that revises it, its fields thread and revises, got a new draft). review.json keeps
@@ -60,6 +62,11 @@ STYLE = '''
 mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1.5 2.5h13v8.5h-8l-3.5 3v-3h-1.5z' fill='none' stroke='black' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat}
 .rvb-g::after{content:attr(data-n)} .rvb-posted{border-color:var(--insb)} .rvb-posted::after{content:' ✓';color:var(--insb)}
 .rvgc{margin:6px 0} .rvgr{margin-left:16px} .rva.rvgh{border-color:var(--line)} .rvgs{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;margin:0 0 6px}
+.rv-settled .v-acc del.chg:not(.rvshow){display:none} .rv-settled .v-acc ins.chg:not(.rvshow){background:none;box-shadow:none}
+.rv-settled .v-acc .blk:not(.rvshow){border-left-color:color-mix(in srgb,var(--muted) 45%,transparent)} .rv-settled .v-acc .blk[data-kind=rw]:not(.rvshow)>.was{display:none}
+.rv-settled .v-acc .rvbar{box-shadow:-8px 0 0 -6px color-mix(in srgb,var(--muted) 55%,transparent)} .rv-settled .v-acc .rvok:not(.rvok-c){display:none}
+::highlight(rvcm){text-decoration:underline dotted;text-decoration-color:var(--rw);text-decoration-thickness:2px;text-underline-offset:3px}
+body:not(.show-acc) #rvsd{display:none}
 header .rvn button,header .rvn button:hover{border:0;background:none;padding:0;height:auto;line-height:inherit;font:inherit;color:var(--link);cursor:pointer}
 #rvp blockquote,#rvc blockquote{margin:4px 0;padding:0 8px;border-left:3px solid var(--line);color:var(--muted);max-height:4.8em;overflow:hidden}
 .rva{border-left:3px solid var(--insb);padding-left:8px;margin-top:6px} .rva>:first-child{margin-top:0} .rva>:last-child{margin-bottom:0}
@@ -96,6 +103,10 @@ const span=els=>{const r=document.createRange();r.setStartBefore(els[0]);r.setEn
 function anchorOf(){const s=getSelection(),sel=!s.isCollapsed&&s.rangeCount&&s.anchorNode.parentElement?.closest('main .v');if(!sel&&!c)return null;
 const el=sel?s.anchorNode.parentElement:c.els[0],a=sel?anchor(s.getRangeAt(0),false,cur==='old'):anchor(span(c.els),el.classList.contains('blk'));
 return a.quote?{file:el.closest('section').dataset.file,view:cur,key:sel?null:c.k,...a,section:heading(el)}:null;}
+// The text a comment is on: its change's new text, or its quote where findEnd() found it (e).
+const spans=(v,k)=>[...v.querySelectorAll('.chg[data-k="'+k+'"]')].map(e=>e.classList.contains('blk')?e.querySelector('.now'):e.matches('ins')?e:null)
+.filter(Boolean).map(e=>{const r=document.createRange();r.selectNodeContents(e);return r;});
+const range=(x,e)=>{const r=document.createRange();r.setStart(x.ns[e[2]],x.os[e[2]]);r.setEnd(x.ns[e[3]-1],x.os[e[3]-1]+1);return r;};
 // A view's text on one side, spaces collapsed, with the text node and offset of each character, and
 // where each heading (as heading() names it) starts in it.
 function textOf(v,side){const skip=side==='L'?'ins,.now,summary,.rvb':'del,.was,.rvb',ns=[],os=[],first=new Map();let s='',sp=true,n;
@@ -160,11 +171,13 @@ const w=v.dataset.view,b=badge(it),on=it.key&&onChange(v,it.key),x=!on&&text(v,i
 end=x&&findEnd(x,it.quote,it.before,it.section,it.chg||(it.key?it.side==='L'?'del,.old':'ins,.now':''));
 if(on){on(b);it.on[w]=new Set([it.key]);}
 else if(end){put.push([end[0],end[1],b]);it.on[w]=new Set(x.ns.slice(end[2],end[3]).map(n=>n.parentElement.closest('.chg')?.dataset.k).filter(Boolean));}
-else continue;it.at[w]=b;}}
+else continue;it.at[w]=b;if(it.kind==='c'&&w==='acc'&&it.on[w].size)it.ranges=on?spans(v,it.key):[range(x,end)];}}
 // From the end of the doc back, so splitting a text node leaves the places before it where they were;
 // in a removed block's folded text, on its summary.
 put.sort((x,y)=>x[0]===y[0]?y[1]-x[1]:x[0].compareDocumentPosition(y[0])&Node.DOCUMENT_POSITION_FOLLOWING?1:-1);
 for(const[t,o,b]of put){const f=t.parentElement.closest('.was');if(f)f.querySelector('summary').append(b);else{t.splitText(o);t.after(b);}}
+// Your comments' wording on reviewed changes, underlined in Reviewed: the change's new text, or the quote.
+if(window.Highlight&&CSS.highlights)CSS.highlights.set('rvcm',new Highlight(...items.flatMap(i=>i.ranges||[])));
 // Which changes your comments are on, per view, and how many: on commits, accepting one of them says
 // ✓ reviewed, not looks good, and in Reviewed each accepted change says which it got, ✓ or ✓ 💬 N.
 mine={};for(const it of items)if(it.kind==='c')for(const[w,ks]of Object.entries(it.on))for(const k of ks)(mine[w]=mine[w]||new Map()).set(k,(mine[w].get(k)||0)+1);
@@ -185,6 +198,24 @@ const b=mk('button',{textContent:ks.size+w(ks.size),title:'Step through them in 
 b.onclick=()=>{if(cur!=='acc')view('acc');const l=groups.filter(g=>g.view==='acc'&&g.sec===s&&ks.has(g.k));if(l.length)focus(l[(l.indexOf(c)+1)%l.length]);};x.append(' · ',b);n.append(x);}}}
 function take(d){data=d;seen=JSON.stringify(d);paint();}
 wordsOf=x=>x&&W.reviewed&&mine[x.view]?.has(x.k)?{...W,accept:W.reviewed,accept_key:W.reviewed_key,accept_title:W.reviewed_title}:W;
+// On commits, accepting a change resolves the answered threads on it alone (not pending ones, nor ones on
+// text outside a change or across several); taking it back reopens those, not ones resolved by hand.
+onAccept=async(xs,accepting)=>{if(!W.reviewed)return;const ts=[];
+for(const x of xs)for(const it of items)if(it.kind==='r'&&!ts.includes(it)&&it.on[x.view]?.size===1&&it.on[x.view].has(x.k)&&
+(accepting?!it.done&&!it.wait:it.done&&it.members.every(m=>m.resolved_by==='accept')))ts.push(it);
+if(ts.length)await post('review',{revisits:ts.flatMap(t=>t.members.map(m=>m.time)),resolve:accepting,by:'accept'});};
+// On commits, Reviewed shows reviewed changes settled: the new text only, a thin bar beside a block with a
+// change in it, and only the commented ones' chips. Clicking a change shows its diff again; ± diffs, kept
+// per viewer, shows them all.
+let diffs=false;try{diffs=localStorage.getItem('docdiff-diffs')==='1';}catch(e){}
+const sd=mk('button',{id:'rvsd',textContent:'± diffs',title:'Show the diffs of reviewed changes'});
+function settle(){body.classList.toggle('rv-settled',!!W.reviewed&&!diffs);sd.setAttribute('aria-pressed',diffs);}
+sd.onclick=()=>{diffs=!diffs;try{localStorage.setItem('docdiff-diffs',diffs?'1':'');}catch(e){}settle();};
+if(W.reviewed){rvt.before(sd);for(const g of groups)if(g.view==='acc'&&!g.els[0].classList.contains('blk'))
+g.els[0].closest('p,li,dt,dd,td,th,h1,h2,h3,h4,h5,h6,pre,blockquote,figcaption')?.classList.add('rvbar');}
+document.addEventListener('click',e=>{if(!body.classList.contains('rv-settled')||!getSelection().isCollapsed||e.target.closest('.rvb,.rvok,a,summary,.ui'))return;
+const t=e.target.closest('.v-acc .chg'),g=t&&groups.find(x=>x.view==='acc'&&x.els.includes(t));if(g)g.els.forEach(el=>el.classList.toggle('rvshow'));});
+settle();
 // The PR's comments on GitHub (github_pr.py), read only: a thread is a comment with its replies, on the
 // change or text its line was placed on, or else in the panel's On GitHub group, with the PR's own
 // comments and reviews. A comment of yours whose text one of them has (or has all of) was posted.
@@ -351,9 +382,9 @@ def get(run, path, query):
 def post(out, path, req):
     """Adds a comment, marking the proposals req['uses'] names as used by it, or edits or deletes the one
     req['id'] names; or resolves (resolve true), reopens (false) or reads (seen) the revisits
-    req['revisits'] names by time; or sets the state of the proposals req['proposals'] names, dismissed or
-    none; or brings the PR's comments on GitHub up to date (req['github']: 'auto' or 'now', as remarks()
-    in github_pr.py takes it). Returns what get() does."""
+    req['revisits'] names by time (by 'accept': as their change was accepted); or sets the state of the
+    proposals req['proposals'] names, dismissed or none; or brings the PR's comments on GitHub up to date
+    (req['github']: 'auto' or 'now', as remarks() in github_pr.py takes it). Returns what get() does."""
     if path != '/review':
         return None
     run = json.loads((out / '.run.json').read_text())
@@ -373,10 +404,14 @@ def post(out, path, req):
             read = collections.Counter(a.get('time') for a in records(out / 'answers.jsonl'))
             for t in map(str, req['revisits']):
                 st = doc['revisits'].setdefault(t, {})
+                # Resolved by accepting its change (by 'accept'), it reopens when that is taken back; by hand, not.
                 if req.get('resolve'):
-                    st['resolved'] = now()
+                    st.update(resolved=now(), **({'resolved_by': 'accept'} if req.get('by') == 'accept' else {}))
+                    if req.get('by') != 'accept':
+                        st.pop('resolved_by', None)
                 elif 'resolve' in req:
                     st.pop('resolved', None)
+                    st.pop('resolved_by', None)
                 if req.get('seen'):
                     st['seen'] = read[t]
         elif was and req.get('delete'):

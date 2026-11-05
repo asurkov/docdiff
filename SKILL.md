@@ -36,10 +36,17 @@ ready prompt to the clipboard and queues the request ([Accepts and revisits](#ac
 read as a review: accept is **✓ looks good** (`a`) and ↺ **not reviewed**, the Accepted view is
 **Reviewed** ("22 to review · 28 reviewed"), and revisit is **✎ ask** (`r`), a question to Claude about
 the change; 💬 comment (`c`) is the remark for the PR's author. On a change you commented on, accept is
-**✓ reviewed** instead: it leaves To review without saying it looks good. In Reviewed each change says
-which it got, a green ✓ or an amber ✓ 💬 N with its count of your comments, and keeps its 💬 and ✎ marks;
-the header counts the reviewed changes that carry comments or open questions ("· 3 with comments · 1
-open question"), each count stepping through them there.
+**✓ reviewed** instead: it leaves To review without saying it looks good. Either one resolves the
+answered threads on that change alone; ↺ not reviewed reopens those ([Review comments](#review-comments)).
+
+Reviewed shows reviewed changes **settled**: the new text only, no strike-through or highlight, with a
+thin neutral bar beside a block that changed; your commented wording has a dotted amber underline (the
+comment's quote, or the change's text when the comment is on the whole change) and its 💬 beside it, and
+a commented change its amber ✓ 💬 N. A removed block stays its one-line "removed: …" stub with its marks.
+Clicking a change shows its diff again; **± diffs** in the header, remembered per viewer, shows them all,
+green ✓ chips included. The header counts the reviewed changes that carry comments or open questions
+("· 3 with comments · 1 open question"), each count stepping through them there. To review and Diff
+always show diffs.
 
 ## Arguments
 
@@ -269,8 +276,11 @@ Revisits show the same way, as ✎ marks, one per thread: the revisits of one ch
 request with Claude's answers from `answers.jsonl` under it. Asking again on the same change or quote adds
 to its thread. A thread is **pending** (dashed) while its last request has no answer, **new** (filled and
 bold, counted in the header) while an answer is unread, until its card is opened, and **resolved** once the
-user says so: ✓ Resolve on its card or in the Review panel. Accepting a change resolves nothing, and asking
-again reopens the thread. A resolved thread folds to a faint dot in the text, which opens its card to
+user says so: ✓ Resolve on its card or in the Review panel, or, on commits, by accepting (✓ looks good or
+✓ reviewed) the change it is on, which resolves its answered threads; a thread whose last question has
+no answer yet stays open, and so does one on text outside a change or across several. ↺ not reviewed
+reopens the threads its accept resolved, not ones resolved by hand. On your own docs accepting resolves
+nothing. Asking again reopens a thread. A resolved thread folds to a faint dot in the text, which opens its card to
 ↺ Reopen, and in the panel into a folded Resolved group under the open ones (Open / Resolved / All
 filter). A thread's card keeps its header, the state with ✎ Ask more and ✓ Resolve (↺ Reopen), at its
 top while a long thread scrolls under it; in the Review panel each entry has them on its first line, and a
@@ -288,8 +298,8 @@ edited) or Dismiss. An answer with several proposed drafts also offers 💬 Use 
 draft resolves nothing: once every draft in a thread is used, dismissed or replaced, its header says
 "drafts handled" and urges Resolve.
 
-`review.json` keeps each revisit's state by its time, `revisits: {<time>: {resolved, seen}}`, `seen` how
-many of its answers were read, and each proposal's by the time of the revisit that first proposed it and
+`review.json` keeps each revisit's state by its time, `revisits: {<time>: {resolved, resolved_by, seen}}`,
+`resolved_by` `accept` when its change's accept resolved it, `seen` how many of its answers were read, and each proposal's by the time of the revisit that first proposed it and
 the draft's hash, `proposals: {"<time>#<hash>": {state: used | dismissed, comment}}`; deleting the comment
 frees the draft again. `revisit.jsonl` and `answers.jsonl` are only ever appended to.
 

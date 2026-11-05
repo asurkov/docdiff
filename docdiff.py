@@ -457,6 +457,9 @@ SCRIPT = '''
 const $=id=>document.getElementById(id),body=document.body,repo=body.dataset.repo,W=JSON.parse($('words').textContent);
 // The words for accepting change x (null: none current); a plugin may set its own, per change.
 let wordsOf=x=>W;
+// Runs before changes xs are accepted (accepting) or taken back, one or a whole file's; a plugin may set
+// its own, to act on what is on them.
+let onAccept=async(xs,accepting)=>{};
 const pos=$('pos'),next=$('next'),prev=$('prev'),acc=$('acc'),rev=$('rev'),rp=$('rp'),rq=$('rq'),rt=$('rt'),pop=$('pop'),pa=$('pa'),pr=$('pr');
 // Changes per view: To review (accepted copy to now), Accepted (base to accepted copy), Diff vs base.
 const groups=[],byG=new Map();
@@ -490,11 +493,12 @@ if(!r.ok)throw new Error(url+' '+r.status);return r.json();}
 // the page and it reloads. It stays where it is: the next change becomes current only if it is already
 // in view; otherwise nothing is current and n goes to it.
 async function accept(){if(!c||!verb[cur])return;const x=c,l=L(),i=l.indexOf(x),nx=l[i+1]||l[i-1]||null;
-try{await post(verb[cur],{file:x.file,key:x.k});}catch(e){pos.textContent='not saved: '+e.message+' (is the docdiff server running?)';return;}
+try{await onAccept([x],cur==='review').catch(()=>{});await post(verb[cur],{file:x.file,key:x.k});}catch(e){pos.textContent='not saved: '+e.message+' (is the docdiff server running?)';return;}
 focus(nx&&inView(nx)?nx:null,false);if(!c)anchor=l[i-1]||null;location.reload();}
 function inView(x){const top=document.querySelector('header').getBoundingClientRect().bottom;
 return x.els.some(e=>{const r=e.getBoundingClientRect();return e.offsetParent&&r.bottom>top&&r.top<innerHeight;});}
-document.querySelectorAll('.accf').forEach(b=>b.onclick=async()=>{try{await post(b.dataset.a,{file:b.closest('section').dataset.file,all:true});
+document.querySelectorAll('.accf').forEach(b=>b.onclick=async()=>{const s=b.closest('section'),a=b.dataset.a==='accept';
+try{await onAccept(groups.filter(x=>x.sec===s&&x.view===(a?'review':'acc')),a).catch(()=>{});await post(b.dataset.a,{file:s.dataset.file,all:true});
 location.reload();}catch(e){pos.textContent='not saved: '+e.message;}});
 // Publish runs the --publish command on the accepted changes and shows what it printed.
 document.querySelectorAll('.pub').forEach(b=>b.onclick=async()=>{const f=b.closest('section').dataset.file;
@@ -670,7 +674,8 @@ def load_plugins():
       an element of class ui (a card or side panel), which does not hold off the reload; openRev(g) opens
       the revisit panel on g.quote, g.fields adding to the request it sends and g.context shown above
       it; wordsOf(x), which a plugin may replace, gives the words for accepting change x, W (WORDS for
-      the run's mode) by default.
+      the run's mode) by default; onAccept(xs, accepting), which it may replace too, runs before changes
+      xs are accepted or taken back.
     get(run, path, query), post(out, path, req): the server's routes. None for a path not its own, else
       (data, content type) with data None for a 404, or the reply to a post, after which the page
       rebuilds, unless the path is in the plugin's IN_PLACE: posts the page shows in place."""
