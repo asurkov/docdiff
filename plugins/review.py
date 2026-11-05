@@ -49,6 +49,7 @@ STYLE = '''
 .rvi{padding:8px 4px;border-top:1px solid var(--line);cursor:pointer} .rvi:hover{background:var(--code)}
 .rvm{font-size:12px;color:var(--muted)} .rvt{white-space:pre-wrap;margin:2px 0} .rvx{margin:4px 6px 0 0}
 .rvch,.rvih{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px} .rvch .rvm,.rvih .rvm{flex:1 1 12em} .rvch .rvx,.rvih .rvx{margin:0}
+.rvx.rvsec{font-size:11px;padding:0 6px;color:var(--muted)}
 .rvch{position:sticky;top:0;z-index:1;padding:6px 12px;background:var(--bg);border-bottom:1px solid var(--line)} .rvcb{padding:4px 12px 10px}
 .rvfold{max-height:9em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 60%,transparent);mask-image:linear-gradient(#000 60%,transparent)}
 #rvp .rvmore,#rvp .rvmore:hover{border:0;background:none;color:var(--link);padding:0;height:auto;font-size:12px;cursor:pointer}
@@ -60,7 +61,7 @@ STYLE = '''
 .rvb-g{color:var(--fg)} .rvb-g::before{content:'';display:inline-block;width:10px;height:10px;margin-right:3px;vertical-align:-1px;background:currentColor;
 -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1.5 2.5h13v8.5h-8l-3.5 3v-3h-1.5z' fill='none' stroke='black' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;
 mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1.5 2.5h13v8.5h-8l-3.5 3v-3h-1.5z' fill='none' stroke='black' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat}
-.rvb-g::after{content:attr(data-n)} .rvb-gme{color:var(--rw);border-color:var(--rw)} .rvb-posted{border-color:var(--insb)} .rvb-posted::after{content:' ✓';color:var(--insb)}
+.rvb-g::after{content:attr(data-n)} .rvb-gme{color:var(--rw);border-color:var(--rw)} .rvb-past{filter:grayscale(1) opacity(.5)} .rvb-past:hover{filter:none} .rvb-posted{border-color:var(--insb)} .rvb-posted::after{content:' ✓';color:var(--insb)}
 .rvgc{margin:6px 0} .rvgr{margin-left:16px} .rva.rvgh{border-color:var(--line)} .rvgs{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;margin:0 0 6px}
 .rv-settled .v-acc del.chg:not(.rvshow){display:none} .rv-settled .v-acc ins.chg:not(.rvshow){background:none;box-shadow:none}
 .rv-settled .v-acc .blk:not(.rvshow){border-left-color:color-mix(in srgb,var(--muted) 45%,transparent)} .rv-settled .v-acc .blk[data-kind=rw]:not(.rvshow)>.was{display:none}
@@ -132,6 +133,23 @@ if(best<0)return null;let e=best+q.length;while(w(x.s[e-1])&&w(x.s[e])&&x.ns[e]=
 function onChange(v,k){const els=v.querySelectorAll('.chg[data-k="'+k+'"]'),e=els[els.length-1];if(!e)return null;
 if(!e.classList.contains('blk'))return b=>e.after(b);let t=e.querySelector('.now');if(!t){const m=e.querySelector('summary');return b=>m.append(b);}
 while(t.lastElementChild&&/^(P|UL|OL|LI|DL|DT|DD|DIV|BLOCKQUOTE|H[1-6])$/.test(t.lastElementChild.tagName))t=t.lastElementChild;return b=>t.append(b);}
+// Where view v has neither its change nor its quote (an accepted change, removed words): at the end of the
+// paragraph or list item holding the words before it in its block, c.before (the most of its last 8 that
+// are there, 3 at least), or else the words after it, c.after, found as findEnd() finds a quote, in the
+// text that reads now first; in a removed block's folded text, on its summary.
+function near(v,c,sec,text){const b=norm(c.before).split(' ').filter(Boolean),a=norm(c.after).split(' ').filter(Boolean);
+for(const side of['R','L']){const x=text(v,side);let n=null,e;
+for(let i=Math.min(8,b.length);!n&&i>=3;i--)if(e=findEnd(x,b.slice(-i).join(' '),b.slice(0,-i).join(' '),sec,''))n=e[0];
+for(let i=Math.min(8,a.length);!n&&i>=3;i--)if(e=findEnd(x,a.slice(0,i).join(' '),'',sec,''))n=x.ns[e[2]];
+if(!n)continue;let t=n.parentElement.closest('p,li,dt,dd,td,th,h1,h2,h3,h4,h5,h6,pre,blockquote,figcaption');if(!t||!v.contains(t))t=blockOf(n);
+const f=t.closest('.was');if(f)return b=>f.querySelector('summary').append(b);
+const k=[...t.children].find(e=>/^(P|UL|OL|DL|DIV|BLOCKQUOTE|PRE|TABLE)$/.test(e.tagName));return b=>k?k.before(b):t.append(b);}
+return null;}
+// The words around a quote found at e in text x, as far as its block goes, for near() where only the quote
+// was kept (a revisit on selected text).
+function around(x,e){const k=blockOf(x.ns[e[2]]);let i=e[2],j=e[3];
+while(i>0&&e[2]-i<400&&k.contains(x.ns[i-1]))i--;while(j<x.s.length&&j-e[3]<400&&k.contains(x.ns[j]))j++;
+return{before:x.s.slice(i,e[2]),after:x.s.slice(e[3],j)};}
 // Where a revisit is: by its change's own text and the text before it, from a view that has the change;
 // failing that, by its quote, "−removed +added": the added text, best where the diff inserts it, or else
 // the removed text, best where it deletes it.
@@ -166,18 +184,23 @@ b.onmousedown=e=>e.preventDefault();b.onclick=e=>{e.preventDefault();e.stopPropa
 // on there: its change's, or those its quote's text is part of.
 function paint(){document.querySelectorAll('.rvb,.rvok').forEach(b=>{const p=b.parentNode;b.remove();p.normalize();});
 const texts=new Map(),text=(v,side)=>{let m=texts.get(v);if(!m)texts.set(v,m={});return m[side]||(m[side]=textOf(v,side));},put=[];
+const cx=it=>it.before||it.after?it:it.ctx,near1=(it,v,b)=>{const at=cx(it)&&near(v,cx(it),it.section,text);if(at){at(b);it.on[v.dataset.view]=new Set();}return!!at;},late=[];
 const gts=ghThreads();items=[...data.comments.map(x=>({...x,kind:'c'})),...threads(data.revisits),...gts];
 for(const it of items){it.at={};it.on={};if(it.hidden)continue;for(const s of document.querySelectorAll('section'))if(s.dataset.file===it.file)for(const v of s.querySelectorAll('.v')){
 // Made on a change, it is looked for in change markup first where its change has another key.
 const w=v.dataset.view,b=badge(it),on=it.key&&onChange(v,it.key),x=!on&&text(v,it.side),
 end=x&&findEnd(x,it.quote,it.before,it.section,it.chg||(it.key?it.side==='L'?'del,.old':'ins,.now':''));
 if(on){on(b);it.on[w]=new Set([it.key]);}
-else if(end){put.push([end[0],end[1],b]);it.on[w]=new Set(x.ns.slice(end[2],end[3]).map(n=>n.parentElement.closest('.chg')?.dataset.k).filter(Boolean));}
-else continue;it.at[w]=b;if(said(it)&&w==='acc'&&it.on[w].size)it.ranges=on?spans(v,it.key):[range(x,end)];}}
+else if(end){put.push([end[0],end[1],b]);it.on[w]=new Set(x.ns.slice(end[2],end[3]).map(n=>n.parentElement.closest('.chg')?.dataset.k).filter(Boolean));if(!cx(it))it.ctx=around(x,end);}
+else if(!near1(it,v,b)){if(!it.before&&!it.after)late.push([it,v,b]);continue;}
+it.at[w]=b;if(said(it)&&w==='acc'&&it.on[w].size)it.ranges=on?spans(v,it.key):[range(x,end)];}}
+for(const[it,v,b]of late)if(near1(it,v,b))it.at[v.dataset.view]=b;
+// In To review, a mark on text already reviewed (on changes in the Accepted view, on none here) is muted.
+for(const it of items){const b=it.at.review;if(b&&!it.on.review.size&&it.on.acc?.size){b.classList.add('rvb-past');b.title+='\\n\\n(on '+W.accepted+' text)';}}
 // From the end of the doc back, so splitting a text node leaves the places before it where they were;
-// in a removed block's folded text, on its summary.
+// in a removed block's folded text, on its summary; after removed words, which settled Reviewed hides.
 put.sort((x,y)=>x[0]===y[0]?y[1]-x[1]:x[0].compareDocumentPosition(y[0])&Node.DOCUMENT_POSITION_FOLLOWING?1:-1);
-for(const[t,o,b]of put){const f=t.parentElement.closest('.was');if(f)f.querySelector('summary').append(b);else{t.splitText(o);t.after(b);}}
+for(const[t,o,b]of put){const f=t.parentElement.closest('.was'),d=t.parentElement.closest('del.chg');if(f)f.querySelector('summary').append(b);else if(d)d.after(b);else{t.splitText(o);t.after(b);}}
 // Your comments' wording on reviewed changes, underlined in Reviewed: the change's new text, or the quote.
 if(window.Highlight&&CSS.highlights)CSS.highlights.set('rvcm',new Highlight(...items.flatMap(i=>i.ranges||[])));
 // Which changes your comments are on, per view, and how many: on commits, accepting one of them says
@@ -277,10 +300,18 @@ act('✎ Revise','Ask Claude to rework this draft',()=>revise(it,p)),act('Dismis
 const state=it=>it.done?'resolved':it.wait?'pending':it.unread?'new answer':it.handled?'drafts handled':'answered';
 // A thread's actions, at the top of its card and of its panel entry, so they stay in reach of a long
 // thread: Ask more (r while its card is open), and Resolve (urged once every draft is used or dismissed)
-// or Reopen.
-const actions=it=>{const b=act(it.done?'↺ Reopen':'✓ Resolve',it.done?'Back to the open revisits':'Done with it: its mark folds to a dot',()=>{card.hidden=true;setThread(it,{resolve:!it.done});});
-if(it.handled&&!it.done)b.classList.add('primary');
-return[act('✎ '+W.sent[0].toUpperCase()+W.sent.slice(1)+' more','Go on in this thread (r): it gets the new '+(W.sent==='ask'?'question':'request')+', and reopens if resolved',()=>more(it)),b];};
+// or Reopen. On a card whose thread is on one change in To review (g, on commits), that change's accept
+// comes first, as the toolbar words it (a while the card is open), and Resolve is the lesser choice.
+const actions=(it,g)=>{const b=act(it.done?'↺ Reopen':'✓ Resolve',it.done?'Back to the open revisits':'Done with it: its mark folds to a dot',()=>{card.hidden=true;setThread(it,{resolve:!it.done});});
+if(g){b.classList.add('rvsec');if(!it.done)b.title='Done asking, not done reviewing: resolves this thread alone, and its change stays in To review';}
+else if(it.handled&&!it.done)b.classList.add('primary');
+const w=g&&wordsOf(g),ok=g&&act(w.accept,w.accept_title.replace('the current change','its change').replace(/ \\(a\\)$/,'')+
+(it.done?'':it.wait?'. This thread has no answer yet, so it stays open':'. Its answered threads resolve with it, this one too')+' (a)',()=>acceptFor(g));
+if(ok)ok.classList.add('primary');
+return[...(ok?[ok]:[]),act('✎ '+W.sent[0].toUpperCase()+W.sent.slice(1)+' more','Go on in this thread (r): it gets the new '+(W.sent==='ask'?'question':'request')+', and reopens if resolved',()=>more(it)),b];};
+// The change a thread's card accepts for it: its one change, while that is in To review, on commits.
+const toAccept=it=>W.reviewed&&cur==='review'&&it.on.review?.size===1&&groups.find(x=>x.view==='review'&&x.file===it.file&&it.on.review.has(x.k))||null;
+function acceptFor(g){card.hidden=true;focus(g,false);accept();}
 async function setThread(it,req){try{take(await post('review',{revisits:it.members.map(m=>m.time),...req}));}catch(e){pos.textContent='not saved: '+e.message+' (is the docdiff server running?)';}}
 const setProposal=(p,state)=>post('review',{proposals:[p.id],state}).then(take).catch(e=>{pos.textContent='not saved: '+e.message+' (is the docdiff server running?)';});
 // Use: the drafts become a comment on the thread's change or quote, opened to edit.
@@ -299,7 +330,7 @@ function more(it){card.hidden=true;openRev({quote:it.sent,el:elOf(it),key:it.key
 // reads its answers.
 let carded=null;
 function fillCard(it){const h=mk('div',{className:'rvch'}),bd=mk('div',{className:'rvcb'});carded=it.time;
-h.append(mk('span',{className:'rvm',textContent:'✎ '+[it.section,it.time.replace('T',' '),state(it)].filter(Boolean).join(' · ')}),...actions(it));
+h.append(mk('span',{className:'rvm',textContent:'✎ '+[it.section,it.time.replace('T',' '),state(it)].filter(Boolean).join(' · ')}),...actions(it,toAccept(it)));
 bd.append(mk('blockquote',{textContent:it.sent}),...asks(it));card.replaceChildren(h,bd);}
 function showCard(it,b){fillCard(it);place(b);if(it.unread)setThread(it,{seen:true});}
 // A card is placed and sized in the visual viewport, which a page wider than the screen does not stretch,
@@ -368,9 +399,11 @@ pc.onmousedown=e=>e.preventDefault();pc.onclick=()=>{const a=anchorOf();hidePop(
 // The doc's own click and selection handling leaves the panel and the card alone.
 for(const e of [lp,card])for(const t of ['click','mouseup'])e.addEventListener(t,ev=>ev.stopPropagation());
 document.addEventListener('click',e=>{if(!e.target.closest('#rvc'))card.hidden=true;});
-// With a thread's card open, r asks more in that thread, before the page's own r sees it.
-addEventListener('keydown',e=>{if(e.key!=='r'||card.hidden||!carded||e.target.closest('input,textarea')||e.metaKey||e.ctrlKey||e.altKey)return;
-const it=items.find(i=>i.kind==='r'&&i.time===carded);if(!it)return;e.preventDefault();e.stopImmediatePropagation();more(it);},true);
+// With a thread's card open, r asks more in that thread, and a accepts the change the card offers, before
+// the page's own r and a see them.
+addEventListener('keydown',e=>{if(e.key!=='r'&&e.key!=='a'||card.hidden||!carded||e.target.closest('input,textarea')||e.metaKey||e.ctrlKey||e.altKey)return;
+const it=items.find(i=>i.kind==='r'&&i.time===carded),g=it&&e.key==='a'&&toAccept(it);if(!it||e.key==='a'&&!g)return;
+e.preventDefault();e.stopImmediatePropagation();e.key==='r'?more(it):acceptFor(g);},true);
 document.addEventListener('keydown',e=>{if(e.target.closest('input,textarea')||e.metaKey||e.ctrlKey||e.altKey)return;
 if(e.key==='Escape')card.hidden=true;if(e.key==='c'){e.preventDefault();openCm(anchorOf());}});
 try{const st=JSON.parse(sessionStorage.getItem('docdiff-review'))||{};filter=st.filter||filter;folded=st.folded!==false;if(st.on)toggle(true);}catch(e){}

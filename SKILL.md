@@ -267,38 +267,49 @@ the PR, found as its change's GitHub ↗ button finds them, and found again when
 
 Each comment is a 💬 mark on its change in every view that has the change, and elsewhere where its quote
 reads, the text before it picking among repeats: so it stays on a change once that is accepted, and shows
-on the same text in Old or New. Clicking the mark edits or deletes it. The header's **💬 N** opens the
-Review panel: the comments and revisits in the order they come in the doc, each a click from its place,
-comments with edit and delete, and **Copy as Markdown**, which copies per comment its `path:line` (linked
-to the line on GitHub; without `--pr`, the file and section), the quote and the comment, to paste into
-GitHub. Saving a comment shows it in place, with no rebuild; comments outlast rebuilds, accepts and server
-restarts.
+on the same text in Old or New. Where a view has neither (an accepted change, removed words), the mark
+ends the paragraph or list item holding the text before it in its block (or else after it); only a view
+without that block goes without the mark. In To review, a mark on text already accepted (on a change in
+Accepted, on none in To review) is muted, still a click from its comment; marks never count as changes or
+take n/p. A mark on removed words sits after them, so settled Reviewed shows it. Clicking the mark edits
+or deletes it. The header's **💬 N** opens the Review panel: the comments and revisits in the order they
+come in the doc, each a click from its place, comments with edit and delete, and **Copy as Markdown**,
+which copies per comment its `path:line` (linked to the line on GitHub; without `--pr`, the file and
+section), the quote and the comment, to paste into GitHub. Saving a comment shows it in place, with no
+rebuild; comments outlast rebuilds, accepts and server restarts.
 
 Revisits show the same way, as ✎ marks, one per thread: the revisits of one change, or of one quote, each
-request with Claude's answers from `answers.jsonl` under it. Asking again on the same change or quote adds
-to its thread. A thread is **pending** (dashed) while its last request has no answer, **new** (filled and
-bold, counted in the header) while an answer is unread, until its card is opened, and **resolved** once the
-user says so: ✓ Resolve on its card or in the Review panel, or, on commits, by accepting (✓ looks good or
-✓ reviewed) the change it is on, which resolves its answered threads; a thread whose last question has
-no answer yet stays open, and so does one on text outside a change or across several. ↺ not reviewed
-reopens the threads its accept resolved, not ones resolved by hand. On your own docs accepting resolves
-nothing. Asking again reopens a thread. A resolved thread folds to a faint dot in the text, which opens its card to
-↺ Reopen, and in the panel into a folded Resolved group under the open ones (Open / Resolved / All
-filter). A thread's card keeps its header, the state with ✎ Ask more and ✓ Resolve (↺ Reopen), at its
-top while a long thread scrolls under it; in the Review panel each entry has them on its first line, and a
-long entry folds to a few lines with Show more. **Ask more** (or `r` while the card is open) opens the
-revisit panel on the thread's own text, saying which thread it goes on from: the question joins that
-thread whatever text is selected, and reopens it if it was resolved.
+request with Claude's answers from `answers.jsonl` under it. Asking again on the same change or quote
+adds to its thread. One on selected text keeps only its quote, so a view without it takes the text around
+it from a view that has it. A thread is **pending** (dashed) while its last request has no answer,
+**new** (filled and bold, counted in the header) while an answer is unread, until its card is opened, and
+**resolved** once the user says so: ✓ Resolve on its card or in the Review panel, or, on commits, by
+accepting (✓ looks good or ✓ reviewed) the change it is on, which resolves its answered threads; a thread
+whose last question has no answer yet stays open, and so does one on text outside a change or across
+several. ↺ not reviewed reopens the threads its accept resolved, not ones resolved by hand. On your own
+docs accepting resolves nothing. Asking again reopens a thread. A resolved thread folds to a faint dot in
+the text, which opens its card to ↺ Reopen, and in the panel into a folded Resolved group under the open
+ones (Open / Resolved / All filter). A thread's card keeps its header, the state with ✎ Ask more and ✓
+Resolve (↺ Reopen), at its top while a long thread scrolls under it; in the Review panel each entry has
+them on its first line, and a long entry folds to a few lines with Show more. On commits, a card whose
+thread is on one change still in To review leads with that change's accept, worded as the toolbar's (✓
+looks good, or ✓ reviewed on a commented change; `a` while the card is open) and doing the same: the
+change is reviewed and its answered threads resolve, this one with them unless its last question has no
+answer yet, as the button's title then says. ✓ Resolve is the smaller choice there, done asking but not
+done reviewing: it resolves this thread alone and leaves the change in To review. A card on unchanged
+text, across several changes or on a reviewed change has only Resolve or Reopen. **Ask more** (or `r`
+while the card is open) opens the revisit panel on the thread's own text, saying which thread it goes on
+from: the question joins that thread whatever text is selected, and reopens it if it was resolved.
 
 Each drafted comment in an answer (a blockquote) is a **proposal**, shown once per thread however many
-answers repeat it, with its actions under it. **💬 Use** makes it a comment on the thread's change or quote
-and opens that to edit (edits go in the comment, never in the proposal); the proposal then shows ✓ used
-with 💬 Open comment. **✎ Revise** opens the revisit panel on the draft, in its thread ("shorter", "as a
-question"); the draft in that revision's answer replaces it, which folds to a summary, still readable.
-**Dismiss** folds it to a stub. **↶ Undo** takes back Use (deleting the comment, after asking if it was
-edited) or Dismiss. An answer with several proposed drafts also offers 💬 Use all as one comment. Using a
-draft resolves nothing: once every draft in a thread is used, dismissed or replaced, its header says
-"drafts handled" and urges Resolve.
+answers repeat it, with its actions under it. **💬 Use** makes it a comment on the thread's change or
+quote and opens that to edit (edits go in the comment, never in the proposal); the proposal then shows ✓
+used with 💬 Open comment. **✎ Revise** opens the revisit panel on the draft, in its thread ("shorter",
+"as a question"); the draft in that revision's answer replaces it, which folds to a summary, still
+readable. **Dismiss** folds it to a stub. **↶ Undo** takes back Use (deleting the comment, after asking
+if it was edited) or Dismiss. An answer with several proposed drafts also offers 💬 Use all as one
+comment. Using a draft resolves nothing: once every draft in a thread is used, dismissed or replaced, its
+header says "drafts handled" and urges Resolve, where the card has no change to accept.
 
 `review.json` keeps each revisit's state by its time, `revisits: {<time>: {resolved, resolved_by, seen}}`,
 `resolved_by` `accept` when its change's accept resolved it, `seen` how many of its answers were read, and each proposal's by the time of the revisit that first proposed it and
@@ -323,7 +334,7 @@ A line comment is placed on the diff by its `path`, `side` and `line`, the inver
 button: the words of that source line, with the words around it, are matched against the diff's blocks,
 and the block whose matching run passes through the line holds it, on the change there or in unchanged
 text. Each thread (a comment and its replies) is a neutral speech-bubble mark with its count, next to
-✎ and 💬, in every view where its text reads; clicking it opens it read only: author, time, the body as
+✎ and 💬, in every view where its text reads, or else its block, as a 💬 is; clicking it opens it read only: author, time, the body as
 Markdown (rendered as answers are), the replies, and Open on GitHub ↗. Outdated comments, ones that
 could not be placed, the PR's own comments and review bodies are listed in the Review panel under
 On GitHub. A 💬 of yours whose text a GitHub comment has (spacing aside, or one holding the other) shows
