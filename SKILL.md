@@ -84,15 +84,16 @@ The server writes both into the output dir:
 - `answers.jsonl` — Claude's answers to revisits, one per line: `{"time": <the revisit's time>, "answer":
   <Markdown>}`. After answering a revisit in chat, append the answer here (the reply without the quoted
   request), and the page shows it under the request ([Review comments](#review-comments)); until then the
-  request shows as pending:
+  request shows as pending. Put a comment drafted for the PR in the answer as a blockquote (`> …`, a blank
+  line between two), as the page offers each blockquote as a comment to make:
 
   ```bash
   python3 -c 'import json,sys; print(json.dumps({"time": sys.argv[1], "answer": sys.stdin.read().strip()}, ensure_ascii=False))' "<time>" >> <out>/answers.jsonl <<'EOF'
   <the answer>
   EOF
   ```
-- `review.json` — the user's review comments ([Review comments](#review-comments)). When the user says
-  they left comments, read them there.
+- `review.json` — the user's review comments, and which revisits they resolved or read
+  ([Review comments](#review-comments)). When the user says they left comments, read them there.
 
 **Watching for revisits.** While the user reviews, keep one background Bash command (`run_in_background`)
 waiting for the next request. It has no time limit, unlike Monitor, and it touches `<out>/watcher` every
@@ -244,10 +245,22 @@ to the line on GitHub; without `--pr`, the file and section), the quote and the 
 GitHub. Saving a comment shows it in place, with no rebuild; comments outlast rebuilds, accepts and server
 restarts.
 
-Revisits show the same way, as ✎ marks: the request (quote and prompt) and, from `answers.jsonl`, Claude's
-answers under it, or pending (dashed) until there is one. The page asks the server every 2 seconds, so a
-request or an answer shows without a reload. A server started before `review.py` existed has no route for
-any of this (💬 N greys out): stop it and rerun docdiff.
+Revisits show the same way, as ✎ marks, one per thread: the revisits of one change, or of one quote, each
+request with Claude's answers from `answers.jsonl` under it. Asking again on the same change or quote adds
+to its thread. A thread is **pending** (dashed) while its last request has no answer, **new** (filled and
+bold, counted in the header) while an answer is unread, until its card is opened, and **resolved** once the
+user says so: ✓ Resolve on its card or in the Review panel. Accepting a change resolves nothing, and asking
+again reopens the thread. A resolved thread folds to a faint dot in the text, which opens its card to
+↺ Reopen, and in the panel into a folded Resolved group under the open ones (Open / Resolved / All
+filter). Under each drafted comment in an answer, a blockquote, is 💬 Make comment: the draft becomes a
+comment on the thread's change or quote, opened to edit, and the thread resolves; an answer with several
+drafts also offers one comment of all of them. `review.json` keeps each revisit's state by its time,
+`revisits: {<time>: {resolved, seen}}`, `seen` how many of its answers were read; `revisit.jsonl` and
+`answers.jsonl` are only ever appended to.
+
+The page asks the server every 2 seconds, so a request or an answer shows without a reload. A server
+started before `review.py` existed has no route for any of this (💬 N greys out): stop it and rerun
+docdiff.
 
 **GitHub sync, later** (a plugin step of its own; none of it is built). Push: `review.json` as a pending
 review through `gh api` (`POST /repos/<owner>/<repo>/pulls/<N>/reviews` with `commit_id` the head and
