@@ -69,7 +69,7 @@ SCRIPT = '''
 let data={comments:[],revisits:[]},seen=null,items=[],draft=null;
 const cp=mk('div',{id:'cp',className:'panel',hidden:true}),cq=mk('blockquote'),ct=mk('textarea',{placeholder:'Comment · ↵ saves, ⇧↵ adds a line'});
 const cs=mk('button',{textContent:'Save'}),cd=mk('button',{textContent:'Delete'}),cc=mk('button',{textContent:'Cancel'});cp.append(cq,ct,cs,' ',cd,' ',cc);
-const lp=mk('aside',{id:'rvp',hidden:true}),card=mk('div',{id:'rvc',hidden:true}),rvt=mk('button',{id:'rvt',textContent:'💬'});
+const lp=mk('aside',{id:'rvp',className:'ui',hidden:true}),card=mk('div',{id:'rvc',className:'ui',hidden:true}),rvt=mk('button',{id:'rvt',textContent:'💬'});
 const pc=mk('button',{id:'pc',textContent:'💬',title:'Comment (c)'});body.append(cp,lp,card);pr.after(pc);rev.after(rvt);
 const vorder=['diff','review','acc','new','old'];
 // A range's text as it reads on one side: L the base's (removed words and folded old blocks), R the new.

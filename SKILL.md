@@ -215,7 +215,8 @@ below; `load_plugins()` in `docdiff.py` has their exact shapes. `run` is the run
 - `place(run, old, new, side, before, after)`: for other plugins, where text of a file's block is in its
   source; `github_pr.py`'s gives review comments their file and line.
 - `STYLE`, `SCRIPT`: CSS and JavaScript for the page, after docdiff's own. An element of class `panel`
-  holds off the reload after a rebuild while it shows, and clicks in it leave the doc alone.
+  holds off the reload after a rebuild while it shows, and clicks in it leave the doc alone; so do clicks
+  in an element of class `ui` (a card or side panel), which does not hold off the reload.
 - `get(run, path, query)`, `post(out, path, req)`: the server's routes; the page rebuilds after a post,
   unless the path is in the plugin's `IN_PLACE`.
 

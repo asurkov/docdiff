@@ -507,7 +507,8 @@ for(const[label,key,href]of actsOf(x)){const b=document.createElement('a');b.cla
 b.href=href;b.target='_blank';b.rel='noopener';b.onmousedown=e=>e.preventDefault();b.onclick=hidePop;pop.append(b);}
 pop.hidden=false;
 pop.style.left=Math.max(8,Math.min(r.left,innerWidth-pop.offsetWidth-8))+scrollX+'px';pop.style.top=r.bottom+scrollY+4+'px';}
-document.addEventListener('click',e=>{if(e.target.closest('header,#pop,.panel')||!getSelection().isCollapsed)return;
+// Clicks on the page's controls (plugins mark theirs .ui) are not clicks on the text.
+document.addEventListener('click',e=>{if(e.target.closest('header,#pop,.panel,.ui')||!getSelection().isCollapsed)return;
 // A removed block's summary only folds and unfolds it.
 if(e.target.closest('summary')){hidePop();return;}
 const t=e.target.closest('.v-'+cur+' .chg');
@@ -516,7 +517,7 @@ else{mark=e.clientY+scrollY;focus(null,false);}});
 // Without a current change, where n and p start moves with the screen.
 addEventListener('scroll',()=>{if(!c)status();},{passive:true});
 // Runs once the click has settled: clicking inside a selection clears it only after the click handler.
-document.addEventListener('mouseup',e=>{if(e.target.closest('header,#pop,.panel'))return;setTimeout(()=>{const s=getSelection();
+document.addEventListener('mouseup',e=>{if(e.target.closest('header,#pop,.panel,.ui'))return;setTimeout(()=>{const s=getSelection();
 if(s.isCollapsed||!s.rangeCount){if(!popX)hidePop();return;}
 if(!s.anchorNode.parentElement?.closest('main .v'))return;
 mark=e.clientY+scrollY;if(!c)status();
@@ -656,7 +657,8 @@ def load_plugins():
     place(run, old path, new path, side, before, after): where text of a file's block is in its source,
       for other plugins: github_pr.py's (see there).
     STYLE, SCRIPT: CSS and JavaScript for the page, after docdiff's own. An element of class panel holds
-      off the reload after a rebuild while it shows, and clicks in it leave the doc alone; openRev(g) opens
+      off the reload after a rebuild while it shows, and clicks in it leave the doc alone, as they do in
+      an element of class ui (a card or side panel), which does not hold off the reload; openRev(g) opens
       the revisit panel on g.quote, g.fields adding to the request it sends.
     get(run, path, query), post(out, path, req): the server's routes. None for a path not its own, else
       (data, content type) with data None for a 404, or the reply to a post, after which the page
