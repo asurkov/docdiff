@@ -35,10 +35,11 @@ ready prompt to the clipboard and queues the request ([Accepts and revisits](#ac
 **Reviewing commits** (`--head`: a PR, say), where there is nothing to edit or publish, the same actions
 read as a review: accept is **✓ looks good** (`a`) and ↺ **not reviewed**, the Accepted view is
 **Reviewed** ("22 to review · 28 reviewed"), and revisit is **✎ ask** (`r`), a question to Claude about
-the change; 💬 comment (`c`) is the remark for the PR's author. Reviewed and commented are independent: a
-reviewed change keeps its 💬 and ✎ marks in Reviewed, and the header counts the reviewed changes that
-carry comments or open questions ("· 3 with comments · 1 open question"), each count stepping through
-them there.
+the change; 💬 comment (`c`) is the remark for the PR's author. On a change you commented on, accept is
+**✓ reviewed** instead: it leaves To review without saying it looks good. In Reviewed each change says
+which it got, a green ✓ or an amber ✓ 💬 N with its count of your comments, and keeps its 💬 and ✎ marks;
+the header counts the reviewed changes that carry comments or open questions ("· 3 with comments · 1
+open question"), each count stepping through them there.
 
 ## Arguments
 
@@ -194,7 +195,8 @@ on every run and used where it applies.
 - `respec.py`: ReSpec specs ([ReSpec specs](#respec-specs)).
 - `gdoc_comments.py`: `--comments`, a Google Doc's comments marked on the old side
   ([Google Doc vs Markdown](#google-doc-vs-markdown)).
-- `github_pr.py`: `--pr`, a link from each change to its line in a GitHub PR ([GitHub PR](#github-pr)).
+- `github_pr.py`: `--pr`, a link from each change to its line in a GitHub PR, and the PR's comments read
+  from GitHub ([GitHub PR](#github-pr)).
 - `review.py`: review comments, and revisits with Claude's answers, on the page
   ([Review comments](#review-comments)).
 
@@ -214,6 +216,8 @@ below; `load_plugins()` in `docdiff.py` has their exact shapes. `run` is the run
   be one of docdiff's own (`n p j k a r v`).
 - `place(run, old, new, side, before, after)`: for other plugins, where text of a file's block is in its
   source; `github_pr.py`'s gives review comments their file and line.
+- `remarks(run, out, refresh)`: for other plugins, comments made on the docs elsewhere; `github_pr.py`'s
+  reads the PR's on GitHub, which review comments show.
 - `STYLE`, `SCRIPT`: CSS and JavaScript for the page, after docdiff's own. An element of class `panel`
   holds off the reload after a rebuild while it shows, and clicks in it leave the doc alone; so do clicks
   in an element of class `ui` (a card or side panel), which does not hold off the reload.
@@ -287,13 +291,29 @@ The page asks the server every 2 seconds, so a request or an answer shows withou
 started before `review.py` existed has no route for any of this (💬 N greys out): stop it and rerun
 docdiff.
 
-**GitHub sync, later** (a plugin step of its own; none of it is built). Push: `review.json` as a pending
-review through `gh api` (`POST /repos/<owner>/<repo>/pulls/<N>/reviews` with `commit_id` the head and
-`comments: [{path, line, side, body}]`, no `event`, so it stays pending for the user to submit on GitHub),
-keeping each comment's GitHub id in `review.json` so a second push updates instead of duplicating;
-comments without a line go in the review's body. Pull: the PR's review threads
-(`GET /repos/<owner>/<repo>/pulls/<N>/comments`) onto the page, placed by `path` and `line` mapped back
-onto blocks (the inverse of `place()`), read-only. Submitting stays the user's click.
+**The PR's comments on GitHub** (`github_pr.py`, with `--pr`; read only, nothing is posted). The page
+reads the PR's review comments, its own comments and its reviews' bodies from GitHub's API on load and
+from ↻ GitHub in the Review panel, which says when they were read and, offline or rate limited, that it
+shows the last copy. They are kept in `<out>/github.json` with each page's ETag; a page load asks again
+only when the copy is over 5 minutes old, as without a token each ask costs 3 of GitHub's 60 requests an
+hour (a 304 included). `GITHUB_TOKEN`, if set, is sent and never written down. `--pr-comments FILE`
+reads them from a file instead (`{review, issue, reviews}` as the API lists them), offline or for a test.
+
+A line comment is placed on the diff by its `path`, `side` and `line`, the inverse of a change's GitHub
+button: the words of that source line, with the words around it, are matched against the diff's blocks,
+and the block whose matching run passes through the line holds it, on the change there or in unchanged
+text. Each thread (a comment and its replies) is a neutral speech-bubble mark with its count, next to
+✎ and 💬, in every view where its text reads; clicking it opens it read only: author, time, the body as
+Markdown (rendered as answers are), the replies, and Open on GitHub ↗. Outdated comments, ones that
+could not be placed, the PR's own comments and review bodies are listed in the Review panel under
+On GitHub. A 💬 of yours whose text a GitHub comment has (spacing aside, or one holding the other) shows
+as posted, linked to it.
+
+**Pushing, later** (not built). `review.json` as a pending review through `gh api`
+(`POST /repos/<owner>/<repo>/pulls/<N>/reviews` with `commit_id` the head and `comments: [{path, line,
+side, body}]`, no `event`, so it stays pending for the user to submit on GitHub), keeping each comment's
+GitHub id in `review.json` so a second push updates instead of duplicating; comments without a line go
+in the review's body. Submitting stays the user's click.
 
 ## Proposing wording with it
 

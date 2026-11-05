@@ -9,8 +9,13 @@ ReSpec's rewrites ([=term=], {{IDL}}, |var|) cost a spec's source only the words
 file's words take their lines from pandoc's source positions. A change with no run of RUN words in a
 row anywhere links to its file without a line, or to the PR's files when a spec has several. place()
 finds other text of a block the same way, for other plugins: review comments.
+
+remarks() reads the PR's own comments from GitHub, for other plugins too, and puts each line comment
+back on the diff the other way round: the words of its line against the blocks of the diff. Read only:
+nothing is ever posted.
 """
-import difflib, hashlib, html, os, re, subprocess, sys
+# docdiff, the running docdiff.py, is set by its load_plugins().
+import difflib, hashlib, html, json, os, pathlib, re, subprocess, sys, threading, time, urllib.error, urllib.request
 
 LABEL, KEY = 'GitHub ↗', 'g'
 WORD = re.compile(r'\w+')
@@ -18,11 +23,18 @@ WORD = re.compile(r'\w+')
 CONTEXT = 40
 # The fewest words in a row that place a change.
 RUN = 4
+API, AGENT = 'https://api.github.com', 'docdiff (github.com/asurkov/docdiff; reads PR comments)'
+# A page load asks GitHub for the PR's comments again once they are older than this, in seconds.
+FRESH = 300
+lock = threading.Lock()
 
 
 def add_args(p):
     p.add_argument('--pr', help="the GitHub PR that --base..--head is: its URL, owner/repo#N, or N for a PR "
                                 "of the origin remote; a change's popup then opens the change on GitHub")
+    p.add_argument('--pr-comments', type=lambda f: str(pathlib.Path(f).resolve()),
+                   help="the PR's comments from this file instead of GitHub, {review, issue, reviews} as its API "
+                        "lists them (offline, or a test)")
 
 
 def actions(run):
@@ -109,6 +121,12 @@ def anchor(path):
 
 
 def files_url(repo, pr):
+    slug, n = pr_of(repo, pr)
+    return f'https://github.com/{slug}/pull/{n}/files'
+
+
+def pr_of(repo, pr):
+    """The PR's owner/repo and number."""
     m = re.fullmatch(r'(?:https://github\.com/)?(?:([\w.-]+/[\w.-]+)(?:/pull/|#))?#?(\d+)(?:/.*)?', pr.strip())
     if not m:
         sys.exit(f'--pr {pr}: not a PR URL, owner/repo#N or N')
@@ -119,7 +137,142 @@ def files_url(repo, pr):
         if not o:
             sys.exit(f'--pr {pr}: the origin remote is not on GitHub ({origin or "none"}); use owner/repo#N')
         slug = o.group(1)
-    return f'https://github.com/{slug}/pull/{m.group(2)}/files'
+    return slug, m.group(2)
+
+
+def remarks(run, out, refresh=None):
+    """For other plugins (review.py): the PR's comments on GitHub, read only, {fetched, checked, error,
+    comments}: its line comments, each placed on the diff where it can be (see place_lines()), its own
+    comments and its reviews' bodies. Kept in <out>/github.json, which refresh 'auto' (a page load) asks
+    GitHub to bring up to date when it is older than FRESH, and 'now' (a button) always; each page is
+    asked for with its last ETag, so a list that did not change comes back empty (304), though without a
+    token GitHub still counts it against its 60 requests an hour. A token only from GITHUB_TOKEN, never
+    kept. None without --pr."""
+    if not run.get('pr') or not run.get('head'):
+        return None
+    f = pathlib.Path(out) / 'github.json'
+    with lock:
+        cache = json.loads(f.read_text()) if f.exists() else {}
+        was = json.dumps(cache, sort_keys=True)
+        if run.get('pr_comments'):
+            cache = {**cache, 'data': json.loads(pathlib.Path(run['pr_comments']).read_text()), 'error': None,
+                     'fetched': cache.get('fetched') or time.time()}
+        elif refresh == 'now' or refresh == 'auto' and time.time() - cache.get('checked', 0) > FRESH:
+            cache = fetch(run, cache)
+        # Placed again when the comments, the base or the head are others.
+        digest = hashlib.sha1(json.dumps([run['base'], run['head'], cache.get('data')], sort_keys=True).encode()).hexdigest()
+        if cache.get('placed_for') != digest and 'data' in cache:
+            cs, done = comments(run, out, cache['data'])
+            cache.update(comments=cs, placed_for=digest if done else None)
+        if json.dumps(cache, sort_keys=True) != was:
+            f.with_suffix('.tmp').write_text(json.dumps(cache, ensure_ascii=False))
+            f.with_suffix('.tmp').replace(f)
+    return {k: cache.get(k) for k in ('fetched', 'checked', 'error')} | {'comments': cache.get('comments', [])}
+
+
+def fetch(run, cache):
+    """Asks GitHub for the PR's review comments, comments and reviews, page by page, each with its last
+    ETag; offline or rate limited, keeps what it had and says why."""
+    slug, n = pr_of(run['repo'], run['pr'])
+    token, pages, data, now = os.environ.get('GITHUB_TOKEN'), dict(cache.get('pages', {})), {}, time.time()
+    try:
+        for kind, path in (('review', f'pulls/{n}/comments'), ('issue', f'issues/{n}/comments'), ('reviews', f'pulls/{n}/reviews')):
+            url, data[kind] = f'{API}/repos/{slug}/{path}?per_page=100', []
+            while url:
+                was = pages.get(url)
+                ask = {'User-Agent': AGENT, 'Accept': 'application/vnd.github+json',
+                       **({'If-None-Match': was['etag']} if was and was.get('etag') else {}),
+                       **({'Authorization': f'Bearer {token}'} if token else {})}
+                try:
+                    with urllib.request.urlopen(urllib.request.Request(url, headers=ask), timeout=10) as r:
+                        got = pages[url] = {'etag': r.headers.get('ETag'), 'items': json.load(r),
+                                            'next': next(iter(re.findall(r'<([^>]+)>;\s*rel="next"', r.headers.get('Link') or '')), None)}
+                except urllib.error.HTTPError as e:
+                    if e.code != 304 or not was:
+                        raise
+                    got = was
+                data[kind] += got['items']
+                url = got['next']
+    except urllib.error.HTTPError as e:
+        reset = e.headers.get('X-RateLimit-Reset')
+        why = (f'rate limited until {time.strftime("%H:%M", time.localtime(int(reset)))}' if e.headers.get('X-RateLimit-Remaining') == '0'
+               and reset else f'GitHub answered {e.code}')
+        return {**cache, 'checked': now, 'error': why}
+    except (urllib.error.URLError, OSError, ValueError):
+        return {**cache, 'checked': now, 'error': 'GitHub not reached (offline?)'}
+    return {**cache, 'pages': pages, 'data': data, 'fetched': now, 'checked': now, 'error': None}
+
+
+def comments(run, out, data):
+    """The PR's comments as the page shows them, and whether every doc could be looked at (a spec waiting
+    for its render could not): line comments (outdated ones too, with their old line), with where they
+    are when place_lines() finds it, then the PR's own comments and its reviews with a body."""
+    who = lambda c: (c.get('user') or {}).get('login') or '?'
+    cs = [{'id': c['id'], 'kind': 'line', 'author': who(c), 'time': c.get('created_at'), 'body': c.get('body') or '',
+           'url': c.get('html_url'), 'reply_to': c.get('in_reply_to_id'), 'path': c.get('path'),
+           'side': 'L' if c.get('side') == 'LEFT' else 'R', 'line': c.get('line') or c.get('original_line'),
+           'outdated': c.get('line') is None} for c in data.get('review', [])]
+    cs += [{'id': c['id'], 'kind': 'pr', 'author': who(c), 'time': c.get('created_at'), 'body': c.get('body') or '',
+            'url': c.get('html_url')} for c in data.get('issue', [])]
+    cs += [{'id': r['id'], 'kind': 'review', 'author': who(r), 'time': r.get('submitted_at'), 'body': r.get('body') or '',
+            'url': r.get('html_url'), 'state': r.get('state')} for r in data.get('reviews', []) if (r.get('body') or '').strip()]
+    done = place_lines(run, out, [c for c in cs if c['kind'] == 'line' and not c['outdated'] and not c['reply_to'] and c['line']])
+    return cs, done
+
+
+def place_lines(run, out, cs):
+    """Puts line comments on the diff, as link() puts a change on a line the other way round: the words of
+    the comment's line, with CONTEXT words on each side, are matched against each block of the file's
+    diff on that side, and the block whose run of them passes through the line's first word is the
+    longest holds it (or, with none, the block with the longest run); aligning the two gives that word
+    there. A comment gets its doc (file), that word's change (key, None in unchanged
+    text), and, to be found by in any view, the block's text from that word on (quote) and before it.
+    False when a doc could not be looked at yet."""
+    repo, done = pathlib.Path(run['repo']), True
+    for old, new in docdiff.files_for(repo, run['base'], run['head'], run['paths'])[0]:
+        o, n, wait = docdiff.htmls(repo, run['base'], run['head'], old, new, pathlib.Path(out))
+        if wait:
+            done = False
+            continue
+        pieces = docdiff.block_diff(o, n, 'x')[2]
+        for side, rev in (('L', run['base']), ('R', run['head'])):
+            srcs = {p: f for p in changed(str(repo), run['base'], run['head'], old, new, side) if (f := source(str(repo), rev, p))}
+            mine = [c for c in cs if c['side'] == side and c['path'] in srcs and 'file' not in c]
+            blocks = [block_words(b, side) for b in pieces] if mine else []
+            for c in mine:
+                f = srcs[c['path']]
+                at = next((i for i, line in enumerate(f['lines']) if line >= c['line']), None)
+                if at is None:
+                    continue
+                lo = max(0, at - CONTEXT)
+                win, s = f['words'][lo:at + CONTEXT], at - lo
+                best, score, ms = None, (0, 0), None
+                for b in blocks:
+                    ys = [y for y in difflib.SequenceMatcher(None, win, b['words'], autojunk=False).get_matching_blocks() if y.size]
+                    x = (max((y.size for y in ys if y.a <= s < y.a + y.size), default=0), max((y.size for y in ys), default=0))
+                    if x > score:
+                        best, score, ms = b, x, ys
+                if not best or max(score) < min(RUN, len(win)):
+                    continue
+                a, j, size = min(ms, key=lambda y: max(y.a - s, s - (y.a + y.size - 1), 0))
+                start, part = best['at'][j + min(max(s - a, 0), size - 1)]
+                c.update(file=new or old, key=best['keys'][part], quote=' '.join(best['text'][start:].split()[:8]),
+                         before=' '.join(best['text'][max(0, start - 300):start].split()))
+    return done
+
+
+def block_words(piece, side):
+    """A block of a diff (as block_diff() makes its pieces) on one side: its text as it reads, its words,
+    and per word where it starts in the text and in which part, whose key keys has."""
+    text, words, at, keys = '', [], [], []
+    for i, (k, o, w) in enumerate(piece[2]):
+        t = html.unescape(re.sub(r'<!--.*?-->|<[^>]+>', '', o if side == 'L' else w, flags=re.S))
+        for m in WORD.finditer(t):
+            words.append(m.group(0).lower())
+            at.append((len(text) + m.start(), i))
+        text += t
+        keys.append(k)
+    return {'text': text, 'words': words, 'at': at, 'keys': keys}
 
 
 def changed(repo, base, head, old, new, side):

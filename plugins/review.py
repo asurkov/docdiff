@@ -53,6 +53,13 @@ STYLE = '''
 .rvpr{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:2px 0 10px} .rvpr .rvx{margin:0} .rvpr .rvm{margin-right:2px}
 .rvgone{display:none} .rvstub{opacity:.65} .rvdup{opacity:.6} .rvrep>summary{font-size:12px;color:var(--muted);cursor:pointer} .rvrep[open]>blockquote{opacity:.7}
 .rvused{color:var(--insb)}
+.rvok{display:inline-block;margin-left:3px;padding:0 5px;border-radius:9px;font:600 11px/15px -apple-system,BlinkMacSystemFont,sans-serif;vertical-align:2px;color:var(--insb);background:var(--ins);user-select:none;-webkit-user-select:none}
+.rvok-c{color:var(--rw);background:color-mix(in srgb,var(--rw) 16%,transparent)}
+.rvb-g{color:var(--fg)} .rvb-g::before{content:'';display:inline-block;width:10px;height:10px;margin-right:3px;vertical-align:-1px;background:currentColor;
+-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1.5 2.5h13v8.5h-8l-3.5 3v-3h-1.5z' fill='none' stroke='black' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;
+mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1.5 2.5h13v8.5h-8l-3.5 3v-3h-1.5z' fill='none' stroke='black' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat}
+.rvb-g::after{content:attr(data-n)} .rvb-posted{border-color:var(--insb)} .rvb-posted::after{content:' ✓';color:var(--insb)}
+.rvgc{margin:6px 0} .rvgr{margin-left:16px} .rva.rvgh{border-color:var(--line)} .rvgs{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;margin:0 0 6px}
 header .rvn button,header .rvn button:hover{border:0;background:none;padding:0;height:auto;line-height:inherit;font:inherit;color:var(--link);cursor:pointer}
 #rvp blockquote,#rvc blockquote{margin:4px 0;padding:0 8px;border-left:3px solid var(--line);color:var(--muted);max-height:4.8em;overflow:hidden}
 .rva{border-left:3px solid var(--insb);padding-left:8px;margin-top:6px} .rva>:first-child{margin-top:0} .rva>:last-child{margin-bottom:0}
@@ -66,7 +73,7 @@ SCRIPT = '''
 // change in every view that has it, and elsewhere where its quote reads. The page polls the server for
 // them, and shows a comment it saves in place.
 (()=>{const mk=(t,p)=>Object.assign(document.createElement(t),p),norm=t=>(t||'').replace(/\\s+/g,' ').trim();
-let data={comments:[],revisits:[]},seen=null,items=[],draft=null;
+let data={comments:[],revisits:[]},seen=null,items=[],draft=null,mine={};
 const cp=mk('div',{id:'cp',className:'panel',hidden:true}),cq=mk('blockquote'),ct=mk('textarea',{placeholder:'Comment · ↵ saves, ⇧↵ adds a line'});
 const cs=mk('button',{textContent:'Save'}),cd=mk('button',{textContent:'Delete'}),cc=mk('button',{textContent:'Cancel'});cp.append(cq,ct,cs,' ',cd,' ',cc);
 const lp=mk('aside',{id:'rvp',className:'ui',hidden:true}),card=mk('div',{id:'rvc',className:'ui',hidden:true}),rvt=mk('button',{id:'rvt',textContent:'💬'});
@@ -137,14 +144,16 @@ function proposal(m,d,ms){const id=m.time+'#'+d.hash,st=data.proposals[id]||{},b
 return{id,text:d.text,comment:c||null,revising:by.length>0&&!by[by.length-1].answers.length,
 state:c?'used':by.some(x=>x.answers.some(a=>a.drafts.some(e=>e.hash!==d.hash)))?'replaced':st.state==='dismissed'?'dismissed':'proposed'};}
 function badge(it){const r=it.kind==='r',st=!r?'':it.done?' rvb-done':it.wait?' rvb-wait':it.unread?' rvb-new':'';
-const b=mk('span',{className:'rvb rvb-'+it.kind+st,title:!r?it.body:it.members.map(m=>m.prompt).join('\\n')+
+if(it.kind==='g'){const b=mk('span',{className:'rvb rvb-g',title:'On GitHub: '+it.root.author+': '+short(it.root.body)});b.dataset.n=it.members.length;
+b.onmousedown=e=>e.preventDefault();b.onclick=e=>{e.preventDefault();e.stopPropagation();showGh(it,b);};return b;}
+const b=mk('span',{className:'rvb rvb-'+it.kind+st+(it.posted?' rvb-posted':''),title:!r?it.body+(it.posted?'\\n\\n(posted on GitHub)':''):it.members.map(m=>m.prompt).join('\\n')+
 (it.done?'\\n\\n(resolved: click to reopen)':it.wait?'\\n\\n(pending: no answer yet)':it.unread?'\\n\\n(new answer: click to read)':'')});
 b.onmousedown=e=>e.preventDefault();b.onclick=e=>{e.preventDefault();e.stopPropagation();it.kind==='c'?openCm(it):showCard(it,b);};return b;}
 // Marks every comment and revisit; it.at holds its mark per view, and it.on the keys of the changes it is
 // on there: its change's, or those its quote's text is part of.
-function paint(){document.querySelectorAll('.rvb').forEach(b=>{const p=b.parentNode;b.remove();p.normalize();});
+function paint(){document.querySelectorAll('.rvb,.rvok').forEach(b=>{const p=b.parentNode;b.remove();p.normalize();});
 const texts=new Map(),text=(v,side)=>{let m=texts.get(v);if(!m)texts.set(v,m={});return m[side]||(m[side]=textOf(v,side));},put=[];
-items=[...data.comments.map(x=>({...x,kind:'c'})),...threads(data.revisits)];
+const gts=ghThreads();items=[...data.comments.map(x=>({...x,kind:'c'})),...threads(data.revisits),...gts];
 for(const it of items){it.at={};it.on={};for(const s of document.querySelectorAll('section'))if(s.dataset.file===it.file)for(const v of s.querySelectorAll('.v')){
 // Made on a change, it is looked for in change markup first where its change has another key.
 const w=v.dataset.view,b=badge(it),on=it.key&&onChange(v,it.key),x=!on&&text(v,it.side),
@@ -156,6 +165,12 @@ else continue;it.at[w]=b;}}
 // in a removed block's folded text, on its summary.
 put.sort((x,y)=>x[0]===y[0]?y[1]-x[1]:x[0].compareDocumentPosition(y[0])&Node.DOCUMENT_POSITION_FOLLOWING?1:-1);
 for(const[t,o,b]of put){const f=t.parentElement.closest('.was');if(f)f.querySelector('summary').append(b);else{t.splitText(o);t.after(b);}}
+// Which changes your comments are on, per view, and how many: on commits, accepting one of them says
+// ✓ reviewed, not looks good, and in Reviewed each accepted change says which it got, ✓ or ✓ 💬 N.
+mine={};for(const it of items)if(it.kind==='c')for(const[w,ks]of Object.entries(it.on))for(const k of ks)(mine[w]=mine[w]||new Map()).set(k,(mine[w].get(k)||0)+1);
+if(W.reviewed)for(const g of groups.filter(g=>g.view==='acc')){const n=mine.acc?.get(g.k),on=onChange(g.els[0].closest('.v'),g.k);
+if(on)on(mk('span',{className:'rvok'+(n?' rvok-c':''),textContent:n?'✓ 💬 '+n:'✓',title:n?'Reviewed, with '+n+' comment'+(n>1?'s':''):'Looks good'}));}
+status();
 const ts=items.filter(i=>i.kind==='r'&&!i.done),np=ts.filter(t=>t.wait).length,nn=ts.filter(t=>t.unread).length;
 rvt.textContent='💬 '+data.comments.length+(ts.length?' · ✎ '+ts.length:'')+(np?' · '+np+' pending':'')+(nn?' · '+nn+' new':'');
 rvt.classList.toggle('rvt-new',nn>0);if(!lp.hidden)list();
@@ -169,6 +184,28 @@ for(const[ks,w]of[[on(it=>it.kind==='c'),k=>k>1?' with comments':' with a commen
 const b=mk('button',{textContent:ks.size+w(ks.size),title:'Step through them in the '+W.Accepted+' view'}),x=mk('span',{className:'rvn'});
 b.onclick=()=>{if(cur!=='acc')view('acc');const l=groups.filter(g=>g.view==='acc'&&g.sec===s&&ks.has(g.k));if(l.length)focus(l[(l.indexOf(c)+1)%l.length]);};x.append(' · ',b);n.append(x);}}}
 function take(d){data=d;seen=JSON.stringify(d);paint();}
+wordsOf=x=>x&&W.reviewed&&mine[x.view]?.has(x.k)?{...W,accept:W.reviewed,accept_key:W.reviewed_key,accept_title:W.reviewed_title}:W;
+// The PR's comments on GitHub (github_pr.py), read only: a thread is a comment with its replies, on the
+// change or text its line was placed on, or else in the panel's On GitHub group, with the PR's own
+// comments and reviews. A comment of yours whose text one of them has (or has all of) was posted.
+const same=(a,b)=>(a=norm(a),b=norm(b),a&&b&&(a===b||a.length>=20&&b.includes(a)||b.length>=20&&a.includes(b)));
+function ghThreads(){const cs=data.github?.comments||[],by=new Map(cs.map(c=>[c.id,c])),ts=new Map();
+for(const c of cs){let r=c;while(r.reply_to&&by.has(r.reply_to))r=by.get(r.reply_to);if(!ts.has(r.id))ts.set(r.id,[]);ts.get(r.id).push(c);}
+for(const c of data.comments)c.posted=cs.find(g=>same(g.body,c.body))?.url||null;
+return[...ts].map(([id,ms])=>{const r=by.get(id);return{kind:'g',id:'g'+id,root:r,members:ms.sort((a,b)=>a.time<b.time?-1:1),time:r.time,
+file:r.file||null,key:r.key||null,quote:r.quote||'',before:r.before||'',side:r.side||'R',section:''};});}
+const ago=t=>{const s=(Date.now()-t)/1000;return s<90?'just now':s<5400?Math.round(s/60)+' min ago':s<129600?Math.round(s/3600)+' h ago':Math.round(s/86400)+' days ago';};
+const at=c=>c.path?c.path.split('/').pop()+(c.line?':'+c.line:'')+(c.side==='L'?' (old)':''):'';
+const ghLabel=c=>({line:at(c)+(c.outdated?' · outdated':c.file?'':' · not placed'),pr:'on the PR',review:'review'+(c.state?': '+c.state.toLowerCase().replace(/_/g,' '):'')})[c.kind];
+const ghBodies=it=>it.members.map(c=>{const d=mk('div',{className:'rvgc'+(c.reply_to?' rvgr':'')}),x=mk('div',{className:'rva rvgh'});x.innerHTML=c.html;
+d.append(mk('div',{className:'rvm',textContent:c.author+' · '+ago(new Date(c.time))}),x);return d;});
+function showGh(it,b){const h=mk('div',{className:'rvch'}),bd=mk('div',{className:'rvcb'});carded=null;
+h.append(mk('span',{className:'rvm',textContent:'On GitHub · '+ghLabel(it.root)+' · '+it.members.length+' comment'+(it.members.length>1?'s':'')}),mk('a',{href:it.root.url,target:'_blank',rel:'noopener',textContent:'Open on GitHub ↗'}));
+bd.append(...ghBodies(it));card.replaceChildren(h,bd);place(b);}
+// When GitHub was last read, and why not since; ↻ asks again.
+function ghStatus(){const g=data.github;if(!g)return null;const r=mk('div',{className:'rvgs rvm'}),b=act('↻ GitHub','Read the comments on GitHub again',async()=>{b.textContent='reading…';
+try{take(await post('review',{github:'now'}));}catch(e){b.textContent='↻ GitHub';}});
+r.append((g.fetched?'GitHub read '+ago(g.fetched*1e3):'GitHub not read yet')+(g.error?' · '+g.error+(g.fetched?', showing that copy':''):''),b);return r;}
 async function load(){try{const r=await fetch('review');if(!r.ok)throw new Error(r.status);const d=await r.json();rvt.disabled=false;rvt.title='Review: comments and '+W.revisits;
 if(JSON.stringify(d)!==seen)take(d);}catch(e){rvt.disabled=true;rvt.title='review: not served (restart the docdiff server)';}}
 function openCm(it){if(!it){pos.textContent='select text, or step to a change, then press c';return;}
@@ -219,13 +256,15 @@ let carded=null;
 function fillCard(it){const h=mk('div',{className:'rvch'}),bd=mk('div',{className:'rvcb'});carded=it.time;
 h.append(mk('span',{className:'rvm',textContent:'✎ '+[it.section,it.time.replace('T',' '),state(it)].filter(Boolean).join(' · ')}),...actions(it));
 bd.append(mk('blockquote',{textContent:it.sent}),...asks(it));card.replaceChildren(h,bd);}
-// It is placed and sized in the visual viewport, which a page wider than the screen does not stretch.
-function showCard(it,b){const v=visualViewport||{width:innerWidth,offsetLeft:0};fillCard(it);
-card.style.left=v.offsetLeft+scrollX+'px';card.style.width=Math.min(560,v.width*.9)+'px';card.hidden=false;card.scrollTop=0;
+function showCard(it,b){fillCard(it);place(b);if(it.unread)setThread(it,{seen:true});}
+// A card is placed and sized in the visual viewport, which a page wider than the screen does not stretch,
+// and left of the Review panel while that is open beside the doc.
+function place(b){const v=visualViewport||{width:innerWidth,offsetLeft:0},p=lp.hidden?null:lp.getBoundingClientRect(),
+right=p&&p.left>v.offsetLeft+v.width/2?p.left:v.offsetLeft+v.width,w=Math.min(560,(right-v.offsetLeft)*.95);
+card.style.left=v.offsetLeft+scrollX+'px';card.style.width=w+'px';card.hidden=false;card.scrollTop=0;
 const r=b.getBoundingClientRect(),below=innerHeight-r.bottom-12,above=r.top-document.querySelector('header').getBoundingClientRect().bottom-12,down=below>=300||below>=above;
-card.style.maxHeight=Math.max(120,down?below:above)+'px';card.style.left=Math.max(v.offsetLeft+8,Math.min(r.left,v.offsetLeft+v.width-card.offsetWidth-8))+scrollX+'px';
-card.style.top=(down?r.bottom+4:r.top-4-card.offsetHeight)+scrollY+'px';
-if(it.unread)setThread(it,{seen:true});}
+card.style.maxHeight=Math.max(120,down?below:above)+'px';card.style.left=Math.max(v.offsetLeft+8,Math.min(r.left,right-card.offsetWidth-8))+scrollX+'px';
+card.style.top=(down?r.bottom+4:r.top-4-card.offsetHeight)+scrollY+'px';}
 // The Review panel: comments and revisits in the order they come in the doc, each one going to its mark.
 const where=it=>{const g=it.github;return g&&g.path?g.path+(g.line?':'+g.line+(g.side==='L'?' (old)':''):''):'';};
 function order(){const secs=[...document.querySelectorAll('section')].map(s=>s.dataset.file);
@@ -238,9 +277,12 @@ if(g)focus(g);else{focus(null,false);b.scrollIntoView({block:'center',behavior:'
 b.classList.add('rvb-hit');setTimeout(()=>b.classList.remove('rvb-hit'),1500);}
 // A panel entry: its line (where, state, actions), then its body, folded to a few lines when long.
 function row(it,files){const r=it.kind==='r',d=mk('div',{className:'rvi'+(it.unread&&!it.done?' rvi-new':'')}),h=mk('div',{className:'rvih'}),m=mk('span',{className:'rvm'}),bd=mk('div',{className:'rvib'}),w=where(it);
-d.dataset.id=r?'r'+it.time:'c'+it.id;
+d.dataset.id=r?'r'+it.time:it.kind==='g'?it.id:'c'+it.id;
+if(it.kind==='g'){m.append('On GitHub · '+[files>1&&it.file,ghLabel(it.root)].filter(Boolean).join(' · '));h.append(m,mk('a',{href:it.root.url,target:'_blank',rel:'noopener',textContent:'Open on GitHub ↗'}));
+bd.append(...ghBodies(it));d.append(h,bd);d.onclick=e=>{if(!e.target.closest('a,button'))jump(it);};return d;}
 m.append((r?'✎ ':'💬 ')+[files>1&&it.file,it.section,r&&state(it)].filter(Boolean).join(' · ')+(Object.keys(it.at).length?'':' · not in the page now'));
 if(w)m.append(' · ',mk('a',{href:it.github.href,target:'_blank',rel:'noopener',textContent:w.split('/').pop()+' ↗'}));
+if(it.posted)m.append(' · ',mk('a',{href:it.posted,target:'_blank',rel:'noopener',className:'rvused',textContent:'posted ↗'}));
 if(it.quote)bd.append(mk('blockquote',{textContent:r?it.sent:it.quote}));
 if(r)h.append(m,...actions(it)),bd.append(...asks(it));else{const e=act('edit','',()=>openCm(it)),x=act('delete','',()=>x.textContent==='delete'?x.textContent='delete?':save({id:it.id,delete:true}));
 h.append(m,e,x);bd.append(mk('div',{className:'rvt',textContent:it.body}));}
@@ -252,15 +294,21 @@ bd.classList.add('rvfold');const long=bd.scrollHeight>bd.clientHeight+4;bd.class
 bd.after(act(unfolded.has(id)?'Show less':'Show more','',()=>{unfolded.has(id)?unfolded.delete(id):unfolded.add(id);fold(bd);}));bd.nextElementSibling.classList.add('rvmore');}
 // Open (comments and unresolved revisits), then the resolved revisits folded; or either alone.
 let filter='all',folded=true;
-function list(){const its=order(),nc=data.comments.length,files=document.querySelectorAll('section').length,done=its.filter(i=>i.done);
+// The PR's comments that have no place in the doc fold into On GitHub, under the open ones.
+let ghFolded=false;
+function list(){const all=order(),nc=data.comments.length,files=document.querySelectorAll('section').length,done=all.filter(i=>i.done),
+loose=all.filter(i=>i.kind==='g'&&!Object.keys(i.at).length),its=all.filter(i=>!loose.includes(i));
 const f=mk('div',{className:'seg rvf'}),g=mk('details',{className:'rvg',open:!folded});g.ontoggle=()=>{folded=!g.open;keep();if(g.open)g.querySelectorAll('.rvib').forEach(fold);};
 for(const[v,l]of[['open','Open'],['resolved','Resolved'],['all','All']]){const b=mk('button',{textContent:l});b.setAttribute('aria-pressed',v===filter);
 b.onclick=()=>{filter=v;keep();list();};f.append(b);}
 g.append(mk('summary',{textContent:'Resolved ('+done.length+')'}),...done.map(it=>row(it,files)));
 const h=mk('div',{className:'rvh'}),cm=mk('button',{textContent:'Copy as Markdown',title:'The comments, each with its file:line and quote, to paste into GitHub'}),x=mk('button',{textContent:'×',title:'Close'});
 cm.onclick=async()=>{cm.textContent=!nc?'no comments':await copy(markdown(its))?'copied '+nc:'copying failed';setTimeout(()=>cm.textContent='Copy as Markdown',1500);};
-x.onclick=()=>toggle(false);h.append(mk('b',{textContent:'Review'}),mk('span',{className:'n',textContent:nc+' comment(s) · '+(its.length-nc-done.length)+' open · '+done.length+' resolved'}),cm,x);
-lp.replaceChildren(h,f,...(filter==='resolved'?done:its.filter(i=>!i.done)).map(it=>row(it,files)),...(filter==='all'&&done.length?[g]:[]));
+x.onclick=()=>toggle(false);h.append(mk('b',{textContent:'Review'}),mk('span',{className:'n',textContent:nc+' comment(s) · '+its.filter(i=>i.kind==='r'&&!i.done).length+' open · '+done.length+' resolved'}),cm,x);
+const gh=mk('details',{className:'rvg',open:!ghFolded});gh.ontoggle=()=>{ghFolded=!gh.open;if(gh.open)gh.querySelectorAll('.rvib').forEach(fold);};
+gh.append(mk('summary',{textContent:'On GitHub ('+loose.length+')'}),...loose.map(it=>row(it,files)));
+lp.replaceChildren(h,...[ghStatus()].filter(Boolean),f,...(filter==='resolved'?done:its.filter(i=>!i.done)).map(it=>row(it,files)),
+...(filter!=='resolved'&&loose.length?[gh]:[]),...(filter==='all'&&done.length?[g]:[]));
 lp.querySelectorAll('.rvib').forEach(fold);}
 // Paste-ready: per comment, its file:line (linked to it on GitHub) or else its file and section, the
 // quoted text and the comment.
@@ -278,7 +326,7 @@ document.addEventListener('click',e=>{if(!e.target.closest('#rvc'))card.hidden=t
 document.addEventListener('keydown',e=>{if(e.target.closest('input,textarea')||e.metaKey||e.ctrlKey||e.altKey)return;
 if(e.key==='Escape')card.hidden=true;if(e.key==='c'){e.preventDefault();openCm(anchorOf());}});
 try{const st=JSON.parse(sessionStorage.getItem('docdiff-review'))||{};filter=st.filter||filter;folded=st.folded!==false;if(st.on)toggle(true);}catch(e){}
-load();setInterval(load,2000);})();
+load().then(()=>post('review',{github:'auto'})).then(take).catch(()=>{});setInterval(load,2000);})();
 '''
 
 
@@ -293,10 +341,13 @@ def post(out, path, req):
     """Adds a comment, marking the proposals req['uses'] names as used by it, or edits or deletes the one
     req['id'] names; or resolves (resolve true), reopens (false) or reads (seen) the revisits
     req['revisits'] names by time; or sets the state of the proposals req['proposals'] names, dismissed or
-    none. Returns what get() does."""
+    none; or brings the PR's comments on GitHub up to date (req['github']: 'auto' or 'now', as remarks()
+    in github_pr.py takes it). Returns what get() does."""
     if path != '/review':
         return None
     run = json.loads((out / '.run.json').read_text())
+    if req.get('github'):
+        return state(run, req['github'])
     with lock:
         doc = load(out)
         cs = doc['comments']
@@ -331,7 +382,7 @@ def post(out, path, req):
     return state(run)
 
 
-def state(run):
+def state(run, refresh=None):
     out = pathlib.Path(run['out'])
     with lock:
         doc = load(out)
@@ -346,7 +397,12 @@ def state(run):
         text = str(a.get('answer') or '')
         answers.setdefault(a.get('time'), []).append({'html': markdown(text), 'drafts': [
             {'text': d, 'hash': hashlib.sha1(' '.join(d.split()).encode()).hexdigest()[:8]} for d in drafts(text)]})
-    return {'comments': doc['comments'], 'proposals': doc['proposals'],
+    # The PR's comments on GitHub, read only, from a plugin that has them (github_pr.py, with --pr).
+    remote = next((m for m in docdiff.PLUGINS if hasattr(m, 'remarks')), None)
+    github = remote and remote.remarks(run, out, refresh)
+    for c in (github or {}).get('comments', []):
+        c['html'] = markdown(c['body'])
+    return {'comments': doc['comments'], 'proposals': doc['proposals'], 'github': github,
             'revisits': [{**{k: r.get(k) for k in ('time', 'file', 'section', 'quote', 'view', 'prompt', 'key',
                                                     'thread', 'revises')},
                           'answers': answers.get(r.get('time'), []), **doc['revisits'].get(r.get('time'), {})}

@@ -399,7 +399,10 @@ WORDS = {
            'accepted': 'reviewed', 'Accepted': 'Reviewed', 'accept_file': 'file looks good', 'unaccept_file': 'file not reviewed',
            'revisit': '✎ ask', 'revisit_key': 'Ask (r)', 'revisit_title': 'Ask Claude about the selection or the current change (r)',
            'select': 'select text to ask about', 'question': 'What do you want to know?', 'prompt': 'Ask about ', 'sent': 'ask',
-           'revisits': 'questions'},
+           'revisits': 'questions',
+           # For a change that carries remarks for its author, which a plugin tells (see wordsOf).
+           'reviewed': '✓ reviewed', 'reviewed_key': 'Reviewed (a)',
+           'reviewed_title': 'Reviewed: you commented on it, so it leaves To review without saying it looks good (a)'},
 }
 
 STYLE = '''
@@ -452,6 +455,8 @@ header button,.panel button{height:28px;padding:0 12px;line-height:26px;font-siz
 
 SCRIPT = '''
 const $=id=>document.getElementById(id),body=document.body,repo=body.dataset.repo,W=JSON.parse($('words').textContent);
+// The words for accepting change x (null: none current); a plugin may set its own, per change.
+let wordsOf=x=>W;
 const pos=$('pos'),next=$('next'),prev=$('prev'),acc=$('acc'),rev=$('rev'),rp=$('rp'),rq=$('rq'),rt=$('rt'),pop=$('pop'),pa=$('pa'),pr=$('pr');
 // Changes per view: To review (accepted copy to now), Accepted (base to accepted copy), Diff vs base.
 const groups=[],byG=new Map();
@@ -472,8 +477,8 @@ if(m)return (d>0?l.find(x=>gi(x)>gi(m)):l.findLast(x=>gi(x)<gi(m)))||null;
 const y=mark!==null&&mark-scrollY>top&&mark-scrollY<innerHeight?mark-scrollY:top,r=x=>x.els.find(e=>e.offsetParent)?.getBoundingClientRect();
 return (d>0?l.find(x=>r(x)?.bottom>y):l.findLast(x=>r(x)?.top<y))||null;}
 function status(){const l=L(),i=l.indexOf(c);prev.disabled=!step(-1);next.disabled=!step(1);
-acc.disabled=!c||!verb[cur];acc.textContent=cur==='acc'?W.unaccept:W.accept;acc.classList.toggle('primary',cur!=='acc');
-acc.title=cur==='acc'?W.unaccept_title:W.accept_title;
+const w=wordsOf(c);acc.disabled=!c||!verb[cur];acc.textContent=cur==='acc'?w.unaccept:w.accept;acc.classList.toggle('primary',cur!=='acc');
+acc.title=cur==='acc'?w.unaccept_title:w.accept_title;
 pos.textContent=cur==='old'||cur==='new'?W.select:i>=0?'change '+(i+1)+' of '+l.length+' · '+c.file:
 (l.length||'nothing')+({review:' to review',acc:' '+W.accepted}[cur]||' changes');}
 function focus(x,scroll=true){hidePop();if(c)c.els.forEach(e=>e.classList.remove('cur'));c=x;if(x){anchor=x;mark=null;}
@@ -501,7 +506,7 @@ function hidePop(){pop.hidden=true;popX=null;}
 const acts=new Map([...document.querySelectorAll('script.acts')].map(j=>[j.closest('section'),JSON.parse(j.textContent)]));
 const actsOf=x=>x&&acts.get(x.sec)?.[x.k]||[];let popX=null;
 // Under a clicked change x: accept, revisit and the plugins' buttons. Under the end of a text selection: revisit only.
-function showPop(r,withAccept,x){pa.hidden=!withAccept;pa.textContent=cur==='acc'?'↺':'✓';pa.title=cur==='acc'?W.unaccept_key:W.accept_key;popX=x||null;
+function showPop(r,withAccept,x){pa.hidden=!withAccept;pa.textContent=cur==='acc'?'↺':'✓';pa.title=cur==='acc'?wordsOf(x).unaccept_key:wordsOf(x).accept_key;popX=x||null;
 pop.querySelectorAll('.act').forEach(b=>b.remove());
 for(const[label,key,href]of actsOf(x)){const b=document.createElement('a');b.className='act';b.textContent=label;b.title=label+' ('+key+')';
 b.href=href;b.target='_blank';b.rel='noopener';b.onmousedown=e=>e.preventDefault();b.onclick=hidePop;pop.append(b);}
@@ -656,10 +661,13 @@ def load_plugins():
       diff as text, per block [(change key or None, old text, new text)], as block_diff() pairs them.
     place(run, old path, new path, side, before, after): where text of a file's block is in its source,
       for other plugins: github_pr.py's (see there).
+    remarks(run, out, refresh): comments made on the docs elsewhere, for other plugins: github_pr.py's
+      reads the PR's on GitHub (see there).
     STYLE, SCRIPT: CSS and JavaScript for the page, after docdiff's own. An element of class panel holds
       off the reload after a rebuild while it shows, and clicks in it leave the doc alone, as they do in
       an element of class ui (a card or side panel), which does not hold off the reload; openRev(g) opens
-      the revisit panel on g.quote, g.fields adding to the request it sends.
+      the revisit panel on g.quote, g.fields adding to the request it sends; wordsOf(x), which a plugin
+      may replace, gives the words for accepting change x, W (WORDS for the run's mode) by default.
     get(run, path, query), post(out, path, req): the server's routes. None for a path not its own, else
       (data, content type) with data None for a 404, or the reply to a post, after which the page
       rebuilds, unless the path is in the plugin's IN_PLACE: posts the page shows in place."""
