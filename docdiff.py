@@ -384,14 +384,15 @@ def apply(pieces, side, flip):
 
 
 STYLE = '''
-:root{--bg:#fff;--fg:#1f2328;--muted:#59636e;--line:#d1d9e0;--ins:#dafbe1;--insb:#1a7f37;--del:#ffebe9;--delb:#cf222e;--rw:#bf8700;--code:#f6f8fa;--link:#0969da}
-@media (prefers-color-scheme: dark){:root{--bg:#0d1117;--fg:#e6edf3;--muted:#9198a1;--line:#3d444d;--ins:#033a16;--insb:#3fb950;--del:#4b1113;--delb:#f85149;--rw:#d29922;--code:#161b22;--link:#4493f8}}
+:root{--bg:#fff;--fg:#1f2328;--muted:#59636e;--line:#d1d9e0;--ins:#dafbe1;--insb:#1a7f37;--del:#ffebe9;--delb:#cf222e;--rw:#bf8700;--code:#f6f8fa;--link:#0969da;--btn:#f6f8fa;--btnh:#eff2f5}
+@media (prefers-color-scheme: dark){:root{--bg:#0d1117;--fg:#e6edf3;--muted:#9198a1;--line:#3d444d;--ins:#033a16;--insb:#3fb950;--del:#4b1113;--delb:#f85149;--rw:#d29922;--code:#161b22;--link:#4493f8;--btn:#212830;--btnh:#262c36}}
 body{background:var(--bg);color:var(--fg);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0}
 main{max-width:920px;margin:0 auto;padding:16px 16px 40vh}
 header{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 16px;z-index:1;display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;font-size:14px}
 header a{color:var(--fg);font-weight:600} .n{color:var(--muted)} .sides{flex-basis:100%;font-size:13px}
 button:disabled{opacity:.4;cursor:default}
-button{font:inherit;padding:4px 10px;border:1px solid var(--line);background:var(--code);color:var(--fg);border-radius:6px;cursor:pointer}
+button{font:inherit;padding:4px 10px;border:1px solid var(--line);background:var(--btn);color:var(--fg);border-radius:6px;cursor:pointer;transition:background-color .1s}
+button:not(:disabled):hover{background:var(--btnh)} button:focus-visible{outline:2px solid var(--link);outline-offset:-2px}
 .file{margin:48px 0 8px;padding:6px 10px;background:var(--code);border:1px solid var(--line);border-radius:6px;font:600 14px ui-monospace,Menlo,monospace}
 .state{color:var(--muted);font-weight:400}
 .accf,.pub{float:right;font:12px -apple-system,BlinkMacSystemFont,sans-serif;padding:1px 8px}
@@ -410,14 +411,24 @@ a{color:var(--link)} .cur{outline:2px solid #bf8700;outline-offset:2px}
 body:not(.show-review) .v-review,body:not(.show-acc) .v-acc,body:not(.show-diff) .v-diff,body:not(.show-old) .v-old,body:not(.show-new) .v-new{display:none}
 .show-old .step,.show-new .step{display:none}
 body:not(.show-review) .accf[data-a=accept],body:not(.show-acc) .accf[data-a=unaccept]{display:none}
-.seg{display:inline-flex} .seg button{border-radius:0} .seg button:first-child{border-radius:6px 0 0 6px}
-.seg button:last-child{border-radius:0 6px 6px 0} .seg button[aria-pressed=true]{background:var(--fg);color:var(--bg)}
-.panel{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:10px 16px;z-index:2;font-size:14px}
+.seg,.pair{display:inline-flex;max-width:100%} .seg button,.pair button{border-radius:0;margin-left:-1px;white-space:nowrap}
+.seg button:first-child,.pair button:first-child{border-radius:6px 0 0 6px;margin-left:0} .seg button:last-child,.pair button:last-child{border-radius:0 6px 6px 0}
+.seg button[aria-pressed=true]{background:var(--fg);color:var(--bg);border-color:var(--fg)} .seg button[data-v=diff]{min-width:0;max-width:11em;overflow:hidden;text-overflow:ellipsis}
+.bar{flex:1 1 100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px} #pos{flex:1 1 14em;min-width:0;font-size:13px;font-variant-numeric:tabular-nums}
+.tools{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto}
+header button,.panel button{height:28px;padding:0 12px;line-height:26px;font-size:13px;font-weight:500}
+.primary{background:var(--ins);color:var(--insb);border-color:color-mix(in srgb,var(--insb) 40%,transparent)} .primary:not(:disabled):hover{background:color-mix(in srgb,var(--ins),var(--insb) 14%)}
+.tools .step:disabled{opacity:1;color:color-mix(in srgb,var(--muted) 60%,var(--bg));background:var(--bg);border-color:var(--line)}
+[data-key]::after{content:attr(data-key);display:inline-block;margin-left:7px;padding:0 4px;min-width:7px;border:1px solid color-mix(in srgb,currentColor 25%,transparent);border-radius:4px;font:11px/15px ui-monospace,SFMono-Regular,Menlo,monospace;color:color-mix(in srgb,currentColor 70%,transparent);text-align:center;vertical-align:1px}
+.seg[data-key]::after{align-self:center;color:var(--muted);border-color:var(--line)} @media (max-width:640px){[data-key]::after{display:none}}
+.panel{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);box-shadow:0 -2px 8px rgba(0,0,0,.06);padding:12px max(16px,calc(50% - 444px));z-index:2;font-size:14px;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px}
+.panel[hidden]{display:none} .panel>blockquote,.panel>textarea{flex:1 0 100%;box-sizing:border-box} .panel .hint{margin-right:auto;font-size:12px}
 #pop{position:absolute;z-index:3;display:flex;background:var(--bg);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12);overflow:hidden}
 #pop[hidden]{display:none} #pop button,#pop a{border:0;border-radius:0;background:none;color:var(--muted);padding:2px 9px;font-size:14px;line-height:1.5;text-decoration:none}
 #pop button:hover,#pop a:hover{background:var(--code);color:var(--fg)} #pop button+button,#pop button+a{border-left:1px solid var(--line)}
-.panel blockquote{margin:0 0 8px;padding:2px 10px;border-left:3px solid var(--line);color:var(--muted);max-height:6em;overflow:auto;white-space:pre-wrap}
-.panel textarea{display:block;width:100%;box-sizing:border-box;min-height:4.5em;margin-bottom:8px;font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px}
+.panel blockquote{margin:0;padding:2px 10px;border-left:3px solid var(--line);color:var(--muted);font-size:13px;max-height:6em;overflow:auto;white-space:pre-wrap}
+.panel textarea{display:block;width:100%;box-sizing:border-box;min-height:4.5em;margin:0;font:inherit;line-height:1.5;resize:vertical;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+.panel textarea:focus{outline:none;border-color:var(--link);box-shadow:0 0 0 3px color-mix(in srgb,var(--link) 20%,transparent)}
 '''
 
 SCRIPT = '''
@@ -442,9 +453,10 @@ if(m)return (d>0?l.find(x=>gi(x)>gi(m)):l.findLast(x=>gi(x)<gi(m)))||null;
 const y=mark!==null&&mark-scrollY>top&&mark-scrollY<innerHeight?mark-scrollY:top,r=x=>x.els.find(e=>e.offsetParent)?.getBoundingClientRect();
 return (d>0?l.find(x=>r(x)?.bottom>y):l.findLast(x=>r(x)?.top<y))||null;}
 function status(){const l=L(),i=l.indexOf(c);prev.disabled=!step(-1);next.disabled=!step(1);
-acc.disabled=!c||!verb[cur];acc.textContent=cur==='acc'?'↺ unaccept':'✓ accept';
-pos.textContent=cur==='old'||cur==='new'?'select text, r to revisit · v view':i>=0?'change '+(i+1)+' of '+l.length+' · '+c.file:
-(l.length||'nothing')+({review:' to review',acc:' accepted'}[cur]||' changes')+' · n / p step'+(verb[cur]?' · a '+verb[cur]:'')+' · r revisit · v view';}
+acc.disabled=!c||!verb[cur];acc.textContent=cur==='acc'?'↺ unaccept':'✓ accept';acc.classList.toggle('primary',cur!=='acc');
+acc.title=(cur==='acc'?'Unaccept':'Accept')+' the current change (a)';
+pos.textContent=cur==='old'||cur==='new'?'select text to revisit':i>=0?'change '+(i+1)+' of '+l.length+' · '+c.file:
+(l.length||'nothing')+({review:' to review',acc:' accepted'}[cur]||' changes');}
 function focus(x,scroll=true){hidePop();if(c)c.els.forEach(e=>e.classList.remove('cur'));c=x;if(x){anchor=x;mark=null;}
 if(c){c.els.forEach(e=>e.classList.add('cur'));if(scroll)c.els.find(e=>e.offsetParent)?.scrollIntoView({block:'center',behavior:'smooth'});}status();}
 function go(d){const x=step(d);if(x)focus(x);}
@@ -693,13 +705,13 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{html.escape(title)}</title><style>{STYLE}{"".join(getattr(m, 'STYLE', '') for m in PLUGINS)}</style></head><body class="show-review" data-view="review" data-repo="{html.escape(str(repo))}" data-build="{build_id}">
 <header>{" · ".join(nav)}<span style="flex:1"></span>
-<span class="seg">{seg}</span>
-<span id="pos" class="n"></span><button id="prev" class="step">↑ prev</button><button id="next" class="step">next change ↓</button>
-<button id="acc" class="step">✓ accept</button><button id="rev">revisit</button>
+<span class="seg" data-key="v" title="v cycles the views">{seg}</span>
+<div class="bar"><span id="pos" class="n"></span><span class="tools"><span class="pair step"><button id="prev" class="step" data-key="p" title="Previous change (p or k)">↑ prev</button><button id="next" class="step" data-key="n" title="Next change (n or j)">next change ↓</button></span>
+<button id="acc" class="step primary" data-key="a">✓ accept</button><button id="rev" data-key="r" title="Revisit the selection or the current change (r)">✎ revisit</button></span></div>
 <span class="sides n">Old: {html.escape(side(repo, base))} — New: {html.escape(new_label or side(repo, head))}</span></header>
 <main>{"".join(sections)}</main>
-<div id="rp" class="panel" hidden><blockquote id="rq"></blockquote><textarea id="rt" placeholder="What should change? ↵ sends, ⇧↵ adds a line"></textarea>
-<button id="rs">Send</button> <button id="rc">Cancel</button></div>
+<div id="rp" class="panel" hidden><blockquote id="rq"></blockquote><textarea id="rt" placeholder="What should change?"></textarea>
+<span class="hint n">⇧↵ adds a line</span><button id="rc" data-key="esc">Cancel</button><button id="rs" class="primary" data-key="↵">Send</button></div>
 <div id="pop" hidden><button id="pa">✓</button><button id="pr" title="Revisit (r)">✎</button></div>
 <script>{SCRIPT}{"".join(getattr(m, 'SCRIPT', '') for m in PLUGINS)}</script></body></html>''', len(sections)
 
