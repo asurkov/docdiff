@@ -7,7 +7,8 @@ against the files the PR changes: the file holding the block's longest run of wo
 aligning the block with it puts the change's word on a line. Tags and punctuation do not count, so
 ReSpec's rewrites ([=term=], {{IDL}}, |var|) cost a spec's source only the words they change. A Markdown
 file's words take their lines from pandoc's source positions. A change with no run of RUN words in a
-row anywhere links to its file without a line, or to the PR's files when a spec has several.
+row anywhere links to its file without a line, or to the PR's files when a spec has several. place()
+finds other text of a block the same way, for other plugins: review comments.
 """
 import difflib, hashlib, html, os, re, subprocess, sys
 
@@ -52,16 +53,35 @@ def actions(run):
         for k in {k for k, _ in first}:
             if (old, new, k) not in done:
                 side = 'R' if (k, 'R') in first else 'L'
-                label, href = link(url, sources[old, new][side], side, *first[k, side])
-                done[old, new, k] = [(label, KEY, href)]
+                path, line, href = link(url, sources[old, new][side], side, *first[k, side])
+                done[old, new, k] = [(label(path, line, side), KEY, href)]
         return {k: done[old, new, k] for k, _ in first}
     return act
 
 
+def place(run, old, new, side, before, after):
+    """For other plugins, review comments say: where the text `after` starts, `before` being the text of
+    its block before it, on that side of the file ('L' the base, 'R' the head), found in the PR's files
+    as a change's button is: (path, line, link) as link() returns them; None without --pr."""
+    if not run.get('pr') or not run.get('head'):
+        return None
+    repo, rev = run['repo'], run['base'] if side == 'L' else run['head']
+    files = [f for p in changed(repo, run['base'], run['head'], old, new, side) if (f := source(repo, rev, p))]
+    ws = WORD.findall(before.lower())
+    return link(files_url(repo, run['pr']), files, side, ws + WORD.findall(after.lower()), len(ws))
+
+
+def label(path, line, side):
+    """The button names the file and line, as GitHub highlights the line but does not scroll to it."""
+    if not path:
+        return LABEL
+    return f'{LABEL} {os.path.basename(path)}' + (f':{line}' + (' (old)' if side == 'L' else '') if line else '')
+
+
 def link(url, files, side, ws, s):
-    """The change's button label and link: to the line its word ws[s] comes from, in the file that holds
-    the longest run of the words around it. The label names the file and line, as GitHub highlights the
-    line but does not scroll to it."""
+    """Where the word ws[s] comes from, in the file that holds the longest run of the words around it:
+    (path, line, link), the line None where no run places the word, and the path too when the spec has
+    several files."""
     lo = max(0, s - CONTEXT)
     win, s = ws[lo:s + CONTEXT], s - lo
     best, at = None, (0, 0, 0)
@@ -72,8 +92,8 @@ def link(url, files, side, ws, s):
             best, at = f, m
     if not best or at[2] < min(RUN, len(win)):
         if len(files) != 1:
-            return LABEL, url
-        return f'{LABEL} {os.path.basename(files[0]["path"])}', f'{url}#diff-{anchor(files[0]["path"])}'
+            return None, None, url
+        return files[0]['path'], None, f'{url}#diff-{anchor(files[0]["path"])}'
     # Aligned near the run: the word matched nearest the change's own.
     i, j, _ = at
     a0 = max(0, j - 2 * i - 20)
@@ -81,8 +101,7 @@ def link(url, files, side, ws, s):
                                              autojunk=False).get_matching_blocks() if m.size]
     a, b, n = min(ms, key=lambda m: max(m.a - s, s - (m.a + m.size - 1), 0))
     line = best['lines'][a0 + b + min(max(s - a, 0), n - 1)]
-    label = f'{LABEL} {os.path.basename(best["path"])}:{line}' + (' (old)' if side == 'L' else '')
-    return label, f'{url}#diff-{anchor(best["path"])}{side}{line}'
+    return best['path'], line, f'{url}#diff-{anchor(best["path"])}{side}{line}'
 
 
 def anchor(path):

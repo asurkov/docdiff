@@ -22,7 +22,7 @@ starts over from the base. gdocsync's push --target, then its export, is such a 
 
 Plugins, the modules in plugins/, add their own arguments, docs and buttons (see load_plugins):
 respec.py diffs ReSpec specs, gdoc_comments.py marks a Google Doc's comments (--comments), github_pr.py
-links changes to a GitHub PR (--pr).
+links changes to a GitHub PR (--pr), review.py keeps review comments and shows revisits' answers.
 """
 import argparse, base64, difflib, hashlib, html, http.server, importlib.util, json, mimetypes, os, pathlib, re
 import shlex, shutil, subprocess, sys, tempfile, threading, time, urllib.parse, urllib.request
@@ -412,12 +412,12 @@ body:not(.show-review) .v-review,body:not(.show-acc) .v-acc,body:not(.show-diff)
 body:not(.show-review) .accf[data-a=accept],body:not(.show-acc) .accf[data-a=unaccept]{display:none}
 .seg{display:inline-flex} .seg button{border-radius:0} .seg button:first-child{border-radius:6px 0 0 6px}
 .seg button:last-child{border-radius:0 6px 6px 0} .seg button[aria-pressed=true]{background:var(--fg);color:var(--bg)}
-#rp{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:10px 16px;z-index:2;font-size:14px}
+.panel{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:10px 16px;z-index:2;font-size:14px}
 #pop{position:absolute;z-index:3;display:flex;background:var(--bg);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12);overflow:hidden}
 #pop[hidden]{display:none} #pop button,#pop a{border:0;border-radius:0;background:none;color:var(--muted);padding:2px 9px;font-size:14px;line-height:1.5;text-decoration:none}
 #pop button:hover,#pop a:hover{background:var(--code);color:var(--fg)} #pop button+button,#pop button+a{border-left:1px solid var(--line)}
-#rp blockquote{margin:0 0 8px;padding:2px 10px;border-left:3px solid var(--line);color:var(--muted);max-height:6em;overflow:auto;white-space:pre-wrap}
-#rp textarea{display:block;width:100%;box-sizing:border-box;min-height:4.5em;margin-bottom:8px;font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px}
+.panel blockquote{margin:0 0 8px;padding:2px 10px;border-left:3px solid var(--line);color:var(--muted);max-height:6em;overflow:auto;white-space:pre-wrap}
+.panel textarea{display:block;width:100%;box-sizing:border-box;min-height:4.5em;margin-bottom:8px;font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px}
 '''
 
 SCRIPT = '''
@@ -476,7 +476,7 @@ for(const[label,key,href]of actsOf(x)){const b=document.createElement('a');b.cla
 b.href=href;b.target='_blank';b.rel='noopener';b.onmousedown=e=>e.preventDefault();b.onclick=hidePop;pop.append(b);}
 pop.hidden=false;
 pop.style.left=Math.max(8,Math.min(r.left,innerWidth-pop.offsetWidth-8))+scrollX+'px';pop.style.top=r.bottom+scrollY+4+'px';}
-document.addEventListener('click',e=>{if(e.target.closest('header,#pop,#rp')||!getSelection().isCollapsed)return;
+document.addEventListener('click',e=>{if(e.target.closest('header,#pop,.panel')||!getSelection().isCollapsed)return;
 // A removed block's summary only folds and unfolds it.
 if(e.target.closest('summary')){hidePop();return;}
 const t=e.target.closest('.v-'+cur+' .chg');
@@ -485,7 +485,7 @@ else{mark=e.clientY+scrollY;focus(null,false);}});
 // Without a current change, where n and p start moves with the screen.
 addEventListener('scroll',()=>{if(!c)status();},{passive:true});
 // Runs once the click has settled: clicking inside a selection clears it only after the click handler.
-document.addEventListener('mouseup',e=>{if(e.target.closest('header,#pop,#rp'))return;setTimeout(()=>{const s=getSelection();
+document.addEventListener('mouseup',e=>{if(e.target.closest('header,#pop,.panel'))return;setTimeout(()=>{const s=getSelection();
 if(s.isCollapsed||!s.rangeCount){if(!popX)hidePop();return;}
 if(!s.anchorNode.parentElement?.closest('main .v'))return;
 mark=e.clientY+scrollY;if(!c)status();
@@ -505,12 +505,12 @@ function quoteOf(s){const f=s.getRangeAt(0).cloneContents();f.querySelectorAll('
 return f.textContent.replace(/\\s+/g,' ').trim()||s.toString().trim();}
 function grab(){const s=getSelection();
 if(!s.isCollapsed&&s.rangeCount&&!rp.contains(s.anchorNode))return{quote:quoteOf(s),el:s.anchorNode.parentElement};
-return c?{quote:summary(c),el:c.els[0]}:null;}
+return c?{quote:summary(c),el:c.els[0],key:c.k}:null;}
 function heading(el){const v=el.closest('.v');if(!v)return '';
 const h=[...v.querySelectorAll('h1,h2,h3,h4')].filter(h=>h.compareDocumentPosition(el)&Node.DOCUMENT_POSITION_FOLLOWING).pop();
 if(!h)return '';const k=h.cloneNode(true);k.querySelectorAll('del').forEach(d=>d.remove());return k.textContent.trim();}
 function openRev(g){const s=g&&g.el.closest('section');if(!s){pos.textContent='select text, or step to a change, then press r';return;}
-req={file:s.dataset.file,section:heading(g.el),quote:g.quote,view:cur};rq.textContent=g.quote;rp.hidden=false;rt.focus();}
+req={file:s.dataset.file,section:heading(g.el),quote:g.quote,view:cur,key:g.key};rq.textContent=g.quote;rp.hidden=false;rt.focus();}
 function closeRev(){rp.hidden=true;rt.value='';req=null;}
 async function copy(t){try{await navigator.clipboard.writeText(t);return true;}
 catch(e){const a=document.createElement('textarea');a.value=t;body.append(a);a.select();const done=document.execCommand('copy');a.remove();return done;}}
@@ -535,7 +535,7 @@ if(cur==='old'||cur==='new')return;
 if(e.key==='n'||e.key==='j')go(1);if(e.key==='p'||e.key==='k')go(-1);if(e.key==='a')accept();
 const a=actsOf(c).find(a=>a[1]===e.key);if(a)open(a[2],'_blank','noopener');});
 // Every reload keeps the view, the current change and the place in the doc; a rebuild reloads the page,
-// unless a revisit is being typed.
+// unless a panel is open (a revisit, or a plugin's, being typed).
 history.scrollRestoration='manual';
 function place(){const secs=[...document.querySelectorAll('section')];
 for(const x of secs){const b=x.getBoundingClientRect();if(b.bottom>80)return{file:x.dataset.file,r:Math.max(0,80-b.top)/Math.max(1,b.height)};}return null;}
@@ -547,7 +547,7 @@ anchor=find(st.a);const x=find(st.c)||(st.c&&L()[Math.min(st.ci,L().length-1)]);
 const back=()=>{const s=st.at&&[...document.querySelectorAll('section')].find(z=>z.dataset.file===st.at.file);
 if(s){const b=s.getBoundingClientRect();scrollTo(0,scrollY+b.top+st.at.r*b.height-80);}};
 document.readyState==='complete'?back():addEventListener('load',back);}
-setInterval(()=>fetch('build.json').then(r=>r.json()).then(b=>{if(b.id!==body.dataset.build&&rp.hidden)location.reload();}).catch(()=>{}),1500);
+setInterval(()=>fetch('build.json').then(r=>r.json()).then(b=>{if(b.id!==body.dataset.build&&!document.querySelector('.panel:not([hidden])'))location.reload();}).catch(()=>{}),1500);
 restore();status();
 '''
 
@@ -606,7 +606,8 @@ def commit(repo, rev):
 
 def load_plugins():
     """The modules in plugins/, each with this module as `docdiff` in it, for git(), read() and the
-    like. run below is the run's arguments as .run.json holds them. A plugin may define:
+    like. run below is the run's arguments as .run.json holds them, repo and out as full paths. A plugin
+    may define:
 
     add_args(parser): its arguments, which go into .run.json with the rest.
     PATHS and doc(repo, (base, head), path, memo): pathspecs of the files it makes docs of, beside *.md,
@@ -620,10 +621,13 @@ def load_plugins():
       that returns buttons for the popup of a file's changes, {change key: [(label, key, href)]}; the
       button opens href in a new tab, and so does the key on the current change. blocks is the file's
       diff as text, per block [(change key or None, old text, new text)], as block_diff() pairs them.
-    STYLE, SCRIPT: CSS and JavaScript for the page, after docdiff's own.
+    place(run, old path, new path, side, before, after): where text of a file's block is in its source,
+      for other plugins: github_pr.py's (see there).
+    STYLE, SCRIPT: CSS and JavaScript for the page, after docdiff's own. An element of class panel holds
+      off the reload after a rebuild while it shows, and clicks in it leave the doc alone.
     get(run, path, query), post(out, path, req): the server's routes. None for a path not its own, else
       (data, content type) with data None for a 404, or the reply to a post, after which the page
-      rebuilds."""
+      rebuilds, unless the path is in the plugin's IN_PLACE: posts the page shows in place."""
     mods = []
     for f in sorted((pathlib.Path(__file__).parent / 'plugins').glob('*.py')):
         spec = importlib.util.spec_from_file_location(f'docdiff_{f.stem}', f)
@@ -694,7 +698,7 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
 <button id="acc" class="step">✓ accept</button><button id="rev">revisit</button>
 <span class="sides n">Old: {html.escape(side(repo, base))} — New: {html.escape(new_label or side(repo, head))}</span></header>
 <main>{"".join(sections)}</main>
-<div id="rp" hidden><blockquote id="rq"></blockquote><textarea id="rt" placeholder="What should change? ↵ sends, ⇧↵ adds a line"></textarea>
+<div id="rp" class="panel" hidden><blockquote id="rq"></blockquote><textarea id="rt" placeholder="What should change? ↵ sends, ⇧↵ adds a line"></textarea>
 <button id="rs">Send</button> <button id="rc">Cancel</button></div>
 <div id="pop" hidden><button id="pa">✓</button><button id="pr" title="Revisit (r)">✎</button></div>
 <script>{SCRIPT}{"".join(getattr(m, 'SCRIPT', '') for m in PLUGINS)}</script></body></html>''', len(sections)
@@ -832,7 +836,8 @@ def handler(out):
                                                                   for m in PLUGINS if hasattr(m, 'post'))), None)
                     if reply is None:
                         return self.send_error(404)
-                    rebuild(out)
+                    if self.path not in {p for m in PLUGINS for p in getattr(m, 'IN_PLACE', ())}:
+                        rebuild(out)
             data = json.dumps(reply).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
@@ -884,7 +889,7 @@ def main():
     out = pathlib.Path(a.out) if a.out else pathlib.Path(tempfile.gettempdir()) / f'docdiff-{repo.name}'
     out.mkdir(parents=True, exist_ok=True)
     # The server rebuilds from this after an accept; plugins read their arguments from it.
-    (out / '.run.json').write_text(json.dumps({**vars(a), 'repo': str(repo)}))
+    (out / '.run.json').write_text(json.dumps({**vars(a), 'repo': str(repo), 'out': str(out.resolve())}))
     _, _, shown = rebuild(out)
     print(f'{shown} changed doc(s) in {repo} vs {a.base}{f"..{a.head}" if a.head else ""} → {out / "index.html"}',
           flush=True)

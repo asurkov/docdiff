@@ -27,7 +27,8 @@ is the files at that revision instead of the working tree (a PR, say). A changed
 **Accept** (`a`, or the ✓ button; "accept file" on each file's bar) moves the current change into the
 accepted copy, and the page reloads without it; in Accepted, the same key (↺) takes a change back out.
 Clicking a change makes it current and opens a small popup under it: ✓ (or ↺), ✎ revisit and the buttons
-plugins add, such as GitHub ↗ for a PR ([Plugins](#plugins)); selecting text pops up ✎ alone. **Revisit** (`r`, or the
+plugins add, such as 💬 comment ([Review comments](#review-comments)) and GitHub ↗ for a PR
+([Plugins](#plugins)); selecting text pops up ✎ and 💬. **Revisit** (`r`, or the
 button) takes the selected text, or the current change, and a request typed under it; Send (↵; ⇧↵ adds a line) copies a
 ready prompt to the clipboard and queues the request ([Accepts and revisits](#accepts-and-revisits)).
 
@@ -60,7 +61,7 @@ Read them from the invocation, in any order:
    navigation does not work. Open it on `127.0.0.1` as printed, never `localhost`: specs render on
    `localhost`, and the server takes posts only from the `127.0.0.1` page.
 4. Tell the user the files and change counts in one or two lines, and that `n`/`p` step through changes,
-   `a` accepts one and `r` revisits a selection.
+   `a` accepts one, `r` revisits a selection and `c` comments on it.
 
 ## Accepts and revisits
 
@@ -73,18 +74,31 @@ The server writes both into the output dir:
   to review, so the copy never keeps text the new base dropped (`<file>.base` records the base commit).
   (`accepted.json`, the older store of accepted change keys, seeds the copy once with the changes that
   still match.)
-- `revisit.jsonl` — one request per line: `time`, `file`, `section`, `quote`, `view`, `prompt`, and `text`
-  (the prompt as copied to the clipboard). When the user pastes one or says they sent revisits, read the
-  lines since the last one handled, apply each to the file, and rerun docdiff.
+- `revisit.jsonl` — one request per line: `time`, `file`, `section`, `quote`, `view`, `prompt`, `key` (the
+  change's, for a revisit of a change) and `text` (the prompt as copied to the clipboard). When the user
+  pastes one or says they sent revisits, read the lines since the last one handled, apply each to the
+  file, and rerun docdiff.
   Open each reply with the request as sent, since the chat does not show it: the section and the quote
   as a blockquote, then the prompt, e.g. `> **Terms** · "visits a monetized document."` and
   `> monetized document or monetized page?`.
+- `answers.jsonl` — Claude's answers to revisits, one per line: `{"time": <the revisit's time>, "answer":
+  <Markdown>}`. After answering a revisit in chat, append the answer here (the reply without the quoted
+  request), and the page shows it under the request ([Review comments](#review-comments)); until then the
+  request shows as pending:
+
+  ```bash
+  python3 -c 'import json,sys; print(json.dumps({"time": sys.argv[1], "answer": sys.stdin.read().strip()}, ensure_ascii=False))' "<time>" >> <out>/answers.jsonl <<'EOF'
+  <the answer>
+  EOF
+  ```
+- `review.json` — the user's review comments ([Review comments](#review-comments)). When the user says
+  they left comments, read them there.
 
 **Watching for revisits.** While the user reviews, keep one background Bash command (`run_in_background`)
 waiting for the next request. It has no time limit, unlike Monitor, and it touches `<out>/watcher` every
 second: on Send the page checks that file, says "sent, Claude is watching" while it is fresh, and
 otherwise copies the prompt for the user to paste. The command exits with the new request; handle it,
-then start the next wait at once.
+append the answer to `answers.jsonl`, then start the next wait at once.
 
 ```bash
 sh -c 'd=<out>; f=$d/revisit.jsonl; touch "$f"; n=$(($(wc -l < "$f"))); while [ $(($(wc -l < "$f"))) -le $n ]; do touch "$d/watcher"; sleep 1; done; tail -n +$((n+1)) "$f"'
@@ -169,10 +183,12 @@ on every run and used where it applies.
 - `gdoc_comments.py`: `--comments`, a Google Doc's comments marked on the old side
   ([Google Doc vs Markdown](#google-doc-vs-markdown)).
 - `github_pr.py`: `--pr`, a link from each change to its line in a GitHub PR ([GitHub PR](#github-pr)).
+- `review.py`: review comments, and revisits with Claude's answers, on the page
+  ([Review comments](#review-comments)).
 
 A plugin sees docdiff itself as `docdiff` (`git()`, `read()` and the like) and may define the hooks
 below; `load_plugins()` in `docdiff.py` has their exact shapes. `run` is the run's arguments as
-`<out>/.run.json` keeps them.
+`<out>/.run.json` keeps them, `repo` and `out` as full paths.
 
 - `add_args(parser)`: its command-line arguments, kept in `.run.json` with the rest, so the server's
   rebuilds see them.
@@ -184,8 +200,12 @@ below; `load_plugins()` in `docdiff.py` has their exact shapes. `run` is the run
   as text: per block (paragraph, list item, heading…) a list of `(change key or None, old text, new
   text)`. A link opens `href` in a new tab, and so does `key` on the current change, so the key must not
   be one of docdiff's own (`n p j k a r v`).
-- `STYLE`, `SCRIPT`: CSS and JavaScript for the page, after docdiff's own.
-- `get(run, path, query)`, `post(out, path, req)`: the server's routes; the page rebuilds after a post.
+- `place(run, old, new, side, before, after)`: for other plugins, where text of a file's block is in its
+  source; `github_pr.py`'s gives review comments their file and line.
+- `STYLE`, `SCRIPT`: CSS and JavaScript for the page, after docdiff's own. An element of class `panel`
+  holds off the reload after a rebuild while it shows, and clicks in it leave the doc alone.
+- `get(run, path, query)`, `post(out, path, req)`: the server's routes; the page rebuilds after a post,
+  unless the path is in the plugin's `IN_PLACE`.
 
 ### GitHub PR
 
@@ -204,7 +224,38 @@ punctuation do not count, so ReSpec's rewrites (`[=term=]`, `{{IDL}}`, `|var|`) 
 change; a `title` attribute counts, as ReSpec shows a note's or an example's title as its caption. A
 Markdown file's words take their lines from pandoc's source positions (`gfm+sourcepos`). A change with no
 run of 4 words anywhere, text ReSpec makes such as the references, links to its file without a line, or to
-the PR's files when a spec has several.
+the PR's files when a spec has several. `place()` finds other text of a block the same way, for review
+comments.
+
+### Review comments
+
+`plugins/review.py`. Both popups, a change's and a selection's, get **💬** (`c`): a comment on that change
+or that text, typed in a panel like the revisit one (↵ saves, ⇧↵ adds a line). It is kept in
+`<out>/review.json` with its file, view, change key (none on a selection), quote (its text as it reads),
+the text of its block around it, section, body and time; with `--pr`, also `github`: its file and line in
+the PR, found as its change's GitHub ↗ button finds them, and found again when the run's head moves.
+
+Each comment is a 💬 mark on its change in every view that has the change, and elsewhere where its quote
+reads, the text before it picking among repeats: so it stays on a change once that is accepted, and shows
+on the same text in Old or New. Clicking the mark edits or deletes it. The header's **💬 N** opens the
+Review panel: the comments and revisits in the order they come in the doc, each a click from its place,
+comments with edit and delete, and **Copy as Markdown**, which copies per comment its `path:line` (linked
+to the line on GitHub; without `--pr`, the file and section), the quote and the comment, to paste into
+GitHub. Saving a comment shows it in place, with no rebuild; comments outlast rebuilds, accepts and server
+restarts.
+
+Revisits show the same way, as ✎ marks: the request (quote and prompt) and, from `answers.jsonl`, Claude's
+answers under it, or pending (dashed) until there is one. The page asks the server every 2 seconds, so a
+request or an answer shows without a reload. A server started before `review.py` existed has no route for
+any of this (💬 N greys out): stop it and rerun docdiff.
+
+**GitHub sync, later** (a plugin step of its own; none of it is built). Push: `review.json` as a pending
+review through `gh api` (`POST /repos/<owner>/<repo>/pulls/<N>/reviews` with `commit_id` the head and
+`comments: [{path, line, side, body}]`, no `event`, so it stays pending for the user to submit on GitHub),
+keeping each comment's GitHub id in `review.json` so a second push updates instead of duplicating;
+comments without a line go in the review's body. Pull: the PR's review threads
+(`GET /repos/<owner>/<repo>/pulls/<N>/comments`) onto the page, placed by `path` and `line` mapped back
+onto blocks (the inverse of `place()`), read-only. Submitting stays the user's click.
 
 ## Proposing wording with it
 
