@@ -36,7 +36,9 @@ ready prompt to the clipboard and queues the request ([Accepts and revisits](#ac
 read as a review: accept is **✓ looks good** (`a`) and ↺ **not reviewed**, the Accepted view is
 **Reviewed** ("22 to review · 28 reviewed"), and revisit is **✎ ask** (`r`), a question to Claude about
 the change; 💬 comment (`c`) is the remark for the PR's author. On a change you commented on, accept is
-**✓ reviewed** instead: it leaves To review without saying it looks good. Either one resolves the
+**✓ reviewed** instead: it leaves To review without saying it looks good. With `--pr` and your login
+known, a comment you wrote on GitHub counts as your 💬 does, here and in Reviewed below
+([GitHub PR](#github-pr)); other people's comments do not. Either one resolves the
 answered threads on that change alone; ↺ not reviewed reopens those ([Review comments](#review-comments)).
 
 Reviewed shows reviewed changes **settled**: the new text only, no strike-through or highlight, with a
@@ -160,7 +162,7 @@ base=$(git -C <clone> merge-base origin/main "$head")
 then step 1 with `--base $base --head $head --pr <owner>/<repo>#<N> --out "$TMPDIR/docdiff-<name>-<N>"`.
 Base is the merge base, as on GitHub, so changes that landed on main since do not show as reverted. Pass
 hashes, not `FETCH_HEAD`: the server re-resolves both on every rebuild. `--pr` gives each change a button
-to its line on GitHub ([GitHub PR](#github-pr)).
+to its line on GitHub, and `--me <login>` makes your comments there your review ([GitHub PR](#github-pr)).
 
 ## Google Doc vs Markdown
 
@@ -314,6 +316,8 @@ shows the last copy. They are kept in `<out>/github.json` with each page's ETag;
 only when the copy is over 5 minutes old, as without a token each ask costs 3 of GitHub's 60 requests an
 hour (a 304 included). `GITHUB_TOKEN`, if set, is sent and never written down. `--pr-comments FILE`
 reads them from a file instead (`{review, issue, reviews}` as the API lists them), offline or for a test.
+`--me <login>` names you on GitHub; without it, `GITHUB_TOKEN`'s user (`GET /user`, once, its login kept
+in `github.json`). With neither, every GitHub comment is someone else's.
 
 A line comment is placed on the diff by its `path`, `side` and `line`, the inverse of a change's GitHub
 button: the words of that source line, with the words around it, are matched against the diff's blocks,
@@ -324,6 +328,12 @@ Markdown (rendered as answers are), the replies, and Open on GitHub ↗. Outdate
 could not be placed, the PR's own comments and review bodies are listed in the Review panel under
 On GitHub. A 💬 of yours whose text a GitHub comment has (spacing aside, or one holding the other) shows
 as posted, linked to it.
+
+**Yours** (your login known): a thread you wrote in, first or as a reply, is your comment on its change,
+as a 💬 is: accept there reads ✓ reviewed, the change counts in "with comments", and in settled Reviewed
+its wording has the dotted amber underline. Its mark is amber, still read only with Open on GitHub ↗, and
+the Review panel names you "(you)". A 💬 is posted only by a comment of yours, and that comment then shows
+as the 💬 alone: a thread of nothing else has no mark, one with replies counts the replies.
 
 **Pushing, later** (not built). `review.json` as a pending review through `gh api`
 (`POST /repos/<owner>/<repo>/pulls/<N>/reviews` with `commit_id` the head and `comments: [{path, line,

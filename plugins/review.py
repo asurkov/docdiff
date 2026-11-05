@@ -60,7 +60,7 @@ STYLE = '''
 .rvb-g{color:var(--fg)} .rvb-g::before{content:'';display:inline-block;width:10px;height:10px;margin-right:3px;vertical-align:-1px;background:currentColor;
 -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1.5 2.5h13v8.5h-8l-3.5 3v-3h-1.5z' fill='none' stroke='black' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;
 mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1.5 2.5h13v8.5h-8l-3.5 3v-3h-1.5z' fill='none' stroke='black' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat}
-.rvb-g::after{content:attr(data-n)} .rvb-posted{border-color:var(--insb)} .rvb-posted::after{content:' ✓';color:var(--insb)}
+.rvb-g::after{content:attr(data-n)} .rvb-gme{color:var(--rw);border-color:var(--rw)} .rvb-posted{border-color:var(--insb)} .rvb-posted::after{content:' ✓';color:var(--insb)}
 .rvgc{margin:6px 0} .rvgr{margin-left:16px} .rva.rvgh{border-color:var(--line)} .rvgs{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;margin:0 0 6px}
 .rv-settled .v-acc del.chg:not(.rvshow){display:none} .rv-settled .v-acc ins.chg:not(.rvshow){background:none;box-shadow:none}
 .rv-settled .v-acc .blk:not(.rvshow){border-left-color:color-mix(in srgb,var(--muted) 45%,transparent)} .rv-settled .v-acc .blk[data-kind=rw]:not(.rvshow)>.was{display:none}
@@ -103,6 +103,8 @@ const span=els=>{const r=document.createRange();r.setStartBefore(els[0]);r.setEn
 function anchorOf(){const s=getSelection(),sel=!s.isCollapsed&&s.rangeCount&&s.anchorNode.parentElement?.closest('main .v');if(!sel&&!c)return null;
 const el=sel?s.anchorNode.parentElement:c.els[0],a=sel?anchor(s.getRangeAt(0),false,cur==='old'):anchor(span(c.els),el.classList.contains('blk'));
 return a.quote?{file:el.closest('section').dataset.file,view:cur,key:sel?null:c.k,...a,section:heading(el)}:null;}
+// Your remarks: your 💬 comments, and threads of yours on GitHub.
+const said=it=>it.kind==='c'||it.kind==='g'&&it.yours;
 // The text a comment is on: its change's new text, or its quote where findEnd() found it (e).
 const spans=(v,k)=>[...v.querySelectorAll('.chg[data-k="'+k+'"]')].map(e=>e.classList.contains('blk')?e.querySelector('.now'):e.matches('ins')?e:null)
 .filter(Boolean).map(e=>{const r=document.createRange();r.selectNodeContents(e);return r;});
@@ -155,7 +157,7 @@ function proposal(m,d,ms){const id=m.time+'#'+d.hash,st=data.proposals[id]||{},b
 return{id,text:d.text,comment:c||null,revising:by.length>0&&!by[by.length-1].answers.length,
 state:c?'used':by.some(x=>x.answers.some(a=>a.drafts.some(e=>e.hash!==d.hash)))?'replaced':st.state==='dismissed'?'dismissed':'proposed'};}
 function badge(it){const r=it.kind==='r',st=!r?'':it.done?' rvb-done':it.wait?' rvb-wait':it.unread?' rvb-new':'';
-if(it.kind==='g'){const b=mk('span',{className:'rvb rvb-g',title:'On GitHub: '+it.root.author+': '+short(it.root.body)});b.dataset.n=it.members.length;
+if(it.kind==='g'){const b=mk('span',{className:'rvb rvb-g'+(it.yours?' rvb-gme':''),title:'On GitHub: '+it.root.author+': '+short(it.root.body)+(it.yours?'\\n\\n(yours)':'')});b.dataset.n=it.shown;
 b.onmousedown=e=>e.preventDefault();b.onclick=e=>{e.preventDefault();e.stopPropagation();showGh(it,b);};return b;}
 const b=mk('span',{className:'rvb rvb-'+it.kind+st+(it.posted?' rvb-posted':''),title:!r?it.body+(it.posted?'\\n\\n(posted on GitHub)':''):it.members.map(m=>m.prompt).join('\\n')+
 (it.done?'\\n\\n(resolved: click to reopen)':it.wait?'\\n\\n(pending: no answer yet)':it.unread?'\\n\\n(new answer: click to read)':'')});
@@ -165,13 +167,13 @@ b.onmousedown=e=>e.preventDefault();b.onclick=e=>{e.preventDefault();e.stopPropa
 function paint(){document.querySelectorAll('.rvb,.rvok').forEach(b=>{const p=b.parentNode;b.remove();p.normalize();});
 const texts=new Map(),text=(v,side)=>{let m=texts.get(v);if(!m)texts.set(v,m={});return m[side]||(m[side]=textOf(v,side));},put=[];
 const gts=ghThreads();items=[...data.comments.map(x=>({...x,kind:'c'})),...threads(data.revisits),...gts];
-for(const it of items){it.at={};it.on={};for(const s of document.querySelectorAll('section'))if(s.dataset.file===it.file)for(const v of s.querySelectorAll('.v')){
+for(const it of items){it.at={};it.on={};if(it.hidden)continue;for(const s of document.querySelectorAll('section'))if(s.dataset.file===it.file)for(const v of s.querySelectorAll('.v')){
 // Made on a change, it is looked for in change markup first where its change has another key.
 const w=v.dataset.view,b=badge(it),on=it.key&&onChange(v,it.key),x=!on&&text(v,it.side),
 end=x&&findEnd(x,it.quote,it.before,it.section,it.chg||(it.key?it.side==='L'?'del,.old':'ins,.now':''));
 if(on){on(b);it.on[w]=new Set([it.key]);}
 else if(end){put.push([end[0],end[1],b]);it.on[w]=new Set(x.ns.slice(end[2],end[3]).map(n=>n.parentElement.closest('.chg')?.dataset.k).filter(Boolean));}
-else continue;it.at[w]=b;if(it.kind==='c'&&w==='acc'&&it.on[w].size)it.ranges=on?spans(v,it.key):[range(x,end)];}}
+else continue;it.at[w]=b;if(said(it)&&w==='acc'&&it.on[w].size)it.ranges=on?spans(v,it.key):[range(x,end)];}}
 // From the end of the doc back, so splitting a text node leaves the places before it where they were;
 // in a removed block's folded text, on its summary.
 put.sort((x,y)=>x[0]===y[0]?y[1]-x[1]:x[0].compareDocumentPosition(y[0])&Node.DOCUMENT_POSITION_FOLLOWING?1:-1);
@@ -180,7 +182,7 @@ for(const[t,o,b]of put){const f=t.parentElement.closest('.was');if(f)f.querySele
 if(window.Highlight&&CSS.highlights)CSS.highlights.set('rvcm',new Highlight(...items.flatMap(i=>i.ranges||[])));
 // Which changes your comments are on, per view, and how many: on commits, accepting one of them says
 // ✓ reviewed, not looks good, and in Reviewed each accepted change says which it got, ✓ or ✓ 💬 N.
-mine={};for(const it of items)if(it.kind==='c')for(const[w,ks]of Object.entries(it.on))for(const k of ks)(mine[w]=mine[w]||new Map()).set(k,(mine[w].get(k)||0)+1);
+mine={};for(const it of items)if(said(it))for(const[w,ks]of Object.entries(it.on))for(const k of ks)(mine[w]=mine[w]||new Map()).set(k,(mine[w].get(k)||0)+1);
 if(W.reviewed)for(const g of groups.filter(g=>g.view==='acc')){const n=mine.acc?.get(g.k),on=onChange(g.els[0].closest('.v'),g.k);
 if(on)on(mk('span',{className:'rvok'+(n?' rvok-c':''),textContent:n?'✓ 💬 '+n:'✓',title:n?'Reviewed, with '+n+' comment'+(n>1?'s':''):'Looks good'}));}
 status();
@@ -193,7 +195,7 @@ const open=!card.hidden&&items.find(i=>i.kind==='r'&&i.time===carded);if(open){c
 function tally(){document.querySelectorAll('.rvn').forEach(e=>e.remove());
 for(const s of document.querySelectorAll('section')){const n=document.querySelector('header a[href="#'+s.id+'"]')?.nextElementSibling;if(!n)continue;
 const on=f=>new Set(items.filter(it=>f(it)&&it.at.acc?.closest('section')===s).flatMap(it=>[...it.on.acc]));
-for(const[ks,w]of[[on(it=>it.kind==='c'),k=>k>1?' with comments':' with a comment'],[on(it=>it.kind==='r'&&!it.done),k=>' open question'+(k>1?'s':'')]]){if(!ks.size)continue;
+for(const[ks,w]of[[on(said),k=>k>1?' with comments':' with a comment'],[on(it=>it.kind==='r'&&!it.done),k=>' open question'+(k>1?'s':'')]]){if(!ks.size)continue;
 const b=mk('button',{textContent:ks.size+w(ks.size),title:'Step through them in the '+W.Accepted+' view'}),x=mk('span',{className:'rvn'});
 b.onclick=()=>{if(cur!=='acc')view('acc');const l=groups.filter(g=>g.view==='acc'&&g.sec===s&&ks.has(g.k));if(l.length)focus(l[(l.indexOf(c)+1)%l.length]);};x.append(' · ',b);n.append(x);}}}
 function take(d){data=d;seen=JSON.stringify(d);paint();}
@@ -220,16 +222,20 @@ settle();
 // change or text its line was placed on, or else in the panel's On GitHub group, with the PR's own
 // comments and reviews. A comment of yours whose text one of them has (or has all of) was posted.
 const same=(a,b)=>(a=norm(a),b=norm(b),a&&b&&(a===b||a.length>=20&&b.includes(a)||b.length>=20&&a.includes(b)));
-function ghThreads(){const cs=data.github?.comments||[],by=new Map(cs.map(c=>[c.id,c])),ts=new Map();
+// With your login known (me: --me, or the token's user), a thread you wrote in (yours) counts as your
+// comment does: its change is commented. A comment of yours that one of your 💬 holds shows as that 💬
+// alone (posted), so a thread of nothing else has no mark, and one with replies counts only those.
+const me=()=>data.github?.me||null,isMe=c=>!!me()&&c.author===me();
+function ghThreads(){const cs=data.github?.comments||[],by=new Map(cs.map(c=>[c.id,c])),ts=new Map(),told=new Set();
 for(const c of cs){let r=c;while(r.reply_to&&by.has(r.reply_to))r=by.get(r.reply_to);if(!ts.has(r.id))ts.set(r.id,[]);ts.get(r.id).push(c);}
-for(const c of data.comments)c.posted=cs.find(g=>same(g.body,c.body))?.url||null;
-return[...ts].map(([id,ms])=>{const r=by.get(id);return{kind:'g',id:'g'+id,root:r,members:ms.sort((a,b)=>a.time<b.time?-1:1),time:r.time,
-file:r.file||null,key:r.key||null,quote:r.quote||'',before:r.before||'',side:r.side||'R',section:''};});}
+for(const c of data.comments){const g=cs.find(g=>(!me()||isMe(g))&&same(g.body,c.body));c.posted=g?.url||null;if(g&&me())told.add(g.id);}
+return[...ts].map(([id,ms])=>{const r=by.get(id),left=ms.filter(c=>!told.has(c.id));return{kind:'g',id:'g'+id,root:r,members:ms.sort((a,b)=>a.time<b.time?-1:1),time:r.time,
+file:r.file||null,key:r.key||null,quote:r.quote||'',before:r.before||'',side:r.side||'R',section:'',yours:left.some(isMe),shown:left.length,hidden:!left.length};});}
 const ago=t=>{const s=(Date.now()-t)/1000;return s<90?'just now':s<5400?Math.round(s/60)+' min ago':s<129600?Math.round(s/3600)+' h ago':Math.round(s/86400)+' days ago';};
 const at=c=>c.path?c.path.split('/').pop()+(c.line?':'+c.line:'')+(c.side==='L'?' (old)':''):'';
 const ghLabel=c=>({line:at(c)+(c.outdated?' · outdated':c.file?'':' · not placed'),pr:'on the PR',review:'review'+(c.state?': '+c.state.toLowerCase().replace(/_/g,' '):'')})[c.kind];
 const ghBodies=it=>it.members.map(c=>{const d=mk('div',{className:'rvgc'+(c.reply_to?' rvgr':'')}),x=mk('div',{className:'rva rvgh'});x.innerHTML=c.html;
-d.append(mk('div',{className:'rvm',textContent:c.author+' · '+ago(new Date(c.time))}),x);return d;});
+d.append(mk('div',{className:'rvm',textContent:c.author+(isMe(c)?' (you)':'')+' · '+ago(new Date(c.time))}),x);return d;});
 function showGh(it,b){const h=mk('div',{className:'rvch'}),bd=mk('div',{className:'rvcb'});carded=null;
 h.append(mk('span',{className:'rvm',textContent:'On GitHub · '+ghLabel(it.root)+' · '+it.members.length+' comment'+(it.members.length>1?'s':'')}),mk('a',{href:it.root.url,target:'_blank',rel:'noopener',textContent:'Open on GitHub ↗'}));
 bd.append(...ghBodies(it));card.replaceChildren(h,bd);place(b);}
@@ -336,7 +342,7 @@ let filter='all',folded=true;
 // The PR's comments that have no place in the doc fold into On GitHub, under the open ones.
 let ghFolded=false;
 function list(){const all=order(),nc=data.comments.length,files=document.querySelectorAll('section').length,done=all.filter(i=>i.done),
-loose=all.filter(i=>i.kind==='g'&&!Object.keys(i.at).length),its=all.filter(i=>!loose.includes(i));
+loose=all.filter(i=>i.kind==='g'&&!i.hidden&&!Object.keys(i.at).length),its=all.filter(i=>!loose.includes(i)&&!i.hidden);
 const f=mk('div',{className:'seg rvf'}),g=mk('details',{className:'rvg',open:!folded});g.ontoggle=()=>{folded=!g.open;keep();if(g.open)g.querySelectorAll('.rvib').forEach(fold);};
 for(const[v,l]of[['open','Open'],['resolved','Resolved'],['all','All']]){const b=mk('button',{textContent:l});b.setAttribute('aria-pressed',v===filter);
 b.onclick=()=>{filter=v;keep();list();};f.append(b);}

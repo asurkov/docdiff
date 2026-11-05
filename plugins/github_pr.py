@@ -11,8 +11,8 @@ row anywhere links to its file without a line, or to the PR's files when a spec 
 finds other text of a block the same way, for other plugins: review comments.
 
 remarks() reads the PR's own comments from GitHub, for other plugins too, and puts each line comment
-back on the diff the other way round: the words of its line against the blocks of the diff. Read only:
-nothing is ever posted.
+back on the diff the other way round: the words of its line against the blocks of the diff, with me, your
+login (--me, or GITHUB_TOKEN's user), so yours count as your review. Read only: nothing is ever posted.
 """
 # docdiff, the running docdiff.py, is set by its load_plugins().
 import difflib, hashlib, html, json, os, pathlib, re, subprocess, sys, threading, time, urllib.error, urllib.request
@@ -35,6 +35,8 @@ def add_args(p):
     p.add_argument('--pr-comments', type=lambda f: str(pathlib.Path(f).resolve()),
                    help="the PR's comments from this file instead of GitHub, {review, issue, reviews} as its API "
                         "lists them (offline, or a test)")
+    p.add_argument('--me', help="your GitHub login: your comments on the PR count as your review comments "
+                                "(default: GITHUB_TOKEN's user, if set)")
 
 
 def actions(run):
@@ -141,8 +143,8 @@ def pr_of(repo, pr):
 
 
 def remarks(run, out, refresh=None):
-    """For other plugins (review.py): the PR's comments on GitHub, read only, {fetched, checked, error,
-    comments}: its line comments, each placed on the diff where it can be (see place_lines()), its own
+    """For other plugins (review.py): the PR's comments on GitHub, read only, {fetched, checked, error, me,
+    comments}, me the user's login (--me, or GITHUB_TOKEN's user): its line comments, each placed on the diff where it can be (see place_lines()), its own
     comments and its reviews' bodies. Kept in <out>/github.json, which refresh 'auto' (a page load) asks
     GitHub to bring up to date when it is older than FRESH, and 'now' (a button) always; each page is
     asked for with its last ETag, so a list that did not change comes back empty (304), though without a
@@ -159,6 +161,8 @@ def remarks(run, out, refresh=None):
                      'fetched': cache.get('fetched') or time.time()}
         elif refresh == 'now' or refresh == 'auto' and time.time() - cache.get('checked', 0) > FRESH:
             cache = fetch(run, cache)
+            if not run.get('me') and not cache.get('me') and os.environ.get('GITHUB_TOKEN'):
+                cache['me'] = whoami()
         # Placed again when the comments, the base or the head are others.
         digest = hashlib.sha1(json.dumps([run['base'], run['head'], cache.get('data')], sort_keys=True).encode()).hexdigest()
         if cache.get('placed_for') != digest and 'data' in cache:
@@ -167,7 +171,18 @@ def remarks(run, out, refresh=None):
         if json.dumps(cache, sort_keys=True) != was:
             f.with_suffix('.tmp').write_text(json.dumps(cache, ensure_ascii=False))
             f.with_suffix('.tmp').replace(f)
-    return {k: cache.get(k) for k in ('fetched', 'checked', 'error')} | {'comments': cache.get('comments', [])}
+    return {k: cache.get(k) for k in ('fetched', 'checked', 'error')} | {'me': run.get('me') or cache.get('me'),
+                                                                         'comments': cache.get('comments', [])}
+
+
+def whoami():
+    """GITHUB_TOKEN's user (GET /user), or None when GitHub does not say; kept by remarks(), the token never."""
+    ask = {'User-Agent': AGENT, 'Accept': 'application/vnd.github+json', 'Authorization': f'Bearer {os.environ["GITHUB_TOKEN"]}'}
+    try:
+        with urllib.request.urlopen(urllib.request.Request(f'{API}/user', headers=ask), timeout=10) as r:
+            return json.load(r).get('login')
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
 
 
 def fetch(run, cache):
