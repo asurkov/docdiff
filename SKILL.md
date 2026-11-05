@@ -75,9 +75,11 @@ The server writes both into the output dir:
   (`accepted.json`, the older store of accepted change keys, seeds the copy once with the changes that
   still match.)
 - `revisit.jsonl` — one request per line: `time`, `file`, `section`, `quote`, `view`, `prompt`, `key` (the
-  change's, for a revisit of a change) and `text` (the prompt as copied to the clipboard). When the user
-  pastes one or says they sent revisits, read the lines since the last one handled, apply each to the
-  file, and rerun docdiff.
+  change's, for a revisit of a change) and `text` (the prompt as copied to the clipboard); a revision of a
+  drafted comment ([Review comments](#review-comments)) also has `thread` (its thread's first revisit's
+  time) and `revises` (the draft's id), and quotes the draft. When the user pastes one or says they sent
+  revisits, read the lines since the last one handled, apply each to the file, and rerun docdiff. A
+  revision asks to rework the draft it quotes: answer with the new draft as a blockquote.
   Open each reply with the request as sent, since the chat does not show it: the section and the quote
   as a blockquote, then the prompt, e.g. `> **Terms** · "visits a monetized document."` and
   `> monetized document or monetized page?`.
@@ -252,11 +254,24 @@ bold, counted in the header) while an answer is unread, until its card is opened
 user says so: ✓ Resolve on its card or in the Review panel. Accepting a change resolves nothing, and asking
 again reopens the thread. A resolved thread folds to a faint dot in the text, which opens its card to
 ↺ Reopen, and in the panel into a folded Resolved group under the open ones (Open / Resolved / All
-filter). Under each drafted comment in an answer, a blockquote, is 💬 Make comment: the draft becomes a
-comment on the thread's change or quote, opened to edit, and the thread resolves; an answer with several
-drafts also offers one comment of all of them. `review.json` keeps each revisit's state by its time,
-`revisits: {<time>: {resolved, seen}}`, `seen` how many of its answers were read; `revisit.jsonl` and
-`answers.jsonl` are only ever appended to.
+filter). A thread's card keeps its header, the state with ✓ Resolve (↺ Reopen), at its top while a long
+thread scrolls under it; in the Review panel each entry has it on its first line, and a long entry folds to
+a few lines with Show more.
+
+Each drafted comment in an answer (a blockquote) is a **proposal**, shown once per thread however many
+answers repeat it, with its actions under it. **💬 Use** makes it a comment on the thread's change or quote
+and opens that to edit (edits go in the comment, never in the proposal); the proposal then shows ✓ used
+with 💬 Open comment. **✎ Revise** opens the revisit panel on the draft, in its thread ("shorter", "as a
+question"); the draft in that revision's answer replaces it, which folds to a summary, still readable.
+**Dismiss** folds it to a stub. **↶ Undo** takes back Use (deleting the comment, after asking if it was
+edited) or Dismiss. An answer with several proposed drafts also offers 💬 Use all as one comment. Using a
+draft resolves nothing: once every draft in a thread is used, dismissed or replaced, its header says
+"drafts handled" and urges Resolve.
+
+`review.json` keeps each revisit's state by its time, `revisits: {<time>: {resolved, seen}}`, `seen` how
+many of its answers were read, and each proposal's by the time of the revisit that first proposed it and
+the draft's hash, `proposals: {"<time>#<hash>": {state: used | dismissed, comment}}`; deleting the comment
+frees the draft again. `revisit.jsonl` and `answers.jsonl` are only ever appended to.
 
 The page asks the server every 2 seconds, so a request or an answer shows without a reload. A server
 started before `review.py` existed has no route for any of this (💬 N greys out): stop it and rerun

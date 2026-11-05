@@ -387,7 +387,7 @@ STYLE = '''
 :root{--bg:#fff;--fg:#1f2328;--muted:#59636e;--line:#d1d9e0;--ins:#dafbe1;--insb:#1a7f37;--del:#ffebe9;--delb:#cf222e;--rw:#bf8700;--code:#f6f8fa;--link:#0969da;--btn:#f6f8fa;--btnh:#eff2f5}
 @media (prefers-color-scheme: dark){:root{--bg:#0d1117;--fg:#e6edf3;--muted:#9198a1;--line:#3d444d;--ins:#033a16;--insb:#3fb950;--del:#4b1113;--delb:#f85149;--rw:#d29922;--code:#161b22;--link:#4493f8;--btn:#212830;--btnh:#262c36}}
 body{background:var(--bg);color:var(--fg);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0}
-main{max-width:920px;margin:0 auto;padding:16px 16px 40vh}
+main{max-width:920px;margin:0 auto;padding:16px 16px 40vh;overflow-wrap:anywhere}
 header{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 16px;z-index:1;display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;font-size:14px}
 header a{color:var(--fg);font-weight:600} .n{color:var(--muted)} .sides{flex-basis:100%;font-size:13px}
 button:disabled{opacity:.4;cursor:default}
@@ -521,8 +521,9 @@ return c?{quote:summary(c),el:c.els[0],key:c.k}:null;}
 function heading(el){const v=el.closest('.v');if(!v)return '';
 const h=[...v.querySelectorAll('h1,h2,h3,h4')].filter(h=>h.compareDocumentPosition(el)&Node.DOCUMENT_POSITION_FOLLOWING).pop();
 if(!h)return '';const k=h.cloneNode(true);k.querySelectorAll('del').forEach(d=>d.remove());return k.textContent.trim();}
+// g: the text revisited (quote), an element in it (el), its change's key, and fields plugins add to the request.
 function openRev(g){const s=g&&g.el.closest('section');if(!s){pos.textContent='select text, or step to a change, then press r';return;}
-req={file:s.dataset.file,section:heading(g.el),quote:g.quote,view:cur,key:g.key};rq.textContent=g.quote;rp.hidden=false;rt.focus();}
+req={file:s.dataset.file,section:heading(g.el),quote:g.quote,view:cur,key:g.key,...g.fields};rq.textContent=g.quote;rp.hidden=false;rt.focus();}
 function closeRev(){rp.hidden=true;rt.value='';req=null;}
 async function copy(t){try{await navigator.clipboard.writeText(t);return true;}
 catch(e){const a=document.createElement('textarea');a.value=t;body.append(a);a.select();const done=document.execCommand('copy');a.remove();return done;}}
@@ -636,7 +637,8 @@ def load_plugins():
     place(run, old path, new path, side, before, after): where text of a file's block is in its source,
       for other plugins: github_pr.py's (see there).
     STYLE, SCRIPT: CSS and JavaScript for the page, after docdiff's own. An element of class panel holds
-      off the reload after a rebuild while it shows, and clicks in it leave the doc alone.
+      off the reload after a rebuild while it shows, and clicks in it leave the doc alone; openRev(g) opens
+      the revisit panel on g.quote, g.fields adding to the request it sends.
     get(run, path, query), post(out, path, req): the server's routes. None for a path not its own, else
       (data, content type) with data None for a 404, or the reply to a post, after which the page
       rebuilds, unless the path is in the plugin's IN_PLACE: posts the page shows in place."""

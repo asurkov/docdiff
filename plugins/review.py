@@ -10,16 +10,21 @@ github is where a plugin's place() (github_pr.py's, with --pr) finds that text i
 The page marks each comment on its change in every view that has the change, and elsewhere where its
 quote reads, the text before it picking among repeats: so a comment stays on a change once it is
 accepted. Revisits are marked the same way, from revisit.jsonl, each with the answers Claude appends to
-answers.jsonl, {time: the revisit's time, answer: Markdown}, and an answer's blockquotes are its drafted
-comments. Revisits of one change or one quote are one thread under one mark: pending while the last has
-no answer, new while an answer is unread, and resolved, folded to a dot, while all of them are; asking
-again reopens it. review.json keeps that by revisit time, {revisits: {time: {resolved, seen}}}, seen the
-number of its answers read; the two .jsonl files are logs, only ever appended to. The page polls GET
-/review for all of it, and posts /review to add, edit or delete a comment, or to resolve, reopen or read
-revisits, shown in place.
+answers.jsonl, {time: the revisit's time, answer: Markdown}. Revisits of one change or one quote are one
+thread under one mark: pending while the last has no answer, new while an answer is unread, and resolved,
+folded to a dot, while all of them are; asking again reopens it. review.json keeps that by revisit time,
+{revisits: {time: {resolved, seen}}}, seen the number of its answers read.
+
+An answer's blockquotes are its drafted comments, each a proposal: used (made into a comment), dismissed,
+or replaced (a revisit that revises it, its fields thread and revises, got a new draft). review.json keeps
+the first two by the time of the revisit that first proposed the draft and the draft's hash,
+{proposals: {"time#hash": {state, comment}}}; deleting the comment a proposal made frees it again. The two
+.jsonl files are logs, only ever appended to. The page polls GET /review for all of it, and posts /review
+to add (using proposals), edit or delete a comment, to resolve, reopen or read revisits, or to set the
+state of proposals, shown in place.
 """
 # docdiff, the running docdiff.py, is set by its load_plugins().
-import collections, html, json, pathlib, re, secrets, subprocess, threading, time
+import collections, hashlib, html, json, pathlib, re, secrets, subprocess, threading, time
 
 # Posts the page shows in place, with no rebuild.
 IN_PLACE = ['/review']
@@ -34,18 +39,25 @@ STYLE = '''
 .rvb-c::before{content:'💬'} .rvb-r::before{content:'✎'} .rvb-r{color:var(--insb);border-color:var(--insb)}
 .rvb-wait{color:var(--rw);border-color:var(--rw);border-style:dashed} .rvb-wait::after{content:' …'} .rvb:hover{background:var(--code)} .rvb-hit{outline:2px solid #bf8700}
 .rvb-new,.rvb-new:hover{background:var(--insb);color:var(--bg);font-weight:700} #rvt.rvt-new{font-weight:700;border-color:var(--insb)}
-.rvb-done{width:7px;height:7px;padding:0;border:0;border-radius:50%;background:var(--muted);opacity:.35;vertical-align:middle} .rvb-done::before{content:none} .rvb-done:hover{background:var(--muted);opacity:.8}
+.rvb-done{width:7px;height:7px;padding:0;border:4px solid transparent;border-radius:50%;background:var(--muted) content-box;opacity:.35;vertical-align:middle} .rvb-done::before{content:none} .rvb-done:hover{background:var(--muted) content-box;opacity:.8}
 #cp{z-index:5} #rvp[hidden],#rvc[hidden]{display:none}
 @media (min-width:840px){.rv-open main{margin-right:420px}}
-#rvp{position:fixed;right:0;bottom:0;width:min(420px,100vw);box-sizing:border-box;overflow:auto;background:var(--bg);border-left:1px solid var(--line);padding:8px 14px 24px;z-index:2;font-size:14px}
+#rvp{position:fixed;right:0;bottom:0;width:min(420px,100vw);box-sizing:border-box;overflow:auto;overscroll-behavior:contain;background:var(--bg);border-left:1px solid var(--line);padding:8px 14px 24px;z-index:2;font-size:14px}
 .rvh{display:flex;gap:8px;align-items:center;margin-bottom:6px} .rvh .n{flex:1} .rvh button,.rvx{font-size:12px;padding:1px 8px}
 .rvi{padding:8px 4px;border-top:1px solid var(--line);cursor:pointer} .rvi:hover{background:var(--code)}
 .rvm{font-size:12px;color:var(--muted)} .rvt{white-space:pre-wrap;margin:2px 0} .rvx{margin:4px 6px 0 0}
+.rvch,.rvih{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px} .rvch .rvm,.rvih .rvm{flex:1 1 12em} .rvch .rvx,.rvih .rvx{margin:0}
+.rvch{position:sticky;top:0;z-index:1;padding:6px 12px;background:var(--bg);border-bottom:1px solid var(--line)} .rvcb{padding:4px 12px 10px}
+.rvfold{max-height:9em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 60%,transparent);mask-image:linear-gradient(#000 60%,transparent)}
+#rvp .rvmore,#rvp .rvmore:hover{border:0;background:none;color:var(--link);padding:0;height:auto;font-size:12px;cursor:pointer}
+.rvpr{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:2px 0 10px} .rvpr .rvx{margin:0} .rvpr .rvm{margin-right:2px}
+.rvgone{display:none} .rvstub{opacity:.65} .rvdup{opacity:.6} .rvrep>summary{font-size:12px;color:var(--muted);cursor:pointer} .rvrep[open]>blockquote{opacity:.7}
+.rvused{color:var(--insb)}
 #rvp blockquote,#rvc blockquote{margin:4px 0;padding:0 8px;border-left:3px solid var(--line);color:var(--muted);max-height:4.8em;overflow:hidden}
 .rva{border-left:3px solid var(--insb);padding-left:8px;margin-top:6px} .rva>:first-child{margin-top:0} .rva>:last-child{margin-bottom:0}
 #rvp .rva blockquote,#rvc .rva blockquote{max-height:none;margin:6px 0 2px} .rvi-new{box-shadow:inset 3px 0 var(--insb)} .rvi-new>.rvm{font-weight:600}
 .rvf{margin:0 0 6px} .rvf button{font-size:12px;padding:1px 8px} .rvg>summary{cursor:pointer;color:var(--muted);font-size:13px;padding:6px 0;border-top:1px solid var(--line)}
-#rvc{position:absolute;z-index:0;width:min(560px,90vw);overflow:auto;box-sizing:border-box;background:var(--bg);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12);padding:8px 12px;font-size:14px}
+#rvc{position:absolute;z-index:0;overflow:auto;overscroll-behavior:contain;box-sizing:border-box;background:var(--bg);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12);padding:0;font-size:14px}
 '''
 
 SCRIPT = '''
@@ -106,13 +118,22 @@ const s=r.key&&[...document.querySelectorAll('section')].find(s=>s.dataset.file=
 const els=v?[...v.querySelectorAll(sel)]:[];
 return els.length?anchor(span(els),els[0].classList.contains('blk')):{quote:p?p[2]:d?d[1]:q,side:r.view==='old'||d?'L':'R',before:'',after:'',chg:p?'ins,.now':d?'del,.old':''};}
 // Revisits of one change, or of one quote, are one thread under one mark, so asking again adds to it and
-// reopens it. It is resolved while all of them are, pending while the last has no answer, and new while
-// an answer is unread.
+// reopens it, and so does revising one of its drafts (thread names it). It is resolved while all of them
+// are, pending while the last has no answer, and new while an answer is unread. It is where its last
+// revisit that is not a revision is.
 function threads(rs){const ts=[];
-for(const r of rs){const t=ts.find(t=>t.file===r.file&&t.members.some(m=>r.key&&m.key===r.key||m.quote===r.quote));t?t.members.push(r):ts.push({file:r.file,members:[r]});}
-return ts.map(({file,members:ms})=>{const l=ms[ms.length-1],k=ms.findLast(m=>m.key);
-return{kind:'r',file,members:ms,time:ms[0].time,view:l.view,section:l.section,sent:l.quote,key:k?k.key:null,...asked(k||l),
+for(const r of rs){const t=ts.find(t=>t.file===r.file&&t.members.some(m=>r.thread===m.time||r.key&&m.key===r.key||m.quote===r.quote));t?t.members.push(r):ts.push({file:r.file,members:[r]});}
+return ts.map(({file,members:ms})=>{const l=ms[ms.length-1],a=ms.findLast(m=>!m.revises)||l,k=ms.findLast(m=>m.key&&!m.revises);
+// Its proposals: each distinct draft once, under the revisit that first proposed it.
+const ps=new Map();for(const m of ms)for(const x of m.answers)for(const d of x.drafts)if(!ps.has(d.hash))ps.set(d.hash,proposal(m,d,ms));
+return{kind:'r',file,members:ms,time:ms[0].time,view:a.view,section:a.section,sent:a.quote,key:k?k.key:null,...asked(k||a),proposals:ps,
+handled:ps.size>0&&[...ps.values()].every(p=>p.state!=='proposed'),
 done:ms.every(m=>m.resolved),wait:!l.answers.length,unread:ms.some(m=>m.answers.length>(m.seen||0))};});}
+// A drafted comment's state: used while the comment made of it exists, else replaced once a revision of
+// it has an answer with another draft, else dismissed, else proposed; revising while a revision waits.
+function proposal(m,d,ms){const id=m.time+'#'+d.hash,st=data.proposals[id]||{},by=ms.filter(x=>x.revises===id),c=st.state==='used'&&data.comments.find(c=>c.id===st.comment);
+return{id,text:d.text,comment:c||null,revising:by.length>0&&!by[by.length-1].answers.length,
+state:c?'used':by.some(x=>x.answers.some(a=>a.drafts.some(e=>e.hash!==d.hash)))?'replaced':st.state==='dismissed'?'dismissed':'proposed'};}
 function badge(it){const r=it.kind==='r',st=!r?'':it.done?' rvb-done':it.wait?' rvb-wait':it.unread?' rvb-new':'';
 const b=mk('span',{className:'rvb rvb-'+it.kind+st,title:!r?it.body:it.members.map(m=>m.prompt).join('\\n')+
 (it.done?'\\n\\n(resolved: click to reopen)':it.wait?'\\n\\n(pending: no answer yet)':it.unread?'\\n\\n(new answer: click to read)':'')});
@@ -130,7 +151,8 @@ put.sort((x,y)=>x[0]===y[0]?y[1]-x[1]:x[0].compareDocumentPosition(y[0])&Node.DO
 for(const[t,o,b]of put){const f=t.parentElement.closest('.was');if(f)f.querySelector('summary').append(b);else{t.splitText(o);t.after(b);}}
 const ts=items.filter(i=>i.kind==='r'&&!i.done),np=ts.filter(t=>t.wait).length,nn=ts.filter(t=>t.unread).length;
 rvt.textContent='💬 '+data.comments.length+(ts.length?' · ✎ '+ts.length:'')+(np?' · '+np+' pending':'')+(nn?' · '+nn+' new':'');
-rvt.classList.toggle('rvt-new',nn>0);if(!lp.hidden)list();}
+rvt.classList.toggle('rvt-new',nn>0);if(!lp.hidden)list();
+const open=!card.hidden&&items.find(i=>i.kind==='r'&&i.time===carded);if(open){const y=card.scrollTop;fillCard(open);card.scrollTop=y;}}
 function take(d){data=d;seen=JSON.stringify(d);paint();}
 async function load(){try{const r=await fetch('review');if(!r.ok)throw new Error(r.status);const d=await r.json();rvt.disabled=false;rvt.title='Review: comments and revisits';
 if(JSON.stringify(d)!==seen)take(d);}catch(e){rvt.disabled=true;rvt.title='review: not served (restart the docdiff server)';}}
@@ -143,24 +165,50 @@ save(draft.id?{id:draft.id,body:t}:{...draft,body:t});};
 cd.onclick=()=>draft?.id&&save({id:draft.id,delete:true});cc.onclick=closeCm;
 ct.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();cs.click();}if(e.key==='Escape')closeCm();});
 const act=(t,title,f)=>{const b=mk('button',{className:'rvx',textContent:t,title});b.onclick=e=>{e.stopPropagation();f();};return b;};
-// A thread's requests, each with its answers; under each drafted comment (a blockquote), Make comment,
-// and under an answer with several, one comment of all of them.
-const asks=it=>it.members.flatMap(m=>[mk('div',{className:'rvt',textContent:m.prompt}),...answers(it,m)]);
-function answers(it,m){if(!m.answers.length)return[mk('div',{className:'rvm',textContent:'pending: Claude has not answered yet'})];
-return m.answers.map(a=>{const d=mk('div',{className:'rva'}),mc='A new comment of this draft, open to edit; resolves the revisit';d.innerHTML=a.html;
-const qs=d.querySelectorAll(':scope>blockquote');if(qs.length===a.drafts.length)qs.forEach((q,i)=>q.after(act('💬 Make comment',mc,()=>makeComment(it,a.drafts[i]))));
-if(a.drafts.length>1)d.append(act('💬 One comment of all '+a.drafts.length,mc,()=>makeComment(it,a.drafts.join('\\n\\n'))));return d;});}
-const resolveButton=it=>act(it.done?'↺ Reopen':'✓ Resolve',it.done?'Back to the open revisits':'Done with it: its mark folds to a dot',()=>{card.hidden=true;setThread(it,{resolve:!it.done});});
+const short=t=>(t=norm(t)).length>70?t.slice(0,70).replace(/\\s+\\S*$/,'')+'…':t;
+// A thread's requests, each with its answers, a revision with the draft it revises.
+const asks=(it,shown=new Set())=>it.members.flatMap(m=>[...(m.revises?[mk('div',{className:'rvm',textContent:'↻ revise the draft “'+short(m.quote)+'”'})]:[]),
+mk('div',{className:'rvt',textContent:m.prompt}),...answers(it,m,shown)]);
+// Each drafted comment (a blockquote) shows as its proposal: with its state and actions under it, folded
+// to a stub when dismissed and into a summary when replaced; one proposed again (shown has it) shows once,
+// its repeats faded, or gone with it once it is dismissed or replaced.
+function answers(it,m,shown){if(!m.answers.length)return[mk('div',{className:'rvm',textContent:'pending: Claude has not answered yet'})];
+return m.answers.map(a=>{const d=mk('div',{className:'rva'});d.innerHTML=a.html;const qs=d.querySelectorAll(':scope>blockquote'),open=[];
+if(qs.length!==a.drafts.length)return d;
+qs.forEach((q,i)=>{const p=it.proposals.get(a.drafts[i].hash);if(shown.has(p.id)){if(p.state==='dismissed'||p.state==='replaced')q.classList.add('rvgone');else{q.classList.add('rvdup');q.after(mk('div',{className:'rvm rvpr',textContent:'the same draft as above'}));}return;}
+shown.add(p.id);decorate(q,p,it);if(p.state==='proposed')open.push(p);});
+if(open.length>1)d.append(act('💬 Use all '+open.length+' as one comment','One new comment of these drafts, open to edit',()=>use(it,open,open.map(p=>p.text).join('\\n\\n'))));return d;});}
+function decorate(q,p,it){const r=mk('div',{className:'rvpr'});
+if(p.state==='replaced'){const f=mk('details',{className:'rvrep'});q.replaceWith(f);f.append(mk('summary',{textContent:'replaced draft: '+short(p.text)}),q);return;}
+if(p.state==='dismissed'){q.classList.add('rvgone');r.classList.add('rvstub');r.append(mk('span',{className:'rvm',textContent:'dismissed draft: '+short(p.text)}),act('↶ Undo','Show it as proposed again',()=>setProposal(p,null)));q.after(r);return;}
+if(p.state==='used'){const u=act('↶ Undo','Delete the comment made of it',()=>{if(norm(p.comment.body)!==norm(p.text)&&u.textContent==='↶ Undo'){u.textContent='↶ Undo: delete your edited comment?';return;}save({id:p.comment.id,delete:true});});
+r.append(mk('span',{className:'rvm rvused',textContent:'✓ used'}),act('💬 Open comment','Edit the comment made of it',()=>{card.hidden=true;openCm({...p.comment,kind:'c'});}),u);q.after(r);return;}
+r.append(...(p.revising?[mk('span',{className:'rvm',textContent:'revising…'})]:[]),act('💬 Use','A new comment of this draft, open to edit',()=>use(it,[p],p.text)),
+act('✎ Revise','Ask Claude to rework this draft',()=>revise(it,p)),act('Dismiss','Fold it away',()=>setProposal(p,'dismissed')));q.after(r);}
+const state=it=>it.done?'resolved':it.wait?'pending':it.unread?'new answer':it.handled?'drafts handled':'answered';
+// A thread's action, at the top of its card and of its panel entry, so it stays in reach of a long thread:
+// Resolve (urged once every draft is used or dismissed) or Reopen.
+const actions=it=>{const b=act(it.done?'↺ Reopen':'✓ Resolve',it.done?'Back to the open revisits':'Done with it: its mark folds to a dot',()=>{card.hidden=true;setThread(it,{resolve:!it.done});});
+if(it.handled&&!it.done)b.classList.add('primary');return[b];};
 async function setThread(it,req){try{take(await post('review',{revisits:it.members.map(m=>m.time),...req}));}catch(e){pos.textContent='not saved: '+e.message+' (is the docdiff server running?)';}}
-// The draft becomes a comment on the thread's change or quote, opened to edit, and the thread resolves.
-async function makeComment(it,body){try{const st=await post('review',{file:it.file,view:it.view,key:it.key,quote:it.quote,side:it.side,before:it.before,after:it.after,section:it.section,body});
-const cm=st.comments[st.comments.length-1];await setThread(it,{resolve:true});card.hidden=true;openCm({...cm,kind:'c'});}
-catch(e){pos.textContent='comment not made: '+e.message+' (is the docdiff server running?)';}}
-// A thread's card, under its mark or, with more room there, over it; opening it reads its answers.
-function showCard(it,b){card.replaceChildren(mk('div',{className:'rvm',textContent:'✎ revisit'+(it.section?' · '+it.section:'')+' · '+it.time.replace('T',' ')+(it.done?' · resolved':'')}),
-mk('blockquote',{textContent:it.sent}),...asks(it),resolveButton(it));card.hidden=false;
+const setProposal=(p,state)=>post('review',{proposals:[p.id],state}).then(take).catch(e=>{pos.textContent='not saved: '+e.message+' (is the docdiff server running?)';});
+// Use: the drafts become a comment on the thread's change or quote, opened to edit.
+async function use(it,ps,body){try{const st=await post('review',{file:it.file,view:it.view,key:it.key,quote:it.quote,side:it.side,before:it.before,after:it.after,section:it.section,body,uses:ps.map(p=>p.id)});
+take(st);card.hidden=true;openCm({...st.comments[st.comments.length-1],kind:'c'});}catch(e){pos.textContent='comment not made: '+e.message+' (is the docdiff server running?)';}}
+// Revise: a revisit of the draft, in the thread; its answer's draft replaces it.
+function revise(it,p){card.hidden=true;openRev({quote:p.text,el:it.at[cur]||Object.values(it.at)[0]||[...document.querySelectorAll('section')].find(s=>s.dataset.file===it.file),key:it.key,fields:{thread:it.time,revises:p.id}});}
+// A thread's card, under its mark or, with more room there, over it: its header (state and actions) stays
+// at the top while the thread scrolls under it. It follows the thread's changes while open; opening it
+// reads its answers.
+let carded=null;
+function fillCard(it){const h=mk('div',{className:'rvch'}),bd=mk('div',{className:'rvcb'});carded=it.time;
+h.append(mk('span',{className:'rvm',textContent:'✎ '+[it.section,it.time.replace('T',' '),state(it)].filter(Boolean).join(' · ')}),...actions(it));
+bd.append(mk('blockquote',{textContent:it.sent}),...asks(it));card.replaceChildren(h,bd);}
+// It is placed and sized in the visual viewport, which a page wider than the screen does not stretch.
+function showCard(it,b){const v=visualViewport||{width:innerWidth,offsetLeft:0};fillCard(it);
+card.style.left=v.offsetLeft+scrollX+'px';card.style.width=Math.min(560,v.width*.9)+'px';card.hidden=false;card.scrollTop=0;
 const r=b.getBoundingClientRect(),below=innerHeight-r.bottom-12,above=r.top-document.querySelector('header').getBoundingClientRect().bottom-12,down=below>=300||below>=above;
-card.style.maxHeight=Math.max(120,down?below:above)+'px';card.style.left=Math.max(8,Math.min(r.left,innerWidth-card.offsetWidth-8))+scrollX+'px';
+card.style.maxHeight=Math.max(120,down?below:above)+'px';card.style.left=Math.max(v.offsetLeft+8,Math.min(r.left,v.offsetLeft+v.width-card.offsetWidth-8))+scrollX+'px';
 card.style.top=(down?r.bottom+4:r.top-4-card.offsetHeight)+scrollY+'px';
 if(it.unread)setThread(it,{seen:true});}
 // The Review panel: comments and revisits in the order they come in the doc, each one going to its mark.
@@ -173,24 +221,32 @@ function jump(it){const v=it.at[cur]?cur:vorder.find(x=>it.at[x]);if(!v)return;i
 const g=it.key&&groups.find(x=>x.view===cur&&x.file===it.file&&x.k===it.key),b=it.at[cur];
 if(g)focus(g);else{focus(null,false);b.scrollIntoView({block:'center',behavior:'smooth'});}
 b.classList.add('rvb-hit');setTimeout(()=>b.classList.remove('rvb-hit'),1500);}
-function row(it,files){const d=mk('div',{className:'rvi'+(it.unread&&!it.done?' rvi-new':'')}),m=mk('div',{className:'rvm'}),w=where(it);
-m.append((it.kind==='c'?'💬 ':'✎ ')+[files>1&&it.file,it.section].filter(Boolean).join(' · ')+(Object.keys(it.at).length?'':' · not in the page now'));
+// A panel entry: its line (where, state, actions), then its body, folded to a few lines when long.
+function row(it,files){const r=it.kind==='r',d=mk('div',{className:'rvi'+(it.unread&&!it.done?' rvi-new':'')}),h=mk('div',{className:'rvih'}),m=mk('span',{className:'rvm'}),bd=mk('div',{className:'rvib'}),w=where(it);
+d.dataset.id=r?'r'+it.time:'c'+it.id;
+m.append((r?'✎ ':'💬 ')+[files>1&&it.file,it.section,r&&state(it)].filter(Boolean).join(' · ')+(Object.keys(it.at).length?'':' · not in the page now'));
 if(w)m.append(' · ',mk('a',{href:it.github.href,target:'_blank',rel:'noopener',textContent:w.split('/').pop()+' ↗'}));
-d.append(m);if(it.quote)d.append(mk('blockquote',{textContent:it.kind==='r'?it.sent:it.quote}));
-if(it.kind==='r')d.append(...asks(it),resolveButton(it));else{const e=mk('button',{className:'rvx',textContent:'edit'}),x=mk('button',{className:'rvx',textContent:'delete'});
-e.onclick=()=>openCm(it);x.onclick=()=>x.textContent==='delete'?x.textContent='delete?':save({id:it.id,delete:true});d.append(mk('div',{className:'rvt',textContent:it.body}),e,x);}
-d.onclick=e=>{if(e.target.closest('a,button'))return;jump(it);if(it.unread)setThread(it,{seen:true});};return d;}
+if(it.quote)bd.append(mk('blockquote',{textContent:r?it.sent:it.quote}));
+if(r)h.append(m,...actions(it)),bd.append(...asks(it));else{const e=act('edit','',()=>openCm(it)),x=act('delete','',()=>x.textContent==='delete'?x.textContent='delete?':save({id:it.id,delete:true}));
+h.append(m,e,x);bd.append(mk('div',{className:'rvt',textContent:it.body}));}
+d.append(h,bd);d.onclick=e=>{if(e.target.closest('a,button'))return;jump(it);if(it.unread)setThread(it,{seen:true});};return d;}
+// Folds an entry's body when it is longer than a few lines; Show more and Show less, kept across re-renders.
+const unfolded=new Set();
+function fold(bd){const id=bd.closest('.rvi').dataset.id;bd.nextElementSibling?.classList.contains('rvmore')&&bd.nextElementSibling.remove();
+bd.classList.add('rvfold');const long=bd.scrollHeight>bd.clientHeight+4;bd.classList.toggle('rvfold',long&&!unfolded.has(id));if(!long)return;
+bd.after(act(unfolded.has(id)?'Show less':'Show more','',()=>{unfolded.has(id)?unfolded.delete(id):unfolded.add(id);fold(bd);}));bd.nextElementSibling.classList.add('rvmore');}
 // Open (comments and unresolved revisits), then the resolved revisits folded; or either alone.
 let filter='all',folded=true;
 function list(){const its=order(),nc=data.comments.length,files=document.querySelectorAll('section').length,done=its.filter(i=>i.done);
-const f=mk('div',{className:'seg rvf'}),g=mk('details',{className:'rvg',open:!folded});g.ontoggle=()=>{folded=!g.open;keep();};
+const f=mk('div',{className:'seg rvf'}),g=mk('details',{className:'rvg',open:!folded});g.ontoggle=()=>{folded=!g.open;keep();if(g.open)g.querySelectorAll('.rvib').forEach(fold);};
 for(const[v,l]of[['open','Open'],['resolved','Resolved'],['all','All']]){const b=mk('button',{textContent:l});b.setAttribute('aria-pressed',v===filter);
 b.onclick=()=>{filter=v;keep();list();};f.append(b);}
 g.append(mk('summary',{textContent:'Resolved ('+done.length+')'}),...done.map(it=>row(it,files)));
 const h=mk('div',{className:'rvh'}),cm=mk('button',{textContent:'Copy as Markdown',title:'The comments, each with its file:line and quote, to paste into GitHub'}),x=mk('button',{textContent:'×',title:'Close'});
 cm.onclick=async()=>{cm.textContent=!nc?'no comments':await copy(markdown(its))?'copied '+nc:'copying failed';setTimeout(()=>cm.textContent='Copy as Markdown',1500);};
 x.onclick=()=>toggle(false);h.append(mk('b',{textContent:'Review'}),mk('span',{className:'n',textContent:nc+' comment(s) · '+(its.length-nc-done.length)+' open · '+done.length+' resolved'}),cm,x);
-lp.replaceChildren(h,f,...(filter==='resolved'?done:its.filter(i=>!i.done)).map(it=>row(it,files)),...(filter==='all'&&done.length?[g]:[]));}
+lp.replaceChildren(h,f,...(filter==='resolved'?done:its.filter(i=>!i.done)).map(it=>row(it,files)),...(filter==='all'&&done.length?[g]:[]));
+lp.querySelectorAll('.rvib').forEach(fold);}
 // Paste-ready: per comment, its file:line (linked to it on GitHub) or else its file and section, the
 // quoted text and the comment.
 function markdown(its){return its.filter(it=>it.kind==='c').map(it=>{const w=where(it),loc=w||it.file+(it.section?' · '+it.section:'');
@@ -219,8 +275,10 @@ def get(run, path, query):
 
 
 def post(out, path, req):
-    """Adds a comment, or edits or deletes the one req['id'] names; or resolves (resolve true), reopens
-    (false) or reads (seen) the revisits req['revisits'] names by time. Returns what get() does."""
+    """Adds a comment, marking the proposals req['uses'] names as used by it, or edits or deletes the one
+    req['id'] names; or resolves (resolve true), reopens (false) or reads (seen) the revisits
+    req['revisits'] names by time; or sets the state of the proposals req['proposals'] names, dismissed or
+    none. Returns what get() does."""
     if path != '/review':
         return None
     run = json.loads((out / '.run.json').read_text())
@@ -228,7 +286,13 @@ def post(out, path, req):
         doc = load(out)
         cs = doc['comments']
         was = next((c for c in cs if req.get('id') and c['id'] == req['id']), None)
-        if req.get('revisits'):
+        if req.get('proposals'):
+            for p in map(str, req['proposals']):
+                if req.get('state') == 'dismissed':
+                    doc['proposals'][p] = {'state': 'dismissed', 'time': now()}
+                else:
+                    doc['proposals'].pop(p, None)
+        elif req.get('revisits'):
             read = collections.Counter(a.get('time') for a in records(out / 'answers.jsonl'))
             for t in map(str, req['revisits']):
                 st = doc['revisits'].setdefault(t, {})
@@ -240,11 +304,14 @@ def post(out, path, req):
                     st['seen'] = read[t]
         elif was and req.get('delete'):
             cs.remove(was)
+            doc['proposals'] = {p: st for p, st in doc['proposals'].items() if st.get('comment') != was['id']}
         elif was:
             was['body'], was['edited'] = str(req['body']), now()
         elif not req.get('id'):
             cs.append({'id': secrets.token_hex(4), 'time': now(), **{k: req.get(k) for k in FIELDS}})
             locate(run, cs[-1:])
+            for p in map(str, req.get('uses') or []):
+                doc['proposals'][p] = {'state': 'used', 'comment': cs[-1]['id'], 'time': now()}
         save(out, doc)
     return state(run)
 
@@ -262,9 +329,11 @@ def state(run):
     answers = {}
     for a in records(out / 'answers.jsonl'):
         text = str(a.get('answer') or '')
-        answers.setdefault(a.get('time'), []).append({'html': markdown(text), 'drafts': drafts(text)})
-    return {'comments': doc['comments'],
-            'revisits': [{**{k: r.get(k) for k in ('time', 'file', 'section', 'quote', 'view', 'prompt', 'key')},
+        answers.setdefault(a.get('time'), []).append({'html': markdown(text), 'drafts': [
+            {'text': d, 'hash': hashlib.sha1(' '.join(d.split()).encode()).hexdigest()[:8]} for d in drafts(text)]})
+    return {'comments': doc['comments'], 'proposals': doc['proposals'],
+            'revisits': [{**{k: r.get(k) for k in ('time', 'file', 'section', 'quote', 'view', 'prompt', 'key',
+                                                    'thread', 'revises')},
                           'answers': answers.get(r.get('time'), []), **doc['revisits'].get(r.get('time'), {})}
                          for r in records(out / 'revisit.jsonl')]}
 
@@ -287,7 +356,7 @@ def locate(run, cs):
 def load(out):
     f = out / 'review.json'
     doc = json.loads(f.read_text()) if f.exists() else {}
-    return {'comments': doc.get('comments', []), 'revisits': doc.get('revisits', {})}
+    return {'comments': doc.get('comments', []), 'revisits': doc.get('revisits', {}), 'proposals': doc.get('proposals', {})}
 
 
 def save(out, doc):
