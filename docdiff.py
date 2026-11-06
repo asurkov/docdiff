@@ -16,8 +16,8 @@ The page's header says what is compared (a plugin's title(), or else commits or 
 and names both sides: a revision with its commit, or the working tree; --new-label TEXT names the new
 side instead, for a working tree that stands for something else.
 
---publish CMD puts "publish accepted" on the bar of each file with accepted changes. It writes the
-accepted copy as Markdown and runs CMD in a shell, {file} replaced by the file's name and {target} by
+--publish CMD puts "publish accepted" in the header while any file has accepted changes; it publishes
+each such file in turn. For each, it writes the accepted copy as Markdown and runs CMD in a shell, {file} replaced by the file's name and {target} by
 that Markdown's path; CMD is to publish it and bring the base up to date, after which the accepted copy
 starts over from the base. gdocsync's push --target, then its export, is such a command.
 
@@ -435,7 +435,7 @@ button:not(:disabled):hover{background:var(--btnh)} button:focus-visible{outline
 .file{margin:48px 0 8px;padding:6px 10px;background:var(--code);border:1px solid var(--line);border-radius:6px;font:600 14px ui-monospace,Menlo,monospace;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
 .fbar{margin-left:auto;display:flex;flex-wrap:wrap;gap:6px}
 .state{color:var(--muted);font-weight:400}
-.accf,.pub{font:12px -apple-system,BlinkMacSystemFont,sans-serif;padding:1px 8px}
+.accf{font:12px -apple-system,BlinkMacSystemFont,sans-serif;padding:1px 8px}
 ins{background:var(--ins);text-decoration:none;box-shadow:inset 0 -2px var(--insb)}
 del{background:var(--del);color:var(--delb);text-decoration:line-through}
 .chg{cursor:pointer}
@@ -519,11 +519,12 @@ return x.els.some(e=>{const r=e.getBoundingClientRect();return e.offsetParent&&r
 document.querySelectorAll('.accf').forEach(b=>b.onclick=async()=>{const s=b.closest('section'),a=b.dataset.a==='accept';
 try{await onAccept(groups.filter(x=>x.sec===s&&x.view===(a?'review':'acc')),a).catch(()=>{});await post(b.dataset.a,{file:s.dataset.file,all:true});
 location.reload();}catch(e){pos.textContent='not saved: '+e.message;}});
-// Publish runs the --publish command on the accepted changes and shows what it printed.
-document.querySelectorAll('.pub').forEach(b=>b.onclick=async()=>{const f=b.closest('section').dataset.file;
-if(!confirm('Publish the '+b.dataset.n+' accepted change(s) of '+f+'?'))return;b.disabled=true;b.textContent='publishing…';
-try{const r=await fetch('publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file:f})});
-const t=await r.text();alert((r.ok?'Published:\\n\\n':'Not published:\\n\\n')+t);}catch(e){alert('Not published: '+e.message);}location.reload();});
+// Publish runs the --publish command on each file's accepted changes in turn and shows what each printed.
+const pb=document.getElementById('pub');if(pb)pb.onclick=async()=>{const fs=JSON.parse(pb.dataset.files);
+if(!confirm('Publish the accepted changes?\\n\\n'+fs.map(([f,n])=>f+': '+n).join('\\n')))return;pb.disabled=true;pb.textContent='publishing…';
+const said=[];for(const[f]of fs){try{const r=await fetch('publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file:f})});
+said.push((r.ok?'Published ':'Not published ')+f+':\\n'+await r.text());}catch(e){said.push('Not published '+f+': '+e.message);}}
+alert(said.join('\\n\\n'));location.reload();};
 function hidePop(){pop.hidden=true;popX=null;}
 // Plugins' buttons per change (see load_plugins): [label, key, href], href opened in a new tab.
 const acts=new Map([...document.querySelectorAll('script.acts')].map(j=>[j.closest('section'),JSON.parse(j.textContent)]));
@@ -730,7 +731,7 @@ def plugin_actions(actors, old, new, *diffs):
 
 
 def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=None, publish=False, actors=()):
-    sections, nav, words = [], [], WORDS[bool(head)]
+    sections, nav, words, pubs = [], [], WORDS[bool(head)], []
     none_yet = f'<p class=n>(nothing {words["accepted"]} yet)</p>'
     for k, (old, new) in enumerate(files):
         name = new or old
@@ -752,8 +753,9 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
         nav.append(f'<a href="#{sid}">{label}</a> <span class="n">{todo} to review · {accepted} {words["accepted"]}</span>')
         plain = lambda h, missing: re.sub(r'\sid="[^"]*"', '', h) or f'<p class="n">({missing})</p>'
         bar = ((f'<button class="accf" data-a="accept">{words["accept_file"]}</button>' if todo else '') +
-               (f'<button class="accf" data-a="unaccept">{words["unaccept_file"]}</button>' if accepted else '') +
-               (f'<button class="pub" data-n="{accepted}">publish accepted</button>' if publish and accepted else ''))
+               (f'<button class="accf" data-a="unaccept">{words["unaccept_file"]}</button>' if accepted else ''))
+        if publish and accepted:
+            pubs.append([name, accepted])
         view = lambda v, h: f'<div class="v v-{v}" data-view="{v}">{h}</div>'
         # What plugins add to the file: words for its bar, data for the page.
         extra = [x for x in (m.section(run, name) for m in PLUGINS if hasattr(m, 'section')) if x]
@@ -771,6 +773,10 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
         (f'Commits · {repo.name} · {base}..{head}' if head else f'Uncommitted edits · {repo.name}'), None)
     shown = f'<a href="{html.escape(href)}" target="_blank" rel="noopener">{html.escape(what)}</a>' if href else html.escape(what)
     title = f'docdiff · {what}'
+    # One button publishes every file with accepted changes, each in turn.
+    pub = (f'<button id="pub" data-files="{html.escape(json.dumps(pubs, ensure_ascii=False))}" '
+           f'title="Publish the accepted changes of {len(pubs)} file(s)">⇪ publish accepted ({sum(n for _, n in pubs)})</button>'
+           if pubs else '')
     buttons = [('review', 'To review'), ('acc', words['Accepted']), ('diff', f'Diff vs {base}'), ('old', 'Old'), ('new', 'New')]
     seg = ''.join(f'<button data-v="{v}" aria-pressed="{str(v == "review").lower()}">{label}</button>' for v, label in buttons)
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -779,7 +785,7 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
 {" · ".join(nav)}<span style="flex:1"></span>
 <span class="seg" data-key="v" title="v cycles the views">{seg}</span>
 <div class="bar"><span id="pos" class="n"></span><span class="tools"><span class="pair step"><button id="prev" class="step" data-key="p" title="Previous change (p or k)">↑ prev</button><button id="next" class="step" data-key="n" title="Next change (n or j)">next change ↓</button></span>
-<button id="acc" class="step primary" data-key="a">{words['accept']}</button><button id="rev" data-key="r" title="{words['revisit_title']}">{words['revisit']}</button></span></div></header>
+<button id="acc" class="step primary" data-key="a">{words['accept']}</button><button id="rev" data-key="r" title="{words['revisit_title']}">{words['revisit']}</button>{pub}</span></div></header>
 <main>{"".join(sections)}</main>
 <div id="rp" class="panel" hidden><div id="rx" class="n" hidden></div><blockquote id="rq"></blockquote><textarea id="rt" placeholder="{words['question']}"></textarea>
 <span class="hint n">⇧↵ adds a line</span><button id="rc" data-key="esc">Cancel</button><button id="rs" class="primary" data-key="↵">Send</button></div>

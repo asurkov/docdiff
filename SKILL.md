@@ -197,11 +197,13 @@ export:
 --publish "python3 -I ~/.claude/skills/gdocsync/gdocsync.py --repo <repo> push {file} --target {target} && python3 -I ~/.claude/skills/gdocsync/gdocsync.py --repo <repo> export {file}"
 ```
 
-Each file with accepted changes then has "publish accepted" on its bar. After a confirm, the server
-writes the accepted copy as Markdown (`{target}`), runs the command and shows what it printed; on
-success the page reloads with the published changes in the old side and the rest still to review. A
-push refused because the Google Doc or the Markdown changed since the export publishes nothing: export
-again, rerun docdiff (accepts that still apply carry over), and publish again. The click is the user's
+While any file has accepted changes, the header has "⇪ publish accepted (N)". After a confirm that
+lists each such file and its count, the server publishes them in turn: for each, it writes the accepted
+copy as Markdown (`{target}`) and runs the command; the page then shows what each printed and reloads
+with the published changes in the old side and the rest still to review. A push refused because the
+Google Doc or the Markdown changed since the export publishes nothing for that file: export again,
+rerun docdiff (accepts that still apply carry over), and publish again; a file already published has
+nothing accepted left, so it is not published twice. The click is the user's
 go: never press it on a doc other people read.
 
 ## Plugins
