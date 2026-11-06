@@ -61,7 +61,8 @@ Read them from the invocation, in any order:
   `~/projects/webmonetization/docs` or `~/projects/webmonetization/wm-design-docs`.
 - a revision (`HEAD~1`, a hash, a branch) → the base. Default `HEAD`. A second revision → `--head`.
 - a PR (URL or number) → base and head from the PR ([Spec PRs](#spec-prs)).
-- file paths → limit to those, as pathspecs relative to the repo root.
+- file paths → limit to those, as pathspecs relative to the repo root, shown in that order; a named file
+  with no changes shows too, unchanged.
 
 ## Steps
 

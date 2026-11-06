@@ -1,13 +1,13 @@
-"""The repo's docs and their Google Docs: --docs FILE, as gdocsync's export writes it, [{file, url, state,
-since, comments}], lists every Markdown file above the diff: its name, a link to the doc below, a link to
-its Google Doc, where the two stand and its open comments.
+"""The repo's docs and their Google Docs: --docs FILE, as gdocsync's export writes it, [{file, title, url,
+state, since, comments}] in the repo's order, lists every document above the diff: its title, a link to
+the doc below, a link to its Google Doc, where the two stand and its open comments.
 """
 import html, json, pathlib
 
 STYLE = '''
 .docs{margin:16px 0 8px;font-size:14px} .docs table{border-collapse:collapse;width:100%}
 .docs th,.docs td{text-align:left;padding:4px 8px;border-bottom:1px solid var(--line);vertical-align:top}
-.docs th{color:var(--muted);font-weight:400;font-size:12px} .docs td:first-child{font:600 13px ui-monospace,Menlo,monospace}
+.docs th{color:var(--muted);font-weight:400;font-size:12px} .docs td:first-child{font-weight:600}
 .docs .ok{color:var(--muted)} .docs .dl{color:var(--fg)}
 '''
 
@@ -32,13 +32,13 @@ def top(run):
     if not f or not f.exists():
         return None
     rows = ''.join(row(d) for d in json.loads(f.read_text()))
-    return ('<div class="docs ui"><table><tr><th>Markdown</th><th>Google Doc</th><th>Where they stand</th>'
+    return ('<div class="docs ui"><table><tr><th>Document</th><th>Google Doc</th><th>Where they stand</th>'
             f'<th>Open comments</th></tr>{rows}</table></div>')
 
 
 def row(d):
     e = html.escape
-    name = f'<a class="dl" href="#" data-file="{e(d["file"])}">{e(d["file"])}</a>'
+    name = f'<a class="dl" href="#" data-file="{e(d["file"])}" title="{e(d["file"])}">{e(d.get("title") or d["file"])}</a>'
     link = f'<a href="{e(d["url"])}" target="_blank" rel="noopener">Google Doc ↗</a>' if d['url'] else ''
     stand = e('; '.join(filter(None, [d['state'], d['since']])))
     return (f'<tr><td>{name}</td><td>{link}</td><td class="{"ok" if d["state"] == "in step" else ""}">{stand}</td>'

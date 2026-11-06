@@ -812,10 +812,11 @@ def page_top(run):
 
 def files_for(repo, base, head, paths):
     """Changed files [(old, new)], plus files named in paths that have no changes, so they can be
-    revised as edits land; and the names of those."""
+    revised as edits land, files named in paths in their order; and the names of those."""
     files = changed_files(repo, base, head, paths)
     named = [p for p in paths if (repo / p).is_file() and p not in {new for _, new in files}]
-    return files + [(p, p) for p in named], named
+    place = {p: i for i, p in enumerate(paths)}
+    return sorted(files + [(p, p) for p in named], key=lambda f: place.get(f[1] or f[0], len(place))), named
 
 
 def rebuild(out):
