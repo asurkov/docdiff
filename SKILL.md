@@ -77,7 +77,8 @@ Read them from the invocation, in any order:
    the script only rebuilds the page, prints the existing URL and exits. A running server also notices
    on its own when the repo moves on (a commit, an edit, a new export: the revisions or the changed
    files' sizes and times differ from the build's) and rebuilds, and an open page reloads into it. A
-   server keeps the code it started with: after changing docdiff itself, stop it and run again.
+   server keeps the code it started with: after changing docdiff itself, stop it and run again. A new
+   server takes its predecessor's port when that is free, so the URL and open tabs outlive a restart.
 2. Read the background command's output file once for the `URL:` line. With `0 changed doc(s)`
    there is nothing to show: say so and stop.
 3. Open the URL in the built-in browser (`navigate`, a new tab if the current one shows something else).

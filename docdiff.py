@@ -986,16 +986,20 @@ def handler(out):
 
 def serve(out):
     state = out / '.server.json'
-    if state.exists():
-        port = json.loads(state.read_text())['port']
+    last = json.loads(state.read_text())['port'] if state.exists() else 0
+    if last:
         try:
-            served = urllib.request.urlopen(f'http://127.0.0.1:{port}/.server.json', timeout=1).read()
+            served = urllib.request.urlopen(f'http://127.0.0.1:{last}/.server.json', timeout=1).read()
         except OSError:
             served = None
         if served is not None and served.decode() == state.read_text():
-            print(f'URL: http://127.0.0.1:{port}/index.html (server already running)', flush=True)
+            print(f'URL: http://127.0.0.1:{last}/index.html (server already running)', flush=True)
             return
-    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), handler(out))
+    # The last server's port first, so its address, open tabs and links to it outlive a restart.
+    try:
+        server = http.server.ThreadingHTTPServer(('127.0.0.1', last), handler(out))
+    except OSError:
+        server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), handler(out))
     port = server.server_address[1]
     state.write_text(json.dumps({'port': port, 'pid': os.getpid()}))
     print(f'URL: http://127.0.0.1:{port}/index.html', flush=True)
