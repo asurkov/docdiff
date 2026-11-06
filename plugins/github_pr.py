@@ -39,6 +39,13 @@ def add_args(p):
                                 "(default: GITHUB_TOKEN's user, if set)")
 
 
+def title(run):
+    if not run.get('pr'):
+        return None
+    slug, n = pr_of(run['repo'], run['pr'])
+    return f'GitHub PR · {slug}#{n}', f'https://github.com/{slug}/pull/{n}'
+
+
 def actions(run):
     if not run.get('pr'):
         return None

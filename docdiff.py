@@ -12,8 +12,9 @@ server already serving it, and prints "URL: ...". The server also stores what th
 --out: accepted/<file>.html, the file as accepted so far, which To review is diffed against; revisit
 requests in revisit.jsonl.
 
-The page's header names both sides: a revision with its commit, or the working tree; --new-label TEXT
-names the new side instead, for a working tree that stands for something else.
+The page's header says what is compared (a plugin's title(), or else commits or the uncommitted edits)
+and names both sides: a revision with its commit, or the working tree; --new-label TEXT names the new
+side instead, for a working tree that stands for something else.
 
 --publish CMD puts "publish accepted" on the bar of each file with accepted changes. It writes the
 accepted copy as Markdown and runs CMD in a shell, {file} replaced by the file's name and {target} by
@@ -411,7 +412,7 @@ STYLE = '''
 body{background:var(--bg);color:var(--fg);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0}
 main{max-width:920px;margin:0 auto;padding:16px 16px 40vh;overflow-wrap:anywhere}
 header{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 16px;z-index:1;display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;font-size:14px}
-header a{color:var(--fg);font-weight:600} .n{color:var(--muted)} .sides{flex-basis:100%;font-size:13px}
+header a{color:var(--fg);font-weight:600} .n{color:var(--muted)} .what{flex-basis:100%;font-size:13px} .what b{font-size:15px}
 button:disabled{opacity:.4;cursor:default}
 button{font:inherit;padding:4px 10px;border:1px solid var(--line);background:var(--btn);color:var(--fg);border-radius:6px;cursor:pointer;transition:background-color .1s}
 button:not(:disabled):hover{background:var(--btnh)} button:focus-visible{outline:2px solid var(--link);outline-offset:-2px}
@@ -661,6 +662,8 @@ def load_plugins():
       and what gets the page to render it.
     section(run, name): None, or (state, html) to add to a file's section: words for its bar, data for
       the page.
+    title(run): None where the plugin does not apply, or else (what the page compares, a link or None)
+      for the header's first line, in place of "Uncommitted edits" or "Commits".
     actions(run): None where the plugin does not apply, or else a function (old path, new path, blocks)
       that returns buttons for the popup of a file's changes, {change key: [(label, key, href)]}; the
       button opens href in a new tab, and so does the key on the current change. blocks is the file's
@@ -739,16 +742,20 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
                         f'{view("review", review)}{view("acc", done if accepted else none_yet)}'
                         f'{view("diff", body)}{view("old", plain(old_html, "new file"))}{view("new", plain(new_html, "deleted"))}'
                         f'</section>')
-    title = f'docdiff · {repo.name} vs {base}' + (f'..{head}' if head else '')
+    # What is compared: a plugin's words (a PR, a Google Doc), or else commits or the uncommitted edits.
+    what, href = next((t for t in (m.title(run) for m in PLUGINS if run and hasattr(m, 'title')) if t), None) or (
+        (f'Commits · {repo.name} · {base}..{head}' if head else f'Uncommitted edits · {repo.name}'), None)
+    shown = f'<a href="{html.escape(href)}" target="_blank" rel="noopener">{html.escape(what)}</a>' if href else html.escape(what)
+    title = f'docdiff · {what}'
     buttons = [('review', 'To review'), ('acc', words['Accepted']), ('diff', f'Diff vs {base}'), ('old', 'Old'), ('new', 'New')]
     seg = ''.join(f'<button data-v="{v}" aria-pressed="{str(v == "review").lower()}">{label}</button>' for v, label in buttons)
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{html.escape(title)}</title><style>{STYLE}{"".join(getattr(m, 'STYLE', '') for m in PLUGINS)}</style></head><body class="show-review" data-view="review" data-repo="{html.escape(str(repo))}" data-build="{build_id}">
-<header>{" · ".join(nav)}<span style="flex:1"></span>
+<header><span class="what"><b>{shown}</b><span class="n"> · Old: {html.escape(side(repo, base))} — New: {html.escape(new_label or side(repo, head))}</span></span>
+{" · ".join(nav)}<span style="flex:1"></span>
 <span class="seg" data-key="v" title="v cycles the views">{seg}</span>
 <div class="bar"><span id="pos" class="n"></span><span class="tools"><span class="pair step"><button id="prev" class="step" data-key="p" title="Previous change (p or k)">↑ prev</button><button id="next" class="step" data-key="n" title="Next change (n or j)">next change ↓</button></span>
-<button id="acc" class="step primary" data-key="a">{words['accept']}</button><button id="rev" data-key="r" title="{words['revisit_title']}">{words['revisit']}</button></span></div>
-<span class="sides n">Old: {html.escape(side(repo, base))} — New: {html.escape(new_label or side(repo, head))}</span></header>
+<button id="acc" class="step primary" data-key="a">{words['accept']}</button><button id="rev" data-key="r" title="{words['revisit_title']}">{words['revisit']}</button></span></div></header>
 <main>{"".join(sections)}</main>
 <div id="rp" class="panel" hidden><div id="rx" class="n" hidden></div><blockquote id="rq"></blockquote><textarea id="rt" placeholder="{words['question']}"></textarea>
 <span class="hint n">⇧↵ adds a line</span><button id="rc" data-key="esc">Cancel</button><button id="rs" class="primary" data-key="↵">Send</button></div>

@@ -39,6 +39,13 @@ def add_args(p):
                    help="comments made on the old side, as gdocsync's export writes them")
 
 
+def title(run):
+    """A Google Doc against its Markdown, as gdocsync's export (<repo>-google) holds them."""
+    if not run.get('comments'):
+        return None
+    return f'Google Docs vs Markdown · {pathlib.Path(run["repo"]).name.removesuffix("-google")}', None
+
+
 def section(run, name):
     """The file's comments for the page, and how many there are for its bar."""
     notes = pathlib.Path(run['comments']) if run.get('comments') else None

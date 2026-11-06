@@ -17,8 +17,9 @@ against the accepted copy, so only what changed since the last accepts), **Accep
 accepted copy: what the user has signed off), **Diff vs base** (everything, read-only), and **Old** /
 **New**, each version clean, for rewrites too large to read inline; switching keeps the reader at the
 same place in the doc. `n`/`p` step from the current change; with none, from where the reader last clicked
-or selected, while that is on screen, and otherwise from the top of the screen. The header's last line names both sides: the base revision with its commit, and
-`--head`'s or the working tree (`--new-label` names it otherwise).
+or selected, while that is on screen, and otherwise from the top of the screen. The header's first line says what is compared
+(Uncommitted edits, Commits, GitHub PR or Google Docs vs Markdown, with the repo) and names both sides:
+the base revision with its commit, and `--head`'s or the working tree (`--new-label` names it otherwise).
 Whitespace-only rewraps do not count as changes. Relative images are embedded. With `--head <rev>`, new
 is the files at that revision instead of the working tree (a PR, say). A changed `.html` file under an
 `index.html` that holds a `respecConfig` stands for that ReSpec spec, which shows as one doc
@@ -223,6 +224,8 @@ below; `load_plugins()` in `docdiff.py` has their exact shapes. `run` is the run
   (a spec's `index.html` for a section file).
 - `htmls(…)`: its docs rendered, both sides, or while they are not, what the file's section shows instead.
 - `section(run, name)`: words for a file's bar and data for the page.
+- `title(run)`: what the page compares, for the header's first line, with a link or none: `github_pr.py`'s
+  names the PR, `gdoc_comments.py`'s a Google Doc against its Markdown.
 - `actions(run)`: links in a change's popup, `[(label, key, href)]` per change, made from the file's diff
   as text: per block (paragraph, list item, heading…) a list of `(change key or None, old text, new
   text)`. A link opens `href` in a new tab, and so does `key` on the current change, so the key must not
