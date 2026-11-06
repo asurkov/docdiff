@@ -432,9 +432,10 @@ header a{color:var(--fg);font-weight:600} .n{color:var(--muted)} .what{flex-basi
 button:disabled{opacity:.4;cursor:default}
 button{font:inherit;padding:4px 10px;border:1px solid var(--line);background:var(--btn);color:var(--fg);border-radius:6px;cursor:pointer;transition:background-color .1s}
 button:not(:disabled):hover{background:var(--btnh)} button:focus-visible{outline:2px solid var(--link);outline-offset:-2px}
-.file{margin:48px 0 8px;padding:6px 10px;background:var(--code);border:1px solid var(--line);border-radius:6px;font:600 14px ui-monospace,Menlo,monospace}
+.file{margin:48px 0 8px;padding:6px 10px;background:var(--code);border:1px solid var(--line);border-radius:6px;font:600 14px ui-monospace,Menlo,monospace;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
+.fbar{margin-left:auto;display:flex;flex-wrap:wrap;gap:6px}
 .state{color:var(--muted);font-weight:400}
-.accf,.pub{float:right;font:12px -apple-system,BlinkMacSystemFont,sans-serif;padding:1px 8px}
+.accf,.pub{font:12px -apple-system,BlinkMacSystemFont,sans-serif;padding:1px 8px}
 ins{background:var(--ins);text-decoration:none;box-shadow:inset 0 -2px var(--insb)}
 del{background:var(--del);color:var(--delb);text-decoration:line-through}
 .chg{cursor:pointer}
@@ -760,7 +761,8 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
         data = ''.join(h for _, h in extra) + (('<script type="application/json" class="acts">' +
                                                 json.dumps(acts, ensure_ascii=False).replace('</', '<\\/') + '</script>') if acts else '')
         sections.append(f'<section id="{sid}" data-file="{label}">{data}<div class="file">{label}'
-                        f'{f" <span class=state>· {html.escape(state)}</span>" if state else ""}{bar}</div>'
+                        f'{f" <span class=state>· {html.escape(state)}</span>" if state else ""}'
+                        f'{f"<span class=fbar>{bar}</span>" if bar else ""}</div>'
                         f'{view("review", review)}{view("acc", done if accepted else none_yet)}'
                         f'{view("diff", body)}{view("old", plain(old_html, "new file"))}{view("new", plain(new_html, "deleted"))}'
                         f'</section>')

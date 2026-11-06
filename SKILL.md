@@ -183,8 +183,9 @@ push compares: inline styles and link targets do not show, since a push sets the
 
 Each open comment (`plugins/gdoc_comments.py`) is marked where its quote reads in the old text: amber,
 underlined red when the change deletes all of its anchor and dashed when it edits it, the thread in the
-tooltip. A comment whose quote no longer reads there (the Google Doc was edited after it was made) is
-listed under the file's bar.
+tooltip; ⌘- or Ctrl-click on the mark opens the comment in the Google Doc. A comment whose quote no
+longer reads there (the Google Doc was edited after it was made) is listed under the file's bar, each
+a link to it in the Google Doc.
 
 A revisit there names the export's file: apply it to the same file in the real repo, export again and
 rerun docdiff.

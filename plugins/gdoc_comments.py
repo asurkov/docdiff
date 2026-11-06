@@ -1,6 +1,7 @@
 """Google Doc comments: --comments FILE holds comments made on the old side, {file: [{quote, author,
-date, text, replies: [{author, text}], fate: "goes", "edited" or null}]} as gdocsync's export writes
-them; each is marked where its quote first reads in the old text, its thread in the mark's tooltip.
+date, text, replies: [{author, text}], fate: "goes", "edited" or null, url}]} as gdocsync's export writes
+them; each is marked where its quote first reads in the old text, its thread in the mark's tooltip, and
+⌘- or Ctrl-click on the mark opens it in the Google Doc (url).
 """
 import json, pathlib
 
@@ -25,12 +26,17 @@ for(const x of spans.reverse()){let t=x.t;if(x.e<t.length)t.splitText(x.e);if(x.
 for(const s of document.querySelectorAll('section')){const j=s.querySelector('script.cm');if(!j)continue;const lost=[];
 for(const c of JSON.parse(j.textContent)){const q=c.quote.replace(/\\s+/g,' ').trim();if(!q)continue;
 const title=[c.author+', '+c.date+': '+c.text,...c.replies.map(r=>'↳ '+r.author+': '+r.text),
-c.fate==='goes'?'The change deletes all of its anchor.':c.fate==='edited'?'The change edits its anchor.':''].filter(Boolean).join('\\n');
+c.fate==='goes'?'The change deletes all of its anchor.':c.fate==='edited'?'The change edits its anchor.':'',
+c.url?'⌘- or Ctrl-click opens it in the Google Doc.':''].filter(Boolean).join('\\n');
 let placed=false;for(const v of s.querySelectorAll('.v-old,.v-diff,.v-review,.v-acc'))placed=markQuote(v,q,()=>{const m=document.createElement('mark');
-m.className='cm'+(c.fate?' cm-'+c.fate:'');m.title=title;return m;})||placed;
-if(!placed){const li=document.createElement('li');li.title=title;li.textContent=c.author+' on “'+q+'”: '+c.text;lost.push(li);}}
+m.className='cm'+(c.fate?' cm-'+c.fate:'');m.title=title;if(c.url)m.dataset.url=c.url;return m;})||placed;
+if(!placed){const li=document.createElement('li'),t=c.author+' on “'+q+'”: '+c.text;li.title=title;
+if(c.url){const a=document.createElement('a');a.href=c.url;a.target='_blank';a.rel='noopener';a.textContent=t;li.append(a);}else li.textContent=t;lost.push(li);}}
 if(lost.length){const d=document.createElement('details');d.className='cmx';d.innerHTML='<summary></summary><ul></ul>';
 d.firstChild.textContent=lost.length+' comment(s) on text that no longer reads here';d.lastChild.append(...lost);s.querySelector('.file').after(d);}}
+// ⌘- or Ctrl-click on a marked comment opens it in the Google Doc; a plain click stays a click on the text.
+document.addEventListener('click',e=>{const m=e.target.closest('mark.cm[data-url]');if(!m||!(e.metaKey||e.ctrlKey))return;
+e.preventDefault();e.stopPropagation();window.open(m.dataset.url,'_blank','noopener');},true);
 '''
 
 
