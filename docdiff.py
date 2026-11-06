@@ -534,6 +534,11 @@ for(const[label,key,href]of actsOf(x)){const b=document.createElement('a');b.cla
 b.href=href;b.target='_blank';b.rel='noopener';b.onmousedown=e=>e.preventDefault();b.onclick=hidePop;pop.append(b);}
 pop.hidden=false;
 pop.style.left=Math.max(8,Math.min(r.left,innerWidth-pop.offsetWidth-8))+scrollX+'px';pop.style.top=r.bottom+scrollY+4+'px';}
+// A link in the doc does not move the page off what is being read: one into the doc, or to another doc
+// (links are not rewritten), does nothing, and one to the web opens in a new tab; with a modifier key
+// the browser follows it as usual.
+document.addEventListener('click',e=>{const a=e.target.closest('main a[href]');if(!a||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button)return;
+e.preventDefault();if(/^https?:/.test(a.getAttribute('href')))window.open(a.href,'_blank','noopener');});
 // Clicks on the page's controls (plugins mark theirs .ui) are not clicks on the text.
 document.addEventListener('click',e=>{if(e.target.closest('header,#pop,.panel,.ui')||!getSelection().isCollapsed)return;
 // A removed block's summary only folds and unfolds it.
