@@ -1,6 +1,8 @@
 """The repo's docs and their Google Docs: --docs FILE, as gdocsync's export writes it, [{file, title, url,
-state, since, comments}] in the repo's order, lists every document above the diff: its title, a link to
-the doc below, a link to its Google Doc, where the two stand and its open comments.
+local, unpublished, edited, stand, comments, local_diff}] in the repo's order, lists every document above
+the diff: its title, a link to its Google Doc, where it stands (its Markdown against git and its Google
+Doc against the Markdown, in gdocsync's words) with links to its uncommitted edits (local_diff, another
+docdiff page) and to what a push would change (the doc below), and its open comments.
 """
 import html, json, pathlib
 
@@ -8,7 +10,7 @@ STYLE = '''
 .docs{margin:16px 0 8px;font-size:14px} .docs table{border-collapse:collapse;width:100%}
 .docs th,.docs td{text-align:left;padding:4px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 .docs th{color:var(--muted);font-weight:400;font-size:12px} .docs td:first-child{font-weight:600}
-.docs .ok{color:var(--muted)} .docs .dl{color:var(--fg)}
+.docs .ok{color:var(--muted)} .docs td:first-child .dl{color:var(--fg)} .docs .links{font-size:13px;margin-top:2px}
 '''
 
 SCRIPT = '''
@@ -40,6 +42,8 @@ def row(d):
     e = html.escape
     name = f'<a class="dl" href="#" data-file="{e(d["file"])}" title="{e(d["file"])}">{e(d.get("title") or d["file"])}</a>'
     link = f'<a href="{e(d["url"])}" target="_blank" rel="noopener">Google Doc ↗</a>' if d['url'] else ''
-    stand = e('; '.join(filter(None, [d['state'], d['since']])))
-    return (f'<tr><td>{name}</td><td>{link}</td><td class="{"ok" if d["state"] == "in step" else ""}">{stand}</td>'
-            f'<td>{d["comments"] or ""}</td></tr>')
+    diffs = ([f'<a href="{e(d["local_diff"])}" target="_blank" rel="noopener">uncommitted edits ↗</a>'] if d.get('local_diff') else []) + \
+            ([f'<a class="dl" href="#" data-file="{e(d["file"])}">what a push would change ↓</a>'] if d.get('unpublished') else [])
+    fine = d.get('local') == 'committed' and d.get('unpublished') == 0 and not d.get('edited')
+    return (f'<tr><td>{name}</td><td>{link}</td><td class="{"ok" if fine else ""}">{e(d.get("stand", ""))}'
+            f'{"<div class=links>" + " · ".join(diffs) + "</div>" if diffs else ""}</td><td>{d["comments"] or ""}</td></tr>')

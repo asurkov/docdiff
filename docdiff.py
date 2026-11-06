@@ -624,6 +624,11 @@ if(s){const b=s.getBoundingClientRect();scrollTo(0,scrollY+b.top+st.at.r*b.heigh
 document.readyState==='complete'?back():addEventListener('load',back);}
 setInterval(()=>fetch('build.json').then(r=>r.json()).then(b=>{if(b.id!==body.dataset.build&&!document.querySelector('.panel:not([hidden])'))location.reload();}).catch(()=>{}),1500);
 restore();status();
+// A link to #file=<name> (from gdocsync's docs list, say) opens the page at that doc, just below the header.
+{const at=()=>{const want=decodeURIComponent((location.hash.match(/^#file=(.+)$/)||[])[1]||''),s=want&&[...document.querySelectorAll('section')].find(s=>s.dataset.file===want);
+if(want)history.replaceState(null,'',location.pathname);
+const go=()=>scrollTo(0,s.getBoundingClientRect().top+scrollY-document.querySelector('header').offsetHeight-8);
+if(s)document.readyState==='complete'?go():addEventListener('load',go);};at();addEventListener('hashchange',at);}
 '''
 
 
