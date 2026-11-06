@@ -151,7 +151,8 @@ def pr_of(repo, pr):
 
 def remarks(run, out, refresh=None):
     """For other plugins (review.py): the PR's comments on GitHub, read only, {fetched, checked, error, me,
-    comments}, me the user's login (--me, or GITHUB_TOKEN's user): its line comments, each placed on the diff where it can be (see place_lines()), its own
+    comments, source, open, refresh, posting} (the last four: GitHub's name, its link's words, that ↻ can
+    ask GitHub again, and that your 💬 may be posted there), me the user's login (--me, or GITHUB_TOKEN's user): its line comments, each placed on the diff where it can be (see place_lines()), its own
     comments and its reviews' bodies. Kept in <out>/github.json, which refresh 'auto' (a page load) asks
     GitHub to bring up to date when it is older than FRESH, and 'now' (a button) always; each page is
     asked for with its last ETag, so a list that did not change comes back empty (304), though without a
@@ -179,7 +180,9 @@ def remarks(run, out, refresh=None):
             f.with_suffix('.tmp').write_text(json.dumps(cache, ensure_ascii=False))
             f.with_suffix('.tmp').replace(f)
     return {k: cache.get(k) for k in ('fetched', 'checked', 'error')} | {'me': run.get('me') or cache.get('me'),
-                                                                         'comments': cache.get('comments', [])}
+                                                                         'comments': cache.get('comments', []),
+                                                                         'source': 'GitHub', 'open': 'Open on GitHub ↗',
+                                                                         'refresh': True, 'posting': True}
 
 
 def whoami():

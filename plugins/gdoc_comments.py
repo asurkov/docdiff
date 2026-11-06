@@ -1,43 +1,13 @@
-"""Google Doc comments: --comments FILE holds comments made on the old side, {file: [{quote, author,
-date, text, replies: [{author, text}], fate: "goes", "edited" or null, url}]} as gdocsync's export writes
-them; each is marked where its quote first reads in the old text, its thread in the mark's tooltip, and
-⌘- or Ctrl-click on the mark opens it in the Google Doc (url).
+"""Google Doc comments: --comments FILE holds the open comments made on the old side, {file: [{quote,
+author, date, time, text, replies: [{author, time, text}], fate: "goes", "edited" or null, url}]} as
+gdocsync's export writes them. They go to review.py as comments made elsewhere (remarks()), as the PR's
+on GitHub do: each thread a mark where its quote reads in the old text, its card the comment, its replies
+and what a push does to its text, with a link to it in the Google Doc; one whose quote no longer reads
+there (edited after the comment was made) is listed in the Review panel, On Google Docs.
 """
 import json, pathlib
 
-STYLE = '''
-mark.cm{background:rgba(212,167,44,.25);color:inherit;border-bottom:2px solid #d4a72c;cursor:help}
-mark.cm-goes{border-bottom-color:var(--delb)} mark.cm-edited{border-bottom-style:dashed}
-.cmx{font-size:13px;color:var(--muted);margin:0 0 8px} .cmx summary{cursor:pointer} .cmx li{cursor:help}
-'''
-
-SCRIPT = '''
-// Comments made on the old side (--comments): each marked where its quote first reads in the old text,
-// in every view that has it, so not in inserted words, added blocks or the folded summaries; the mark's
-// tooltip holds the thread and what the change does to the comment's anchor.
-function markQuote(root,q,make){const map=[];let s='',sp=true,n;
-const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode:t=>t.parentElement.closest('ins,summary,.now')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT});
-while(n=w.nextNode())for(let k=0;k<n.data.length;k++){const ch=/\\s/.test(n.data[k])?' ':n.data[k];if(ch===' '&&sp)continue;sp=ch===' ';s+=ch;map.push([n,k]);}
-const at=s.indexOf(q);if(at<0)return false;const spans=[];
-for(let k=at;k<at+q.length;k++){const[t,o]=map[k],l=spans[spans.length-1];if(l&&l.t===t)l.e=o+1;else spans.push({t,b:o,e:o+1});}
-for(const x of spans.reverse()){let t=x.t;if(x.e<t.length)t.splitText(x.e);if(x.b)t=t.splitText(x.b);const m=make();t.replaceWith(m);m.append(t);}return true;}
-// A comment whose quote no longer reads in the old text (edited there after the comment was made) is
-// listed under the file's bar instead.
-for(const s of document.querySelectorAll('section')){const j=s.querySelector('script.cm');if(!j)continue;const lost=[];
-for(const c of JSON.parse(j.textContent)){const q=c.quote.replace(/\\s+/g,' ').trim();if(!q)continue;
-const title=[c.author+', '+c.date+': '+c.text,...c.replies.map(r=>'↳ '+r.author+': '+r.text),
-c.fate==='goes'?'The change deletes all of its anchor.':c.fate==='edited'?'The change edits its anchor.':'',
-c.url?'⌘- or Ctrl-click opens it in the Google Doc.':''].filter(Boolean).join('\\n');
-let placed=false;for(const v of s.querySelectorAll('.v-old,.v-diff,.v-review,.v-acc'))placed=markQuote(v,q,()=>{const m=document.createElement('mark');
-m.className='cm'+(c.fate?' cm-'+c.fate:'');m.title=title;if(c.url)m.dataset.url=c.url;return m;})||placed;
-if(!placed){const li=document.createElement('li'),t=c.author+' on “'+q+'”: '+c.text;li.title=title;
-if(c.url){const a=document.createElement('a');a.href=c.url;a.target='_blank';a.rel='noopener';a.textContent=t;li.append(a);}else li.textContent=t;lost.push(li);}}
-if(lost.length){const d=document.createElement('details');d.className='cmx';d.innerHTML='<summary></summary><ul></ul>';
-d.firstChild.textContent=lost.length+' comment(s) on text that no longer reads here';d.lastChild.append(...lost);s.querySelector('.file').after(d);}}
-// ⌘- or Ctrl-click on a marked comment opens it in the Google Doc; a plain click stays a click on the text.
-document.addEventListener('click',e=>{const m=e.target.closest('mark.cm[data-url]');if(!m||!(e.metaKey||e.ctrlKey))return;
-e.preventDefault();e.stopPropagation();window.open(m.dataset.url,'_blank','noopener');},true);
-'''
+NOTE = {'goes': 'a push deletes its text', 'edited': 'a push edits its text'}
 
 
 def add_args(p):
@@ -53,12 +23,35 @@ def title(run):
 
 
 def section(run, name):
-    """The file's comments for the page, and how many there are for its bar."""
-    notes = pathlib.Path(run['comments']) if run.get('comments') else None
-    cs = json.loads(notes.read_text()).get(name, []) if notes and notes.exists() else []
+    """How many open comments the file has, for its bar."""
+    cs = notes(run).get(name, [])
     if not cs:
         return None
     touched = sum(1 for c in cs if c.get('fate'))
-    return (f'{len(cs)} open comment(s)' + (f', {touched} in text that changes' if touched else ''),
-            '<script type="application/json" class="cm">' + json.dumps(cs, ensure_ascii=False).replace('</', '<\\/') +
-            '</script>')
+    return f'{len(cs)} open comment(s)' + (f', {touched} in text that changes' if touched else ''), ''
+
+
+def remarks(run, out, refresh=None):
+    """For review.py: the Google Docs' open comments as comments made elsewhere, read when the export was
+    made (fetched); a comment's replies follow it, reply_to its id."""
+    f = pathlib.Path(run['comments']) if run.get('comments') else None
+    if not f or not f.exists():
+        return None
+    cs = []
+    for name, comments in notes(run).items():
+        for i, c in enumerate(comments):
+            cid = (c.get('url') or '').partition('disco=')[2] or f'{name}#{i}'
+            time = c.get('time') or c.get('date')
+            cs.append({'id': cid, 'kind': 'line', 'author': c['author'], 'time': time, 'body': c['text'],
+                       'url': c.get('url'), 'file': name, 'quote': c['quote'], 'before': '', 'side': 'L',
+                       'note': NOTE.get(c.get('fate'))})
+            cs += [{'id': f'{cid}-{j}', 'kind': 'line', 'reply_to': cid, 'author': r['author'],
+                    'time': r.get('time') or time, 'body': r['text'], 'url': c.get('url')}
+                   for j, r in enumerate(c.get('replies', []))]
+    return {'source': 'Google Docs', 'open': 'Open in Google Docs ↗', 'fetched': f.stat().st_mtime, 'checked': None,
+            'error': None, 'me': None, 'refresh': False, 'posting': False, 'comments': cs}
+
+
+def notes(run):
+    f = pathlib.Path(run['comments']) if run.get('comments') else None
+    return json.loads(f.read_text()) if f and f.exists() else {}

@@ -181,7 +181,7 @@ function proposal(m,d,ms){const id=m.time+'#'+d.hash,st=data.proposals[id]||{},b
 return{id,text:d.text,comment:c||null,revising:by.length>0&&!by[by.length-1].answers.length,
 state:c?'used':by.some(x=>x.answers.some(a=>a.drafts.some(e=>e.hash!==d.hash)))?'replaced':st.state==='dismissed'?'dismissed':'proposed'};}
 function badge(it){const r=it.kind==='r',st=!r?'':it.done?' rvb-done':it.wait?' rvb-wait':it.unread?' rvb-new':'';
-if(it.kind==='g'){const b=mk('span',{className:'rvb rvb-g'+(it.yours?' rvb-gme':''),title:'On GitHub: '+it.root.author+': '+short(it.root.body)+(it.yours?'\\n\\n(yours)':'')});b.dataset.n=it.shown;
+if(it.kind==='g'){const b=mk('span',{className:'rvb rvb-g'+(it.yours?' rvb-gme':''),title:'On '+it.src.source+': '+it.root.author+': '+short(it.root.body)+(it.yours?'\\n\\n(yours)':'')});b.dataset.n=it.shown;
 b.onmousedown=e=>e.preventDefault();b.onclick=e=>{e.preventDefault();e.stopPropagation();showGh(it,b);};return b;}
 const b=mk('span',{className:'rvb rvb-'+it.kind+st+(it.posted?' rvb-posted':''),title:!r?it.body+(it.posted?'\\n\\n(posted on GitHub)':''):it.members.map(m=>m.prompt).join('\\n')+
 (it.done?'\\n\\n(resolved: click to reopen)':it.wait?'\\n\\n(pending: no answer yet)':it.unread?'\\n\\n(new answer: click to read)':'')});
@@ -251,31 +251,41 @@ g.els[0].closest('p,li,dt,dd,td,th,h1,h2,h3,h4,h5,h6,pre,blockquote,figcaption')
 document.addEventListener('click',e=>{if(!body.classList.contains('rv-settled')||!getSelection().isCollapsed||e.target.closest('.rvb,.rvok,a,summary,.ui'))return;
 const t=e.target.closest('.v-acc .chg'),g=t&&groups.find(x=>x.view==='acc'&&x.els.includes(t));if(g)g.els.forEach(el=>el.classList.toggle('rvshow'));});
 settle();
-// The PR's comments on GitHub (github_pr.py), read only: a thread is a comment with its replies, on the
-// change or text its line was placed on, or else in the panel's On GitHub group, with the PR's own
-// comments and reviews. A comment of yours whose text one of them has (or has all of) was posted.
+// Comments made elsewhere, read only, one source per plugin that has them (remarks(): github_pr.py's on
+// the PR, gdoc_comments.py's in the Google Docs), each named by its source: a thread is a comment with its
+// replies, on the change or text it was placed on, or else in the panel's group for its source, with the
+// PR's own comments and reviews. A comment of yours whose text one of them has (or has all of) was posted,
+// on a source you post to (posting: GitHub).
 const same=(a,b)=>(a=norm(a),b=norm(b),a&&b&&(a===b||a.length>=20&&b.includes(a)||b.length>=20&&a.includes(b)));
-// With your login known (me: --me, or the token's user), a thread you wrote in (yours) counts as your
-// comment does: its change is commented. A comment of yours that one of your 💬 holds shows as that 💬
-// alone (posted), so a thread of nothing else has no mark, and one with replies counts only those.
-const me=()=>data.github?.me||null,isMe=c=>!!me()&&c.author===me();
-function ghThreads(){const cs=data.github?.comments||[],by=new Map(cs.map(c=>[c.id,c])),ts=new Map(),told=new Set();
+// With your login on a source known (me: GitHub's --me, or the token's user), a thread you wrote in (yours)
+// counts as your comment does: its change is commented. A comment of yours that one of your 💬 holds shows
+// as that 💬 alone (posted), so a thread of nothing else has no mark, and one with replies counts only those.
+const isMe=c=>!!c.src?.me&&c.author===c.src.me;
+function ghThreads(){const out=[],told=new Set();data.comments.forEach(c=>c.posted=null);
+for(const[k,src]of(data.remotes||[]).entries()){const cs=src.comments||[],by=new Map(cs.map(c=>[c.id,c])),ts=new Map();cs.forEach(c=>c.src=src);
 for(const c of cs){let r=c;while(r.reply_to&&by.has(r.reply_to))r=by.get(r.reply_to);if(!ts.has(r.id))ts.set(r.id,[]);ts.get(r.id).push(c);}
-for(const c of data.comments){const g=cs.find(g=>(!me()||isMe(g))&&same(g.body,c.body));c.posted=g?.url||null;if(g&&me())told.add(g.id);}
-return[...ts].map(([id,ms])=>{const r=by.get(id),left=ms.filter(c=>!told.has(c.id));return{kind:'g',id:'g'+id,root:r,members:ms.sort((a,b)=>a.time<b.time?-1:1),time:r.time,
-file:r.file||null,key:r.key||null,quote:r.quote||'',before:r.before||'',side:r.side||'R',section:'',yours:left.some(isMe),shown:left.length,hidden:!left.length};});}
+if(src.posting)for(const c of data.comments){const g=cs.find(g=>(!src.me||isMe(g))&&same(g.body,c.body));if(g){c.posted=g.url||null;if(src.me)told.add(g);}}
+out.push(...[...ts].map(([id,ms])=>{const r=by.get(id),left=ms.filter(c=>!told.has(c));return{kind:'g',id:'g'+k+'-'+id,src,root:r,
+members:ms.sort((a,b)=>a.time<b.time?-1:a.time>b.time?1:0),time:r.time,file:r.file||null,key:r.key||null,quote:r.quote||'',before:r.before||'',
+side:r.side||'R',section:'',yours:left.some(isMe),shown:left.length,hidden:!left.length};}));}
+return out;}
 const ago=t=>{const s=(Date.now()-t)/1000;return s<90?'just now':s<5400?Math.round(s/60)+' min ago':s<129600?Math.round(s/3600)+' h ago':Math.round(s/86400)+' days ago';};
 const at=c=>c.path?c.path.split('/').pop()+(c.line?':'+c.line:'')+(c.side==='L'?' (old)':''):'';
-const ghLabel=c=>({line:at(c)+(c.outdated?' · outdated':c.file?'':' · not placed'),pr:'on the PR',review:'review'+(c.state?': '+c.state.toLowerCase().replace(/_/g,' '):'')})[c.kind];
+// Where a comment is, in its source's words: its line, or the PR or a review; a source's own note, such as
+// what a push does to a Google Doc comment's text, comes after.
+const ghLabel=c=>c.kind==='pr'?'on the PR':c.kind==='review'?'review'+(c.state?': '+c.state.toLowerCase().replace(/_/g,' '):''):
+[at(c),c.outdated&&'outdated',!c.file&&'not placed',c.note].filter(Boolean).join(' · ');
 const ghBodies=it=>it.members.map(c=>{const d=mk('div',{className:'rvgc'+(c.reply_to?' rvgr':'')}),x=mk('div',{className:'rva rvgh'});x.innerHTML=c.html;
 d.append(mk('div',{className:'rvm',textContent:c.author+(isMe(c)?' (you)':'')+' · '+ago(new Date(c.time))}),x);return d;});
+const ghOpen=it=>mk('a',{href:it.root.url,target:'_blank',rel:'noopener',textContent:it.src.open||'Open ↗'});
 function showGh(it,b){const h=mk('div',{className:'rvch'}),bd=mk('div',{className:'rvcb'});carded=null;
-h.append(mk('span',{className:'rvm',textContent:'On GitHub · '+ghLabel(it.root)+' · '+it.members.length+' comment'+(it.members.length>1?'s':'')}),mk('a',{href:it.root.url,target:'_blank',rel:'noopener',textContent:'Open on GitHub ↗'}));
+h.append(mk('span',{className:'rvm',textContent:['On '+it.src.source,ghLabel(it.root),it.members.length+' comment'+(it.members.length>1?'s':'')].filter(Boolean).join(' · ')}),ghOpen(it));
 bd.append(...ghBodies(it));card.replaceChildren(h,bd);place(b);}
-// When GitHub was last read, and why not since; ↻ asks again.
-function ghStatus(){const g=data.github;if(!g)return null;const r=mk('div',{className:'rvgs rvm'}),b=act('↻ GitHub','Read the comments on GitHub again',async()=>{b.textContent='reading…';
-try{take(await post('review',{github:'now'}));}catch(e){b.textContent='↻ GitHub';}});
-r.append((g.fetched?'GitHub read '+ago(g.fetched*1e3):'GitHub not read yet')+(g.error?' · '+g.error+(g.fetched?', showing that copy':''):''),b);return r;}
+// When each source was last read, and why not since; ↻ asks again where the source can be asked (refresh).
+function ghStatus(){return(data.remotes||[]).map(g=>{const r=mk('div',{className:'rvgs rvm'});
+r.append((g.fetched?g.source+' read '+ago(g.fetched*1e3):g.source+' not read yet')+(g.error?' · '+g.error+(g.fetched?', showing that copy':''):''));
+if(g.refresh){const b=act('↻ '+g.source,'Read the comments on '+g.source+' again',async()=>{b.textContent='reading…';
+try{take(await post('review',{github:'now'}));}catch(e){b.textContent='↻ '+g.source;}});r.append(b);}return r;});}
 async function load(){try{const r=await fetch('review');if(!r.ok)throw new Error(r.status);const d=await r.json();rvt.disabled=false;rvt.title='Review: comments and '+W.revisits;
 if(JSON.stringify(d)!==seen)take(d);}catch(e){rvt.disabled=true;rvt.title='review: not served (restart the docdiff server)';}}
 function openCm(it){if(!it){pos.textContent='select text, or step to a change, then press c';return;}
@@ -364,7 +374,7 @@ b.classList.add('rvb-hit');setTimeout(()=>b.classList.remove('rvb-hit'),1500);}
 // A panel entry: its line (where, state, actions), then its body, folded to a few lines when long.
 function row(it,files){const r=it.kind==='r',d=mk('div',{className:'rvi'+(it.unread&&!it.done?' rvi-new':'')}),h=mk('div',{className:'rvih'}),m=mk('span',{className:'rvm'}),bd=mk('div',{className:'rvib'}),w=where(it);
 d.dataset.id=r?'r'+it.time:it.kind==='g'?it.id:'c'+it.id;
-if(it.kind==='g'){m.append('On GitHub · '+[files>1&&it.file,ghLabel(it.root)].filter(Boolean).join(' · '));h.append(m,mk('a',{href:it.root.url,target:'_blank',rel:'noopener',textContent:'Open on GitHub ↗'}));
+if(it.kind==='g'){m.append(['On '+it.src.source,files>1&&it.file,ghLabel(it.root)].filter(Boolean).join(' · '));h.append(m,ghOpen(it));
 bd.append(...ghBodies(it));d.append(h,bd);d.onclick=e=>{if(!e.target.closest('a,button'))jump(it);};return d;}
 m.append((r?'✎ ':'💬 ')+[files>1&&it.file,it.section,r&&state(it)].filter(Boolean).join(' · ')+(Object.keys(it.at).length?'':' · not in the page now'));
 if(w)m.append(' · ',mk('a',{href:it.github.href,target:'_blank',rel:'noopener',textContent:w.split('/').pop()+' ↗'}));
@@ -380,7 +390,8 @@ bd.classList.add('rvfold');const long=bd.scrollHeight>bd.clientHeight+4;bd.class
 bd.after(act(unfolded.has(id)?'Show less':'Show more','',()=>{unfolded.has(id)?unfolded.delete(id):unfolded.add(id);fold(bd);}));bd.nextElementSibling.classList.add('rvmore');}
 // Open (comments and unresolved revisits), then the resolved revisits folded; or either alone.
 let filter='all',folded=true;
-// The PR's comments that have no place in the doc fold into On GitHub, under the open ones.
+// Comments from elsewhere that have no place in the doc fold into a group per source (On GitHub, On Google
+// Docs), under the open ones.
 let ghFolded=false;
 function list(){const all=order(),nc=data.comments.length,files=document.querySelectorAll('section').length,done=all.filter(i=>i.done),
 loose=all.filter(i=>i.kind==='g'&&!i.hidden&&!Object.keys(i.at).length),its=all.filter(i=>!loose.includes(i)&&!i.hidden);
@@ -391,10 +402,11 @@ g.append(mk('summary',{textContent:'Resolved ('+done.length+')'}),...done.map(it
 const h=mk('div',{className:'rvh'}),cm=mk('button',{textContent:'Copy as Markdown',title:'The comments, each with its file:line and quote, to paste into GitHub'}),x=mk('button',{textContent:'×',title:'Close'});
 cm.onclick=async()=>{cm.textContent=!nc?'no comments':await copy(markdown(its))?'copied '+nc:'copying failed';setTimeout(()=>cm.textContent='Copy as Markdown',1500);};
 x.onclick=()=>toggle(false);h.append(mk('b',{textContent:'Review'}),mk('span',{className:'n',textContent:nc+' comment(s) · '+its.filter(i=>i.kind==='r'&&!i.done).length+' open · '+done.length+' resolved'}),cm,x);
-const gh=mk('details',{className:'rvg',open:!ghFolded});gh.ontoggle=()=>{ghFolded=!gh.open;if(gh.open)gh.querySelectorAll('.rvib').forEach(fold);};
-gh.append(mk('summary',{textContent:'On GitHub ('+loose.length+')'}),...loose.map(it=>row(it,files)));
-lp.replaceChildren(h,...[ghStatus()].filter(Boolean),f,...(filter==='resolved'?done:its.filter(i=>!i.done)).map(it=>row(it,files)),
-...(filter!=='resolved'&&loose.length?[gh]:[]),...(filter==='all'&&done.length?[g]:[]));
+const bySource=new Map();for(const it of loose)bySource.set(it.src.source,[...(bySource.get(it.src.source)||[]),it]);
+const ghs=[...bySource].map(([n,l])=>{const gh=mk('details',{className:'rvg',open:!ghFolded});gh.ontoggle=()=>{ghFolded=!gh.open;if(gh.open)gh.querySelectorAll('.rvib').forEach(fold);};
+gh.append(mk('summary',{textContent:'On '+n+' ('+l.length+')'}),...l.map(it=>row(it,files)));return gh;});
+lp.replaceChildren(h,...ghStatus(),f,...(filter==='resolved'?done:its.filter(i=>!i.done)).map(it=>row(it,files)),
+...(filter!=='resolved'?ghs:[]),...(filter==='all'&&done.length?[g]:[]));
 lp.querySelectorAll('.rvib').forEach(fold);}
 // Paste-ready: per comment, its file:line (linked to it on GitHub) or else its file and section, the
 // quoted text and the comment.
@@ -492,12 +504,13 @@ def state(run, refresh=None):
         text = str(a.get('answer') or '')
         answers.setdefault(a.get('time'), []).append({'html': markdown(text), 'drafts': [
             {'text': d, 'hash': hashlib.sha1(' '.join(d.split()).encode()).hexdigest()[:8]} for d in drafts(text)]})
-    # The PR's comments on GitHub, read only, from a plugin that has them (github_pr.py, with --pr).
-    remote = next((m for m in docdiff.PLUGINS if hasattr(m, 'remarks')), None)
-    github = remote and remote.remarks(run, out, refresh)
-    for c in (github or {}).get('comments', []):
-        c['html'] = markdown(c['body'])
-    return {'comments': doc['comments'], 'proposals': doc['proposals'], 'github': github,
+    # Comments made elsewhere, read only, from each plugin that has them: github_pr.py's on the PR (with
+    # --pr), gdoc_comments.py's in the Google Docs (with --comments).
+    remotes = [r for r in (m.remarks(run, out, refresh) for m in docdiff.PLUGINS if hasattr(m, 'remarks')) if r]
+    for r in remotes:
+        for c in r.get('comments', []):
+            c['html'] = markdown(c['body'])
+    return {'comments': doc['comments'], 'proposals': doc['proposals'], 'remotes': remotes,
             'revisits': [{**{k: r.get(k) for k in ('time', 'file', 'section', 'quote', 'view', 'prompt', 'key',
                                                     'thread', 'revises')},
                           'answers': answers.get(r.get('time'), []), **doc['revisits'].get(r.get('time'), {})}

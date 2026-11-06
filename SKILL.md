@@ -195,11 +195,13 @@ Doc's text and whose working tree holds its Markdown's. Then step 1 with `--repo
 (the header shows when it was read, from the export's commit), new the Markdown, both as the plain text a
 push compares: inline styles and link targets do not show, since a push sets them from the Markdown.
 
-Each open comment (`plugins/gdoc_comments.py`) is marked where its quote reads in the old text: amber,
-underlined red when the change deletes all of its anchor and dashed when it edits it, the thread in the
-tooltip; ⌘- or Ctrl-click on the mark opens the comment in the Google Doc. A comment whose quote no
-longer reads there (the Google Doc was edited after it was made) is listed under the file's bar, each
-a link to it in the Google Doc.
+The Google Docs' open comments (`plugins/gdoc_comments.py`) show as GitHub's do on a PR
+([GitHub PR](#github-pr), "The PR's comments on GitHub"), named On Google Docs: each thread a
+speech-bubble mark where its quote reads in the old text, its card the comment and its replies, what a
+push does to its text ("a push deletes its text", "a push edits its text") and Open in Google Docs ↗;
+in the Review panel, in document order, and one whose quote no longer reads there (the Google Doc was
+edited after it was made) in its On Google Docs group. They are as fresh as the export: `browse` or an
+export reads them again. The file's bar counts them.
 
 A revisit there names the export's file: apply it to the same file in the real repo, export again and
 rerun docdiff.
@@ -227,7 +229,7 @@ Source-specific features are plugins: the Python modules in `plugins/` next to `
 on every run and used where it applies.
 
 - `respec.py`: ReSpec specs ([ReSpec specs](#respec-specs)).
-- `gdoc_comments.py`: `--comments`, a Google Doc's comments marked on the old side
+- `gdoc_comments.py`: `--comments`, a Google Doc's comments, shown as comments made elsewhere
   ([Google Doc vs Markdown](#google-doc-vs-markdown)).
 - `gdoc_docs.py`: `--docs`, the repo's docs and their Google Docs listed above the diff.
 - `github_pr.py`: `--pr`, a link from each change to its line in a GitHub PR, and the PR's comments read
@@ -255,8 +257,10 @@ below; `load_plugins()` in `docdiff.py` has their exact shapes. `run` is the run
   be one of docdiff's own (`n p j k a r v`).
 - `place(run, old, new, side, before, after)`: for other plugins, where text of a file's block is in its
   source; `github_pr.py`'s gives review comments their file and line.
-- `remarks(run, out, refresh)`: for other plugins, comments made on the docs elsewhere; `github_pr.py`'s
-  reads the PR's on GitHub, which review comments show.
+- `remarks(run, out, refresh)`: for other plugins, comments made on the docs elsewhere, which review
+  comments show, one source per plugin: `{source, open, refresh, posting, fetched, error, me, comments}`
+  (its name, its link's words, whether ↻ can ask it again, whether your 💬 may be posted there).
+  `github_pr.py`'s reads the PR's on GitHub, `gdoc_comments.py`'s the Google Docs' from the export.
 - `STYLE`, `SCRIPT`: CSS and JavaScript for the page, after docdiff's own. An element of class `panel`
   holds off the reload after a rebuild while it shows, and clicks in it leave the doc alone; so do clicks
   in an element of class `ui` (a card or side panel), which does not hold off the reload.

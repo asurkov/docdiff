@@ -22,7 +22,7 @@ that Markdown's path; CMD is to publish it and bring the base up to date, after 
 starts over from the base. gdocsync's push --target, then its export, is such a command.
 
 Plugins, the modules in plugins/, add their own arguments, docs and buttons (see load_plugins):
-respec.py diffs ReSpec specs, gdoc_comments.py marks a Google Doc's comments (--comments), github_pr.py
+respec.py diffs ReSpec specs, gdoc_comments.py shows a Google Doc's comments (--comments), github_pr.py
 links changes to a GitHub PR (--pr), review.py keeps review comments and shows revisits' answers.
 """
 import argparse, base64, difflib, hashlib, html, http.server, importlib.util, json, mimetypes, os, pathlib, re
@@ -708,8 +708,8 @@ def load_plugins():
       diff as text, per block [(change key or None, old text, new text)], as block_diff() pairs them.
     place(run, old path, new path, side, before, after): where text of a file's block is in its source,
       for other plugins: github_pr.py's (see there).
-    remarks(run, out, refresh): comments made on the docs elsewhere, for other plugins: github_pr.py's
-      reads the PR's on GitHub (see there).
+    remarks(run, out, refresh): comments made on the docs elsewhere, for other plugins, one source per
+      plugin: github_pr.py's reads the PR's on GitHub, gdoc_comments.py's the Google Docs' (see there).
     STYLE, SCRIPT: CSS and JavaScript for the page, after docdiff's own. An element of class panel holds
       off the reload after a rebuild while it shows, and clicks in it leave the doc alone, as they do in
       an element of class ui (a card or side panel), which does not hold off the reload; openRev(g) opens
