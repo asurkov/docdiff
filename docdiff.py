@@ -834,8 +834,10 @@ def rebuild(out):
     actors = [f for f in (m.actions(run) for m in PLUGINS if hasattr(m, 'actions')) if f]
     page, shown = build(repo, run['base'], run.get('head'), files, build_id, out, named, run, run.get('new_label'),
                         bool(run.get('publish')), actors)
-    (out / 'index.html').write_text(page)
-    (out / 'build.json').write_text(json.dumps({'id': build_id, 'from': fingerprint(run)}))
+    # Each written whole and then swapped in, so a page that reloads meanwhile never gets half of one.
+    for name, text in (('index.html', page), ('build.json', json.dumps({'id': build_id, 'from': fingerprint(run)}))):
+        (out / f'{name}.tmp').write_text(text)
+        (out / f'{name}.tmp').replace(out / name)
     return repo, run['base'], shown
 
 
