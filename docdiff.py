@@ -463,7 +463,7 @@ header button,.panel button{height:28px;padding:0 12px;line-height:26px;font-siz
 [data-key]::after{content:attr(data-key);display:inline-block;margin-left:7px;padding:0 4px;min-width:7px;border:1px solid color-mix(in srgb,currentColor 25%,transparent);border-radius:4px;font:11px/15px ui-monospace,SFMono-Regular,Menlo,monospace;color:color-mix(in srgb,currentColor 70%,transparent);text-align:center;vertical-align:1px}
 .seg[data-key]::after{align-self:center;color:var(--muted);border-color:var(--line)} @media (max-width:640px){[data-key]::after{display:none}}
 .panel{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);box-shadow:0 -2px 8px rgba(0,0,0,.06);padding:12px max(16px,calc(50% - 444px));z-index:2;font-size:14px;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px}
-.panel[hidden]{display:none} .panel>blockquote,.panel>textarea,.panel>#rx{flex:1 0 100%;box-sizing:border-box} #rx{font-size:12px} .panel .hint{margin-right:auto;font-size:12px}
+.panel[hidden]{display:none} #pt{flex:1 0 100%;white-space:pre-wrap;max-height:40vh;overflow:auto;font:13px ui-monospace,Menlo,monospace} .panel>blockquote,.panel>textarea,.panel>#rx{flex:1 0 100%;box-sizing:border-box} #rx{font-size:12px} .panel .hint{margin-right:auto;font-size:12px}
 #pop{position:absolute;z-index:3;display:flex;background:var(--bg);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12);overflow:hidden}
 #pop[hidden]{display:none} #pop button,#pop a{border:0;border-radius:0;background:none;color:var(--muted);padding:2px 9px;font-size:14px;line-height:1.5;text-decoration:none}
 #pop button:hover,#pop a:hover{background:var(--code);color:var(--fg)} #pop button+button,#pop button+a{border-left:1px solid var(--line)}
@@ -519,12 +519,18 @@ return x.els.some(e=>{const r=e.getBoundingClientRect();return e.offsetParent&&r
 document.querySelectorAll('.accf').forEach(b=>b.onclick=async()=>{const s=b.closest('section'),a=b.dataset.a==='accept';
 try{await onAccept(groups.filter(x=>x.sec===s&&x.view===(a?'review':'acc')),a).catch(()=>{});await post(b.dataset.a,{file:s.dataset.file,all:true});
 location.reload();}catch(e){pos.textContent='not saved: '+e.message;}});
-// Publish runs the --publish command on each file's accepted changes in turn and shows what each printed.
-const pb=document.getElementById('pub');if(pb)pb.onclick=async()=>{const fs=JSON.parse(pb.dataset.files);
-if(!confirm('Publish the accepted changes?\\n\\n'+fs.map(([f,n])=>f+': '+n).join('\\n')))return;pb.disabled=true;pb.textContent='publishing…';
-const said=[];for(const[f]of fs){try{const r=await fetch('publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file:f})});
-said.push((r.ok?'Published ':'Not published ')+f+':\\n'+await r.text());}catch(e){said.push('Not published '+f+': '+e.message);}}
-alert(said.join('\\n\\n'));location.reload();};
+// Publish runs the --publish command on each file's accepted changes in turn. Its panel asks first, shows
+// which file is being published, then what each printed; the page reloads on Done. (No confirm() or
+// alert(): an embedded browser may block them, and then nothing would happen.)
+const pb=document.getElementById('pub');if(pb){const pp=document.getElementById('pp'),pt=document.getElementById('pt'),
+pc=document.getElementById('pc'),ps=document.getElementById('ps'),fs=JSON.parse(pb.dataset.files);
+pb.onclick=()=>{pt.textContent='Publish the accepted changes?\\n\\n'+fs.map(([f,n])=>f+': '+n+' change(s)').join('\\n');pp.hidden=false;ps.focus();};
+pc.onclick=()=>{pp.hidden=true;};
+ps.onclick=async()=>{if(ps.dataset.done){location.reload();return;}pc.hidden=true;ps.disabled=pb.disabled=true;const said=[];
+for(const[i,[f]]of fs.entries()){pb.textContent=ps.textContent='publishing '+(i+1)+' of '+fs.length+'…';pt.textContent=[...said,'Publishing '+f+'…'].join('\\n\\n');
+try{const r=await fetch('publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file:f})});
+said.push((r.ok?'✓ Published ':'✗ Not published ')+f+'\\n'+(await r.text()).trim());}catch(e){said.push('✗ Not published '+f+': '+e.message);}}
+pt.textContent=said.join('\\n\\n');ps.textContent='Done';ps.disabled=false;ps.dataset.done=1;ps.focus();};}
 function hidePop(){pop.hidden=true;popX=null;}
 // Plugins' buttons per change (see load_plugins): [label, key, href], href opened in a new tab.
 const acts=new Map([...document.querySelectorAll('script.acts')].map(j=>[j.closest('section'),JSON.parse(j.textContent)]));
@@ -688,6 +694,8 @@ def load_plugins():
       the page.
     title(run): None where the plugin does not apply, or else (what the page compares, a link or None)
       for the header's first line, in place of "Uncommitted edits" or "Commits".
+    top(run): None, or html to put above the docs, such as gdoc_docs.py's list of them; a page with it
+      is served even when no doc changed.
     actions(run): None where the plugin does not apply, or else a function (old path, new path, blocks)
       that returns buttons for the popup of a file's changes, {change key: [(label, key, href)]}; the
       button opens href in a new tab, and so does the key on the current change. blocks is the file's
@@ -786,12 +794,18 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
 <span class="seg" data-key="v" title="v cycles the views">{seg}</span>
 <div class="bar"><span id="pos" class="n"></span><span class="tools"><span class="pair step"><button id="prev" class="step" data-key="p" title="Previous change (p or k)">↑ prev</button><button id="next" class="step" data-key="n" title="Next change (n or j)">next change ↓</button></span>
 <button id="acc" class="step primary" data-key="a">{words['accept']}</button><button id="rev" data-key="r" title="{words['revisit_title']}">{words['revisit']}</button>{pub}</span></div></header>
-<main>{"".join(sections)}</main>
+<main>{page_top(run)}{"".join(sections)}</main>
 <div id="rp" class="panel" hidden><div id="rx" class="n" hidden></div><blockquote id="rq"></blockquote><textarea id="rt" placeholder="{words['question']}"></textarea>
 <span class="hint n">⇧↵ adds a line</span><button id="rc" data-key="esc">Cancel</button><button id="rs" class="primary" data-key="↵">Send</button></div>
+{'<div id="pp" class="panel" hidden><div id="pt"></div><button id="pc">Cancel</button><button id="ps" class="primary">Publish</button></div>' if pub else ''}
 <div id="pop" hidden><button id="pa">✓</button><button id="pr" title="{words['revisit_key']}">✎</button></div>
 <script type="application/json" id="words">{json.dumps(words, ensure_ascii=False)}</script>
 <script>{SCRIPT}{"".join(getattr(m, 'SCRIPT', '') for m in PLUGINS)}</script></body></html>''', len(sections)
+
+
+def page_top(run):
+    """What plugins put above the docs (their top())."""
+    return ''.join(t for t in (m.top(run) for m in PLUGINS if run and hasattr(m, 'top')) if t)
 
 
 def files_for(repo, base, head, paths):
@@ -979,11 +993,12 @@ def main():
     out = pathlib.Path(a.out) if a.out else pathlib.Path(tempfile.gettempdir()) / f'docdiff-{repo.name}'
     out.mkdir(parents=True, exist_ok=True)
     # The server rebuilds from this after an accept; plugins read their arguments from it.
-    (out / '.run.json').write_text(json.dumps({**vars(a), 'repo': str(repo), 'out': str(out.resolve())}))
+    run = {**vars(a), 'repo': str(repo), 'out': str(out.resolve())}
+    (out / '.run.json').write_text(json.dumps(run))
     _, _, shown = rebuild(out)
     print(f'{shown} changed doc(s) in {repo} vs {a.base}{f"..{a.head}" if a.head else ""} → {out / "index.html"}',
           flush=True)
-    if not shown:
+    if not shown and not page_top(run):
         return
     if a.serve:
         serve(out)

@@ -169,6 +169,11 @@ to its line on GitHub, and `--me <login>` makes your comments there your review 
 
 ## Google Doc vs Markdown
 
+For all of a repo's docs at once, `gdocsync.py --repo <repo> browse` exports them and runs docdiff as
+below, with `--docs`: a table above the diff lists every Markdown file with a link to its Google Doc,
+where the two stand and its open comments, and a "diff ↓" button to each doc that differs
+(`plugins/gdoc_docs.py`). For one doc, by hand:
+
 What a `/gdocsync` push would change in a Google Doc, with the doc's open comments on it:
 
 ```bash
@@ -197,9 +202,10 @@ export:
 --publish "python3 -I ~/.claude/skills/gdocsync/gdocsync.py --repo <repo> push {file} --target {target} && python3 -I ~/.claude/skills/gdocsync/gdocsync.py --repo <repo> export {file}"
 ```
 
-While any file has accepted changes, the header has "⇪ publish accepted (N)". After a confirm that
-lists each such file and its count, the server publishes them in turn: for each, it writes the accepted
-copy as Markdown (`{target}`) and runs the command; the page then shows what each printed and reloads
+While any file has accepted changes, the header has "⇪ publish accepted (N)". It opens a panel at the
+bottom that lists each such file and its count; on Publish the server publishes them in turn, the
+button saying which one ("publishing 1 of 2…"): for each, it writes the accepted copy as Markdown
+(`{target}`) and runs the command. The panel then shows what each printed, and Done reloads the page
 with the published changes in the old side and the rest still to review. A push refused because the
 Google Doc or the Markdown changed since the export publishes nothing for that file: export again,
 rerun docdiff (accepts that still apply carry over), and publish again; a file already published has
@@ -214,6 +220,7 @@ on every run and used where it applies.
 - `respec.py`: ReSpec specs ([ReSpec specs](#respec-specs)).
 - `gdoc_comments.py`: `--comments`, a Google Doc's comments marked on the old side
   ([Google Doc vs Markdown](#google-doc-vs-markdown)).
+- `gdoc_docs.py`: `--docs`, the repo's docs and their Google Docs listed above the diff.
 - `github_pr.py`: `--pr`, a link from each change to its line in a GitHub PR, and the PR's comments read
   from GitHub ([GitHub PR](#github-pr)).
 - `review.py`: review comments, and revisits with Claude's answers, on the page
@@ -231,6 +238,8 @@ below; `load_plugins()` in `docdiff.py` has their exact shapes. `run` is the run
 - `section(run, name)`: words for a file's bar and data for the page.
 - `title(run)`: what the page compares, for the header's first line, with a link or none: `github_pr.py`'s
   names the PR, `gdoc_comments.py`'s a Google Doc against its Markdown.
+- `top(run)`: html above the docs, such as `gdoc_docs.py`'s table; with it the page is served even when
+  no doc changed.
 - `actions(run)`: links in a change's popup, `[(label, key, href)]` per change, made from the file's diff
   as text: per block (paragraph, list item, heading…) a list of `(change key or None, old text, new
   text)`. A link opens `href` in a new tab, and so does `key` on the current change, so the key must not
