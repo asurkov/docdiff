@@ -281,32 +281,32 @@ def pair(olds, news):
 
 def whole_blocks(run, gid):
     """A run of added, removed or rewritten blocks [(list tag, kind, old, new)] as one change under one
-    key. Old text sits under a one-line summary, open when it is short; consecutive removed blocks share
-    one, paragraphs and list items alike."""
+    key. Old text sits under a one-line summary, open when it is short. Consecutive removed blocks share
+    one box, and so do consecutive added ones, paragraphs and list items alike."""
     key = hashlib.sha1('|'.join(f'{k}|{text(o)}|{text(w)}' for _, k, o, w in run).encode()).hexdigest()[:12]
     inner = lambda b: re.sub(r'^<li\b[^>]*>|</li>$', '', b)
     merged = []
     for lst, kind, old, new in run:
-        if kind == 'del' and merged and merged[-1][1] == 'del':
-            merged[-1][2].append((lst, old))
+        if kind in ('del', 'add') and merged and merged[-1][1] == kind:
+            merged[-1][2 if kind == 'del' else 3].append((lst, old or new))
         else:
-            merged.append((lst, kind, [(lst, old)] if old else [], new))
+            merged.append((lst, kind, [(lst, old)] if old else [], [(lst, new)] if new else []))
     out = []
-    for lst, kind, olds, new in merged:
+    for lst, kind, olds, news in merged:
+        # Several blocks go in one box outside any list, so one bar marks them all.
+        lst = '' if len(olds) > 1 or len(news) > 1 else lst
+        body = lambda bs: inner(bs[0][1]) if lst else wrap_lists(bs)
         was = ''
         if olds:
             lsts = {l for l, _ in olds}
-            lst = lst if len(lsts) == 1 else ''
             head = ' '.join(html.unescape(re.sub(r'<[^>]+>', lambda m: ' ' if BLOCK.match(m.group(0)) else '', olds[0][1])).split())
             head = head if len(head) <= 80 else head[:80].rsplit(' ', 1)[0] + '…'
             label = ('was' if kind == 'rw' else 'removed' if len(olds) == 1
-                     else f'removed {len(olds)} {"items" if lst else "paragraphs" if lsts == {""} else "blocks"}')
-            body = (inner(olds[0][1]) if len(olds) == 1 else f'{lst}{"".join(o for _, o in olds)}</{lst[1:3]}>') if lst \
-                else wrap_lists(olds)
+                     else f'removed {len(olds)} {"paragraphs" if lsts == {""} else "items" if "" not in lsts else "blocks"}')
             short = len(' '.join(text(o) for _, o in olds).split()) <= FOLD
             was = (f'<details class="was"{" open" if short else ""}><summary>{label}: {html.escape(head)}</summary>'
-                   f'<div class="old">{body}</div></details>')
-        now = f'<div class="now">{inner(new)}</div>' if new else ''
+                   f'<div class="old">{body(olds)}</div></details>')
+        now = f'<div class="now">{body(news)}</div>' if news else ''
         tag = 'li' if lst else 'div'
         out.append((lst, f'<{tag} class="chg blk" data-kind="{kind}" data-g="{gid}" data-k="{key}">{was}{now}</{tag}>'))
     return out, key
@@ -440,6 +440,7 @@ del{background:var(--del);color:var(--delb);text-decoration:line-through}
 .chg{cursor:pointer}
 .blk{border-left:3px solid var(--line);padding-left:10px;margin-left:-13px} li.blk{margin-left:0;padding-left:6px}
 .blk[data-kind=add]{border-color:var(--insb)} .blk[data-kind=del]{border-color:var(--delb)} .blk[data-kind=rw]{border-color:var(--rw)}
+.blk[data-kind=del] .was .old{border-left:0;padding-left:0}
 .was summary{color:var(--muted);font-size:13px;cursor:pointer} .was summary~*{margin-top:4px}
 .was .old{color:var(--muted);border-left:2px solid var(--delb);padding-left:8px} .old>:first-child,.now>:first-child{margin-top:0}
 code{background:var(--code);padding:1px 4px;border-radius:4px;font-size:90%}
