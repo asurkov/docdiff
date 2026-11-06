@@ -758,7 +758,9 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
         state = 'new file' if not old else 'deleted' if not new else f'renamed from {old}' if old != new else ''
         sid = f'f{k}'
         label = html.escape(name)
-        nav.append(f'<a href="#{sid}">{label}</a> <span class="n">{todo} to review · {accepted} {words["accepted"]}</span>')
+        # A doc shown only because it was named, with nothing changed, stays out of the header.
+        if n:
+            nav.append(f'<a href="#{sid}">{label}</a> <span class="n">{todo} to review · {accepted} {words["accepted"]}</span>')
         plain = lambda h, missing: re.sub(r'\sid="[^"]*"', '', h) or f'<p class="n">({missing})</p>'
         bar = ((f'<button class="accf" data-a="accept">{words["accept_file"]}</button>' if todo else '') +
                (f'<button class="accf" data-a="unaccept">{words["unaccept_file"]}</button>' if accepted else ''))

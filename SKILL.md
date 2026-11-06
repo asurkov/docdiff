@@ -170,8 +170,9 @@ to its line on GitHub, and `--me <login>` makes your comments there your review 
 ## Google Doc vs Markdown
 
 For all of a repo's docs at once, `gdocsync.py --repo <repo> browse` exports them and runs docdiff as
-below, with `--docs`: a table above the diff lists every Markdown file with a link to its Google Doc,
-where the two stand and its open comments, and a "diff ↓" button to each doc that differs
+below, with `--docs` and every mapped doc named, so one in step shows too (with its open comments, out
+of the header's list): a table above the diff lists every Markdown file, its name a link to the doc
+below, with a link to its Google Doc, where the two stand and its open comments
 (`plugins/gdoc_docs.py`). For one doc, by hand:
 
 What a `/gdocsync` push would change in a Google Doc, with the doc's open comments on it:
