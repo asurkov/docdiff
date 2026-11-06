@@ -3,7 +3,8 @@ author, date, time, text, replies: [{author, time, text}], fate: "goes", "edited
 gdocsync's export writes them. They go to review.py as comments made elsewhere (remarks()), as the PR's
 on GitHub do: each thread a mark where its quote reads in the old text, its card the comment, its replies
 and what a push does to its text, with a link to it in the Google Doc; one whose quote no longer reads
-there (edited after the comment was made) is listed in the Review panel, On Google Docs.
+there (edited after the comment was made) is listed in the Review panel, On Google Docs. The file's bar
+says how many are on text a push changes.
 """
 import json, pathlib
 
@@ -23,12 +24,10 @@ def title(run):
 
 
 def section(run, name):
-    """How many open comments the file has, for its bar."""
-    cs = notes(run).get(name, [])
-    if not cs:
-        return None
-    touched = sum(1 for c in cs if c.get('fate'))
-    return f'{len(cs)} open comment(s)' + (f', {touched} in text that changes' if touched else ''), ''
+    """For the file's bar, how many of its comments are on text a push changes; review.py's link beside
+    it counts them all and goes to each."""
+    touched = sum(1 for c in notes(run).get(name, []) if c.get('fate'))
+    return (f'{touched} comment(s) on text a push changes', '') if touched else None
 
 
 def remarks(run, out, refresh=None):

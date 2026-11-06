@@ -201,7 +201,8 @@ speech-bubble mark where its quote reads in the old text, its card the comment a
 push does to its text ("a push deletes its text", "a push edits its text") and Open in Google Docs ↗;
 in the Review panel, in document order, and one whose quote no longer reads there (the Google Doc was
 edited after it was made) in its On Google Docs group. They are as fresh as the export: `browse` or an
-export reads them again. The file's bar counts them.
+export reads them again. The file's bar says how many are on text a push changes, beside review.py's
+"💬 N comments" link to each.
 
 A revisit there names the export's file: apply it to the same file in the real repo, export again and
 rerun docdiff.
@@ -351,6 +352,10 @@ frees the draft again. `revisit.jsonl` and `answers.jsonl` are only ever appende
 The page asks the server every 2 seconds, so a request or an answer shows without a reload. A server
 started before `review.py` existed has no route for any of this (💬 N greys out): stop it and rerun
 docdiff.
+
+**Comments made elsewhere**, on GitHub or in the Google Docs, are counted on each doc's bar: "💬 N
+comments" is a link, and each click goes to the next thread in that doc (flashing its mark), or to its
+entry in the Review panel when its text is gone.
 
 **The PR's comments on GitHub** (`github_pr.py`, with `--pr`; read only, nothing is posted). The page
 reads the PR's review comments, its own comments and its reviews' bodies from GitHub's API on load and

@@ -58,6 +58,7 @@ STYLE = '''
 .rvused{color:var(--insb)}
 .rvok{display:inline-block;margin-left:3px;padding:0 5px;border-radius:9px;font:600 11px/15px -apple-system,BlinkMacSystemFont,sans-serif;vertical-align:2px;color:var(--insb);background:var(--ins);user-select:none;-webkit-user-select:none}
 .rvok-c{color:var(--rw);background:color-mix(in srgb,var(--rw) 16%,transparent)}
+.rvfc{font:12px -apple-system,BlinkMacSystemFont,sans-serif;color:var(--link);text-decoration:none} .rvfc:hover{text-decoration:underline}
 .rvb-g{color:var(--fg)} .rvb-g::before{content:'';display:inline-block;width:10px;height:10px;margin-right:3px;vertical-align:-1px;background:currentColor;
 -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1.5 2.5h13v8.5h-8l-3.5 3v-3h-1.5z' fill='none' stroke='black' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;
 mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1.5 2.5h13v8.5h-8l-3.5 3v-3h-1.5z' fill='none' stroke='black' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat}
@@ -222,7 +223,16 @@ status();
 const ts=items.filter(i=>i.kind==='r'&&!i.done),np=ts.filter(t=>t.wait).length,nn=ts.filter(t=>t.unread).length;
 rvt.textContent='💬 '+data.comments.length+(ts.length?' · ✎ '+ts.length:'')+(np?' · '+np+' pending':'')+(nn?' · '+nn+' new':'');
 rvt.classList.toggle('rvt-new',nn>0);if(!lp.hidden)list();
-const open=!card.hidden&&items.find(i=>i.kind==='r'&&i.time===carded);if(open){const y=card.scrollTop;fillCard(open);card.scrollTop=y;}tally();}
+const open=!card.hidden&&items.find(i=>i.kind==='r'&&i.time===carded);if(open){const y=card.scrollTop;fillCard(open);card.scrollTop=y;}tally();chips();}
+// Each doc's bar counts the comments made elsewhere on it (on GitHub, in the Google Docs); a click goes to
+// the next one in the doc, or to its entry in the Review panel when it has no place in the doc.
+function chips(){document.querySelectorAll('.rvfc').forEach(e=>e.remove());const all=order();
+for(const s of document.querySelectorAll('section')){const ts=all.filter(i=>i.kind==='g'&&!i.hidden&&i.file===s.dataset.file);if(!ts.length)continue;
+const a=mk('a',{className:'rvfc ui',href:'#',textContent:'💬 '+ts.length+' comment'+(ts.length>1?'s':''),
+title:'Comments on this doc, from '+[...new Set(ts.map(t=>t.src.source))].join(' and ')+': each click goes to the next'});let i=-1;
+a.onclick=e=>{e.preventDefault();i=(i+1)%ts.length;const it=ts[i];if(Object.keys(it.at).length){jump(it);return;}
+toggle(true);const r=lp.querySelector('[data-id="'+CSS.escape(it.id)+'"]');r?.closest('details')?.setAttribute('open','');r?.scrollIntoView({block:'center'});};
+const bar=s.querySelector('.file');bar.insertBefore(a,bar.querySelector('.fbar'));}}
 // Accepted (reviewed) changes that carry comments or open questions, counted on each file's line in the
 // header, so they are not lost once they leave To review; a count steps through them in the Accepted view.
 function tally(){document.querySelectorAll('.rvn').forEach(e=>e.remove());
