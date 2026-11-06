@@ -624,9 +624,10 @@ if(s){const b=s.getBoundingClientRect();scrollTo(0,scrollY+b.top+st.at.r*b.heigh
 document.readyState==='complete'?back():addEventListener('load',back);}
 setInterval(()=>fetch('build.json').then(r=>r.json()).then(b=>{if(b.id!==body.dataset.build&&!document.querySelector('.panel:not([hidden])'))location.reload();}).catch(()=>{}),1500);
 restore();status();
-// A link to #file=<name> (from gdocsync's docs list, say) opens the page at that doc, just below the header.
-{const at=()=>{const want=decodeURIComponent((location.hash.match(/^#file=(.+)$/)||[])[1]||''),s=want&&[...document.querySelectorAll('section')].find(s=>s.dataset.file===want);
-if(want)history.replaceState(null,'',location.pathname);
+// A link to #file=<name> (from gdocsync's docs list, say) opens the page at that doc, just below the header,
+// and &view=<view> in that view.
+{const at=()=>{const q=new URLSearchParams(location.hash.slice(1)),want=q.get('file')||'',s=want&&[...document.querySelectorAll('section')].find(s=>s.dataset.file===want);
+if(!want)return;history.replaceState(null,'',location.pathname);if(views.includes(q.get('view')))view(q.get('view'));
 const go=()=>scrollTo(0,s.getBoundingClientRect().top+scrollY-document.querySelector('header').offsetHeight-8);
 if(s)document.readyState==='complete'?go():addEventListener('load',go);};at();addEventListener('hashchange',at);}
 '''
@@ -834,8 +835,26 @@ def rebuild(out):
     page, shown = build(repo, run['base'], run.get('head'), files, build_id, out, named, run, run.get('new_label'),
                         bool(run.get('publish')), actors)
     (out / 'index.html').write_text(page)
-    (out / 'build.json').write_text(json.dumps({'id': build_id}))
+    (out / 'build.json').write_text(json.dumps({'id': build_id, 'from': fingerprint(run)}))
     return repo, run['base'], shown
+
+
+def fingerprint(run):
+    """What a build was made from: the revisions, and the working tree's changed files with their sizes and
+    times, so the server can tell when the repo has moved on (a commit, an edit, a new export)."""
+    repo = pathlib.Path(run['repo'])
+    revs = [git(repo, 'rev-parse', '--verify', '--quiet', r, check=False).stdout.decode().strip()
+            for r in filter(None, (run['base'], run.get('head')))]
+    if run.get('head'):
+        return ' '.join(revs)
+    marks = []
+    for line in git(repo, 'status', '--porcelain', '-uall', check=False).stdout.decode().splitlines():
+        try:
+            s = (repo / line[3:].split(' -> ')[-1]).stat()
+            marks.append(f'{line}:{s.st_size}:{s.st_mtime_ns}')
+        except OSError:
+            marks.append(line)
+    return ' '.join(revs) + '|' + '|'.join(marks)
 
 
 def move(out, req, accept):
@@ -902,6 +921,12 @@ def handler(out):
         def do_GET(self):
             url = urllib.parse.urlsplit(self.path)
             run = json.loads((out / '.run.json').read_text())
+            # An open page asks for build.json every second or two: when the repo has moved on since the
+            # build, rebuild first, so the page reloads into what the repo now holds.
+            if url.path == '/build.json':
+                with lock:
+                    if json.loads((out / 'build.json').read_text()).get('from') != fingerprint(run):
+                        rebuild(out)
             got = next(filter(None, (m.get(run, urllib.parse.unquote(url.path), url.query)
                                      for m in PLUGINS if hasattr(m, 'get'))), None)
             if not got:

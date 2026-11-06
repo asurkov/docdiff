@@ -74,8 +74,10 @@ Read them from the invocation, in any order:
 
    It prints `<k> changed doc(s) … → <out>/index.html`, then `URL: http://127.0.0.1:<port>/index.html`.
    The output dir defaults to `$TMPDIR/docdiff-<repo name>`. If a server for that dir is already running,
-   the script only rebuilds the page, prints the existing URL and exits, so rerunning after more edits
-   is cheap: reload the tab.
+   the script only rebuilds the page, prints the existing URL and exits. A running server also notices
+   on its own when the repo moves on (a commit, an edit, a new export: the revisions or the changed
+   files' sizes and times differ from the build's) and rebuilds, and an open page reloads into it. A
+   server keeps the code it started with: after changing docdiff itself, stop it and run again.
 2. Read the background command's output file once for the `URL:` line. With `0 changed doc(s)`
    there is nothing to show: say so and stop.
 3. Open the URL in the built-in browser (`navigate`, a new tab if the current one shows something else).
@@ -175,7 +177,9 @@ below, with `--docs` and every mapped doc named, so one in step shows too (with 
 of the header's list): a table above the diff lists every Markdown file, its name a link to the doc
 below, with a link to its Google Doc, where it stands (committed or not, and against its Google Doc) with
 links to its uncommitted edits on a second docdiff page and to what a push would change, and its open
-comments (`plugins/gdoc_docs.py`). A link to a docdiff page ending `#file=<name>` opens it at that doc.
+comments (`plugins/gdoc_docs.py`). A link to a docdiff page ending `#file=<name>` opens it at that doc, and `&view=<view>` (`review`,
+`acc`, `diff`, `old`, `new`) in that view; the docs list's "uncommitted edits ↗" opens Diff vs HEAD, so
+it shows every uncommitted change whatever has been accepted.
 For one doc, by hand:
 
 What a `/gdocsync` push would change in a Google Doc, with the doc's open comments on it:
