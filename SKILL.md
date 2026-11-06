@@ -9,8 +9,10 @@ argument-hint: "[repo path] [base revision] [head revision | PR] [paths…]"
 Renders old = the file at a base revision (default `HEAD`) and new = the working tree (staged,
 unstaged and untracked `.md` files) with pandoc, compares the two renders paragraph by paragraph (headings,
 list items and tables count as paragraphs), and writes one page. Added paragraphs show as plain text with
-a green bar; removed ones fold to a one-line summary with a red bar; a lightly edited one is word-diffed
-inline; consecutive added and removed paragraphs within a section are one change. The page has
+a green bar; removed ones sit under a one-line summary with a red bar, open up to 200 words and folded
+past that; a lightly edited one is word-diffed inline; consecutive added and removed paragraphs within a
+section are one change, all its old text first (one box, paragraphs and list items together), then its
+new; only a change of one-to-one rewrites keeps each old paragraph above its new one. The page has
 a sticky header with per-file change counts, "change N of M · file", ↑ prev / next change ↓ buttons and
 `n`/`p` (or `j`/`k`) keys, and a view switch (`v` cycles): **To review** (the default: the working tree
 against the accepted copy, so only what changed since the last accepts), **Accepted** (base against the

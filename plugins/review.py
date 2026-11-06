@@ -64,7 +64,7 @@ mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='
 .rvb-g::after{content:attr(data-n)} .rvb-gme{color:var(--rw);border-color:var(--rw)} .rvb-past{filter:grayscale(1) opacity(.5)} .rvb-past:hover{filter:none} .rvb-posted{border-color:var(--insb)} .rvb-posted::after{content:' ✓';color:var(--insb)}
 .rvgc{margin:6px 0} .rvgr{margin-left:16px} .rva.rvgh{border-color:var(--line)} .rvgs{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;margin:0 0 6px}
 .rv-settled .v-acc del.chg:not(.rvshow){display:none} .rv-settled .v-acc ins.chg:not(.rvshow){background:none;box-shadow:none}
-.rv-settled .v-acc .blk:not(.rvshow){border-left-color:color-mix(in srgb,var(--muted) 45%,transparent)} .rv-settled .v-acc .blk[data-kind=rw]:not(.rvshow)>.was{display:none}
+.rv-settled .v-acc .blk:not(.rvshow){border-left-color:color-mix(in srgb,var(--muted) 45%,transparent)} .rv-settled .v-acc .blk[data-kind=rw]:not(.rvshow)>.was{display:none} .rv-settled .v-acc .blk[data-kind=del]:not(.rvshow)>.was>.old{display:none}
 .rv-settled .v-acc .rvbar{box-shadow:-8px 0 0 -6px color-mix(in srgb,var(--muted) 55%,transparent)} .rv-settled .v-acc .rvok:not(.rvok-c){display:none}
 ::highlight(rvcm){text-decoration:underline dotted;text-decoration-color:var(--rw);text-decoration-thickness:2px;text-underline-offset:3px}
 body:not(.show-acc) #rvsd{display:none}

@@ -43,6 +43,8 @@ CONTEXT = 4
 REWRITE = 0.5
 PAIR = 0.3
 SHORT = 6
+# Removed or rewritten text longer than this many words starts folded; shorter, it shows open.
+FOLD = 200
 TAG = re.compile(r'<(/?)([a-zA-Z][\w-]*)[^>]*?(/?)>')
 VOID = {'area', 'br', 'col', 'hr', 'img', 'input', 'wbr'}
 
@@ -260,8 +262,9 @@ def similarity(a, b):
 
 
 def pair(olds, news):
-    """Match the blocks of a replaced run, keeping their order: [(old index or None, new index or None)]."""
-    out, i = [], 0
+    """Match the blocks of a replaced run, keeping their order: [(old index or None, new index or None)].
+    Between two matches, the removed blocks come before the added ones, as the old text came first."""
+    out, i, added = [], 0, []
     for j, new in enumerate(news):
         best, at = PAIR, None
         for k in range(i, len(olds)):
@@ -269,34 +272,39 @@ def pair(olds, news):
             if r > best:
                 best, at = r, k
         if at is None:
-            out.append((None, j))
+            added.append((None, j))
             continue
-        out += [(k, None) for k in range(i, at)] + [(at, j)]
-        i = at + 1
-    return out + [(k, None) for k in range(i, len(olds))]
+        out += [(k, None) for k in range(i, at)] + added + [(at, j)]
+        i, added = at + 1, []
+    return out + [(k, None) for k in range(i, len(olds))] + added
 
 
 def whole_blocks(run, gid):
     """A run of added, removed or rewritten blocks [(list tag, kind, old, new)] as one change under one
-    key. Old text folds under a one-line summary; consecutive removed blocks share one."""
+    key. Old text sits under a one-line summary, open when it is short; consecutive removed blocks share
+    one, paragraphs and list items alike."""
     key = hashlib.sha1('|'.join(f'{k}|{text(o)}|{text(w)}' for _, k, o, w in run).encode()).hexdigest()[:12]
     inner = lambda b: re.sub(r'^<li\b[^>]*>|</li>$', '', b)
     merged = []
     for lst, kind, old, new in run:
-        if kind == 'del' and merged and merged[-1][1] == 'del' and merged[-1][0] == lst:
-            merged[-1][2].append(old)
+        if kind == 'del' and merged and merged[-1][1] == 'del':
+            merged[-1][2].append((lst, old))
         else:
-            merged.append((lst, kind, [old] if old else [], new))
+            merged.append((lst, kind, [(lst, old)] if old else [], new))
     out = []
     for lst, kind, olds, new in merged:
         was = ''
         if olds:
-            head = ' '.join(html.unescape(re.sub(r'<[^>]+>', lambda m: ' ' if BLOCK.match(m.group(0)) else '', olds[0])).split())
+            lsts = {l for l, _ in olds}
+            lst = lst if len(lsts) == 1 else ''
+            head = ' '.join(html.unescape(re.sub(r'<[^>]+>', lambda m: ' ' if BLOCK.match(m.group(0)) else '', olds[0][1])).split())
             head = head if len(head) <= 80 else head[:80].rsplit(' ', 1)[0] + '…'
             label = ('was' if kind == 'rw' else 'removed' if len(olds) == 1
-                     else f'removed {len(olds)} {"items" if lst else "paragraphs"}')
-            body = (inner(olds[0]) if len(olds) == 1 else f'{lst}{"".join(olds)}</{lst[1:3]}>') if lst else ''.join(olds)
-            was = (f'<details class="was"><summary>{label}: {html.escape(head)}</summary>'
+                     else f'removed {len(olds)} {"items" if lst else "paragraphs" if lsts == {""} else "blocks"}')
+            body = (inner(olds[0][1]) if len(olds) == 1 else f'{lst}{"".join(o for _, o in olds)}</{lst[1:3]}>') if lst \
+                else wrap_lists(olds)
+            short = len(' '.join(text(o) for _, o in olds).split()) <= FOLD
+            was = (f'<details class="was"{" open" if short else ""}><summary>{label}: {html.escape(head)}</summary>'
                    f'<div class="old">{body}</div></details>')
         now = f'<div class="now">{inner(new)}</div>' if new else ''
         tag = 'li' if lst else 'div'
@@ -317,6 +325,14 @@ def block_diff(old, new, gid):
     def flush():
         nonlocal n
         if run:
+            # A change that adds or removes blocks reads as one rewrite: all its old text, then all its new
+            # text. Only a change of one-to-one rewrites keeps each old block above its new one.
+            if any(k != 'rw' for _, k, _, _ in run):
+                both = list(zip(run, sides))
+                run[:] = ([(s[0], 'del', r[2], None) for r, s in both if r[2]] +
+                          [(s[1], 'add', None, r[3]) for r, s in both if r[3]])
+                sides[:] = ([(s[0], '', s[2], '') for r, s in both if r[2]] +
+                            [('', s[1], '', s[3]) for r, s in both if r[3]])
             out, key = whole_blocks(run, f'{gid}-b{len(items)}')
             items.extend(out)
             pieces.extend((lo, lw, [(key, o, w)]) for lo, lw, o, w in sides)
