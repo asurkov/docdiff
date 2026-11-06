@@ -269,7 +269,9 @@ Each comment is a 💬 mark on its change in every view that has the change, and
 reads, the text before it picking among repeats: so it stays on a change once that is accepted, and shows
 on the same text in Old or New. Where a view has neither (an accepted change, removed words), the mark
 ends the paragraph or list item holding the text before it in its block (or else after it); only a view
-without that block goes without the mark. In To review, a mark on text already accepted (on a change in
+without that block goes without the mark. When no view has its text any more (it was rewritten since),
+the mark sits on its section's heading. A quote that does not read as it is is matched with spaces
+ignored, as a selection across paragraphs keeps no space between them. In To review, a mark on text already accepted (on a change in
 Accepted, on none in To review) is muted, still a click from its comment; marks never count as changes or
 take n/p. A mark on removed words sits after them, so settled Reviewed shows it. Clicking the mark edits
 or deletes it. The header's **💬 N** opens the Review panel: the comments and revisits in the order they

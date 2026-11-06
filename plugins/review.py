@@ -121,13 +121,19 @@ return{s,ns,os,hs};}
 // Where q ends in that text, or the word it ends in, and where it starts and ends in it. Among repeats:
 // one in its section sec first, then one of whole words, then one partly in an element that matches chg,
 // then the one the text before it, b, best leads up to.
-function findEnd(x,q,b,sec,chg){q=norm(q);b=norm(b);if(!q)return null;let best=-1,most=-1;const w=ch=>/\\w/.test(ch||'');
+function findEnd(x,q,b,sec,chg){q=norm(q);b=norm(b);if(!q)return null;let best=-1,bestE=-1,most=-1;const w=ch=>/\\w/.test(ch||'');
 const secs=x.hs.flatMap((h,i)=>h.name===sec?[[h.at,(x.hs[i+1]||{at:Infinity}).at]]:[]);
-for(let at=x.s.indexOf(q);at>=0;at=x.s.indexOf(q,at+1)){const p=x.s.slice(Math.max(0,at-b.length-1),at).trimEnd(),e=at+q.length;let k=0;
+for(const[at,e]of hits(x,q)){const p=x.s.slice(Math.max(0,at-b.length-1),at).trimEnd();let k=0;
 while(k<b.length&&k<p.length&&p[p.length-1-k]===b[b.length-1-k])k++;
 k+=(secs.some(([l,h])=>at>=l&&at<h)?2e6:0)+(w(q[0])&&w(x.s[at-1])||w(q[q.length-1])&&w(x.s[e])?0:1e6)+(chg&&x.ns.slice(at,e).some(n=>n.parentElement.closest(chg))?5e5:0);
-if(k>most){most=k;best=at;}}
-if(best<0)return null;let e=best+q.length;while(w(x.s[e-1])&&w(x.s[e])&&x.ns[e]===x.ns[e-1])e++;return[x.ns[e-1],x.os[e-1]+1,best,e];}
+if(k>most){most=k;best=at;bestE=e;}}
+if(best<0)return null;let e=bestE;while(w(x.s[e-1])&&w(x.s[e])&&x.ns[e]===x.ns[e-1])e++;return[x.ns[e-1],x.os[e-1]+1,best,e];}
+// Where q starts and ends in that text: as it reads, or else with spaces ignored, as a selection across
+// blocks keeps no space between them.
+function hits(x,q){const r=[];for(let at=x.s.indexOf(q);at>=0;at=x.s.indexOf(q,at+1))r.push([at,at+q.length]);
+const c=q.replace(/ /g,'');if(r.length||!c)return r;
+if(!x.c){x.c='';x.ci=[];for(let i=0;i<x.s.length;i++)if(x.s[i]!==' '){x.c+=x.s[i];x.ci.push(i);}}
+for(let at=x.c.indexOf(c);at>=0;at=x.c.indexOf(c,at+1))r.push([x.ci[at],x.ci[at+c.length-1]+1]);return r;}
 // On a change in view v: after its last inline part, or at the end of its block's new text (in its
 // folded summary when it only removes).
 function onChange(v,k){const els=v.querySelectorAll('.chg[data-k="'+k+'"]'),e=els[els.length-1];if(!e)return null;
@@ -195,6 +201,10 @@ else if(end){put.push([end[0],end[1],b]);it.on[w]=new Set(x.ns.slice(end[2],end[
 else if(!near1(it,v,b)){if(!it.before&&!it.after)late.push([it,v,b]);continue;}
 it.at[w]=b;if(said(it)&&w==='acc'&&it.on[w].size)it.ranges=on?spans(v,it.key):[range(x,end)];}}
 for(const[it,v,b]of late)if(near1(it,v,b))it.at[v.dataset.view]=b;
+// One whose text reads in no view (rewritten since it was asked): on its section's heading.
+for(const it of items)if(it.kind!=='g'&&!it.hidden&&it.section&&!Object.keys(it.at).length)for(const s of document.querySelectorAll('section'))if(s.dataset.file===it.file)for(const v of s.querySelectorAll('.v')){
+const h=[...v.querySelectorAll('h1,h2,h3,h4')].find(h=>{const k=h.cloneNode(true);k.querySelectorAll('del').forEach(d=>d.remove());return k.textContent.trim()===it.section;});
+if(h){const b=badge(it);h.append(b);it.at[v.dataset.view]=b;it.on[v.dataset.view]=new Set();}}
 // In To review, a mark on text already reviewed (on changes in the Accepted view, on none here) is muted.
 for(const it of items){const b=it.at.review;if(b&&!it.on.review.size&&it.on.acc?.size){b.classList.add('rvb-past');b.title+='\\n\\n(on '+W.accepted+' text)';}}
 // From the end of the doc back, so splitting a text node leaves the places before it where they were;
