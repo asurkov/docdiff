@@ -39,7 +39,7 @@ rendered = {}
 STYLE = '''
 .rvb{display:inline-block;margin-left:3px;padding:0 5px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--muted);font:400 11px/15px -apple-system,BlinkMacSystemFont,sans-serif;vertical-align:2px;cursor:pointer;user-select:none;-webkit-user-select:none}
 .rvb-c::before{content:'💬'} .rvb-r::before{content:'✎'} .rvb-r{color:var(--insb);border-color:var(--insb)}
-.rvb-wait{color:var(--rw);border-color:var(--rw);border-style:dashed} .rvb-wait::after{content:' …'} .rvb:hover{background:var(--code)} .rvb-hit{outline:2px solid #bf8700}
+.rvb-wait{color:var(--rw);border-color:var(--rw);border-style:dashed} .rvb-wait::after{content:' …'} .rvb:hover{background:var(--code)} .rvb-hit,.rvi-hit{outline:2px solid #bf8700} .rvi-hit{outline-offset:2px} .rvb-near{border-style:dashed}
 .rvb-new,.rvb-new:hover{background:var(--insb);color:var(--bg);font-weight:700} #rvt.rvt-new{font-weight:700;border-color:var(--insb)}
 .rvb-done{width:7px;height:7px;padding:0;border:4px solid transparent;border-radius:50%;background:var(--muted) content-box;opacity:.35;vertical-align:middle} .rvb-done::before{content:none} .rvb-done:hover{background:var(--muted) content-box;opacity:.8}
 #cp{z-index:5} #rvp[hidden],#rvc[hidden]{display:none}
@@ -206,6 +206,14 @@ for(const[it,v,b]of late)if(near1(it,v,b))it.at[v.dataset.view]=b;
 for(const it of items)if(it.kind!=='g'&&!it.hidden&&it.section&&!Object.keys(it.at).length)for(const s of document.querySelectorAll('section'))if(s.dataset.file===it.file)for(const v of s.querySelectorAll('.v')){
 const h=[...v.querySelectorAll('h1,h2,h3,h4')].find(h=>{const k=h.cloneNode(true);k.querySelectorAll('del').forEach(d=>d.remove());return k.textContent.trim()===it.section;});
 if(h){const b=badge(it);h.append(b);it.at[v.dataset.view]=b;it.on[v.dataset.view]=new Set();}}
+// One from elsewhere whose quote reads in no view (its text was edited after the comment was made): at the
+// end of the paragraph that shares the most of its words, half of them at least, marked as the closest match.
+const words=t=>new Set(norm(t).toLowerCase().match(/[\\p{L}\\p{N}]+/gu)||[]);
+for(const it of items)if(it.kind==='g'&&!it.hidden&&it.quote&&!Object.keys(it.at).length){const q=words(it.quote);if(q.size<2)continue;
+for(const s of document.querySelectorAll('section'))if(s.dataset.file===it.file)for(const v of s.querySelectorAll('.v')){let best=null,most=0;
+for(const p of v.querySelectorAll('p,li,td,th,dt,dd,h1,h2,h3,h4')){if(p.querySelector('p,li,td'))continue;const k=p.cloneNode(true);k.querySelectorAll(it.side==='L'?'ins,.now,.rvb':'del,.was,.rvb').forEach(e=>e.remove());
+const ws=words(k.textContent);let n=0;for(const w of q)if(ws.has(w))n++;if(n>most){most=n;best=p;}}
+if(best&&most>=Math.max(2,q.size/2)){it.near=true;const b=badge(it);b.classList.add('rvb-near');b.title+='\\n\\n(its text has changed: here at the closest match)';best.append(b);it.at[v.dataset.view]=b;it.on[v.dataset.view]=new Set();}}}
 // In To review, a mark on text already reviewed (on changes in the Accepted view, on none here) is muted.
 for(const it of items){const b=it.at.review;if(b&&!it.on.review.size&&it.on.acc?.size){b.classList.add('rvb-past');b.title+='\\n\\n(on '+W.accepted+' text)';}}
 // From the end of the doc back, so splitting a text node leaves the places before it where they were;
@@ -231,7 +239,8 @@ for(const s of document.querySelectorAll('section')){const ts=all.filter(i=>i.ki
 const a=mk('a',{className:'rvfc ui',href:'#',textContent:'💬 '+ts.length+' comment'+(ts.length>1?'s':''),
 title:'Comments on this doc, from '+[...new Set(ts.map(t=>t.src.source))].join(' and ')+': each click goes to the next'});let i=-1;
 a.onclick=e=>{e.preventDefault();i=(i+1)%ts.length;const it=ts[i];if(Object.keys(it.at).length){jump(it);return;}
-toggle(true);const r=lp.querySelector('[data-id="'+CSS.escape(it.id)+'"]');r?.closest('details')?.setAttribute('open','');r?.scrollIntoView({block:'center'});};
+toggle(true);const r=lp.querySelector('[data-id="'+CSS.escape(it.id)+'"]');if(!r)return;r.closest('details')?.setAttribute('open','');
+r.scrollIntoView({block:'center'});r.classList.add('rvi-hit');setTimeout(()=>r.classList.remove('rvi-hit'),1500);};
 const bar=s.querySelector('.file');bar.insertBefore(a,bar.querySelector('.fbar'));}}
 // Accepted (reviewed) changes that carry comments or open questions, counted on each file's line in the
 // header, so they are not lost once they leave To review; a count steps through them in the Accepted view.
@@ -289,7 +298,8 @@ const ghBodies=it=>it.members.map(c=>{const d=mk('div',{className:'rvgc'+(c.repl
 d.append(mk('div',{className:'rvm',textContent:c.author+(isMe(c)?' (you)':'')+' · '+ago(new Date(c.time))}),x);return d;});
 const ghOpen=it=>mk('a',{href:it.root.url,target:'_blank',rel:'noopener',textContent:it.src.open||'Open ↗'});
 function showGh(it,b){const h=mk('div',{className:'rvch'}),bd=mk('div',{className:'rvcb'});carded=null;
-h.append(mk('span',{className:'rvm',textContent:['On '+it.src.source,ghLabel(it.root),it.members.length+' comment'+(it.members.length>1?'s':'')].filter(Boolean).join(' · ')}),ghOpen(it));
+h.append(mk('span',{className:'rvm',textContent:['On '+it.src.source,ghLabel(it.root),it.near&&'its text has changed: here at the closest match',
+it.members.length+' comment'+(it.members.length>1?'s':'')].filter(Boolean).join(' · ')}),ghOpen(it));
 bd.append(...ghBodies(it));card.replaceChildren(h,bd);place(b);}
 // When each source was last read, and why not since; ↻ asks again where the source can be asked (refresh).
 function ghStatus(){return(data.remotes||[]).map(g=>{const r=mk('div',{className:'rvgs rvm'});
