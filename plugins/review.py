@@ -44,6 +44,8 @@ STYLE = '''
 .rvb-done{width:7px;height:7px;padding:0;border:4px solid transparent;border-radius:50%;background:var(--muted) content-box;opacity:.35;vertical-align:middle} .rvb-done::before{content:none} .rvb-done:hover{background:var(--muted) content-box;opacity:.8}
 #cp{z-index:5} #rvp[hidden],#rvc[hidden]{display:none}
 @media (min-width:840px){.rv-open main{margin-right:420px}}
+@media (max-width:839px){#rvp{top:auto!important;height:45vh;width:100vw!important;border-left:0!important;border-top:1px solid var(--line)} .rv-open main{padding-bottom:50vh}}
+.rvh{flex-wrap:wrap} .rvonly{flex-basis:100%;text-align:left;font-size:12px;padding:1px 8px}
 #rvp{position:fixed;right:0;bottom:0;width:min(420px,100vw);box-sizing:border-box;overflow:auto;overscroll-behavior:contain;background:var(--bg);border-left:1px solid var(--line);padding:8px 14px 24px;z-index:2;font-size:14px}
 .rvh{display:flex;gap:8px;align-items:center;margin-bottom:6px} .rvh .n{flex:1} .rvh button,.rvx{font-size:12px;padding:1px 8px}
 .rvi{padding:8px 4px;border-top:1px solid var(--line);cursor:pointer} .rvi:hover{background:var(--code)}
@@ -232,15 +234,13 @@ const ts=items.filter(i=>i.kind==='r'&&!i.done),np=ts.filter(t=>t.wait).length,n
 rvt.textContent='💬 '+data.comments.length+(ts.length?' · ✎ '+ts.length:'')+(np?' · '+np+' pending':'')+(nn?' · '+nn+' new':'');
 rvt.classList.toggle('rvt-new',nn>0);if(!lp.hidden)list();
 const open=!card.hidden&&items.find(i=>i.kind==='r'&&i.time===carded);if(open){const y=card.scrollTop;fillCard(open);card.scrollTop=y;}tally();chips();}
-// Each doc's bar counts the comments made elsewhere on it (on GitHub, in the Google Docs); a click goes to
-// the next one in the doc, or to its entry in the Review panel when it has no place in the doc.
+// Each doc's bar counts the comments made elsewhere on it (on GitHub, in the Google Docs); a click opens the
+// Review panel on that doc's comments, where each entry goes to its place.
 function chips(){document.querySelectorAll('.rvfc').forEach(e=>e.remove());const all=order();
 for(const s of document.querySelectorAll('section')){const ts=all.filter(i=>i.kind==='g'&&!i.hidden&&i.file===s.dataset.file);if(!ts.length)continue;
 const a=mk('a',{className:'rvfc ui',href:'#',textContent:'💬 '+ts.length+' comment'+(ts.length>1?'s':''),
-title:'Comments on this doc, from '+[...new Set(ts.map(t=>t.src.source))].join(' and ')+': each click goes to the next'});let i=-1;
-a.onclick=e=>{e.preventDefault();i=(i+1)%ts.length;const it=ts[i];if(Object.keys(it.at).length){jump(it);return;}
-toggle(true);const r=lp.querySelector('[data-id="'+CSS.escape(it.id)+'"]');if(!r)return;r.closest('details')?.setAttribute('open','');
-r.scrollIntoView({block:'center'});r.classList.add('rvi-hit');setTimeout(()=>r.classList.remove('rvi-hit'),1500);};
+title:'Comments on this doc, from '+[...new Set(ts.map(t=>t.src.source))].join(' and ')+': open them in the Review panel'});
+a.onclick=e=>{e.preventDefault();only=s.dataset.file;toggle(true);lp.scrollTop=0;};
 const bar=s.querySelector('.file');bar.insertBefore(a,bar.querySelector('.fbar'));}}
 // Accepted (reviewed) changes that carry comments or open questions, counted on each file's line in the
 // header, so they are not lost once they leave To review; a count steps through them in the Accepted view.
@@ -413,7 +413,9 @@ let filter='all',folded=true;
 // Comments from elsewhere that have no place in the doc fold into a group per source (On GitHub, On Google
 // Docs), under the open ones.
 let ghFolded=false;
-function list(){const all=order(),nc=data.comments.length,files=document.querySelectorAll('section').length,done=all.filter(i=>i.done),
+// One doc's entries only, from its bar's comment count; the panel's 💬 button shows every doc's again.
+let only=null;
+function list(){const all=order().filter(i=>!only||i.file===only),nc=data.comments.length,files=document.querySelectorAll('section').length,done=all.filter(i=>i.done),
 loose=all.filter(i=>i.kind==='g'&&!i.hidden&&!Object.keys(i.at).length),its=all.filter(i=>!loose.includes(i)&&!i.hidden);
 const f=mk('div',{className:'seg rvf'}),g=mk('details',{className:'rvg',open:!folded});g.ontoggle=()=>{folded=!g.open;keep();if(g.open)g.querySelectorAll('.rvib').forEach(fold);};
 for(const[v,l]of[['open','Open'],['resolved','Resolved'],['all','All']]){const b=mk('button',{textContent:l});b.setAttribute('aria-pressed',v===filter);
@@ -422,6 +424,7 @@ g.append(mk('summary',{textContent:'Resolved ('+done.length+')'}),...done.map(it
 const h=mk('div',{className:'rvh'}),cm=mk('button',{textContent:'Copy as Markdown',title:'The comments, each with its file:line and quote, to paste into GitHub'}),x=mk('button',{textContent:'×',title:'Close'});
 cm.onclick=async()=>{cm.textContent=!nc?'no comments':await copy(markdown(its))?'copied '+nc:'copying failed';setTimeout(()=>cm.textContent='Copy as Markdown',1500);};
 x.onclick=()=>toggle(false);h.append(mk('b',{textContent:'Review'}),mk('span',{className:'n',textContent:nc+' comment(s) · '+its.filter(i=>i.kind==='r'&&!i.done).length+' open · '+done.length+' resolved'}),cm,x);
+if(only){const o=mk('button',{className:'rvonly',textContent:only+' ×',title:'Show the entries on every doc'});o.onclick=()=>{only=null;list();};h.append(o);}
 const bySource=new Map();for(const it of loose)bySource.set(it.src.source,[...(bySource.get(it.src.source)||[]),it]);
 const ghs=[...bySource].map(([n,l])=>{const gh=mk('details',{className:'rvg',open:!ghFolded});gh.ontoggle=()=>{ghFolded=!gh.open;if(gh.open)gh.querySelectorAll('.rvib').forEach(fold);};
 gh.append(mk('summary',{textContent:'On '+n+' ('+l.length+')'}),...l.map(it=>row(it,files)));return gh;});
@@ -436,7 +439,7 @@ return '**'+(w&&it.github.href?'['+loc+']('+it.github.href+')':loc)+'**\\n\\n'+(
 function toggle(on){lp.hidden=!on;body.classList.toggle('rv-open',on);if(on){lp.style.top=document.querySelector('header').getBoundingClientRect().bottom+'px';list();}keep();}
 // The panel, its filter and its fold outlast reloads.
 function keep(){try{sessionStorage.setItem('docdiff-review',JSON.stringify({on:!lp.hidden,filter,folded}));}catch(e){}}
-rvt.onclick=()=>toggle(lp.hidden);addEventListener('resize',()=>{if(!lp.hidden)lp.style.top=document.querySelector('header').getBoundingClientRect().bottom+'px';});
+rvt.onclick=()=>{only=null;toggle(lp.hidden);};addEventListener('resize',()=>{if(!lp.hidden)lp.style.top=document.querySelector('header').getBoundingClientRect().bottom+'px';});
 pc.onmousedown=e=>e.preventDefault();pc.onclick=()=>{const a=anchorOf();hidePop();openCm(a);};
 // The doc's own click and selection handling leaves the panel and the card alone.
 for(const e of [lp,card])for(const t of ['click','mouseup'])e.addEventListener(t,ev=>ev.stopPropagation());

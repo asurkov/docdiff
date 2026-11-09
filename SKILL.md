@@ -354,8 +354,9 @@ started before `review.py` existed has no route for any of this (💬 N greys ou
 docdiff.
 
 **Comments made elsewhere**, on GitHub or in the Google Docs, are counted on each doc's bar: "💬 N
-comments" is a link, and each click goes to the next thread in that doc (flashing its mark), or to its
-entry in the Review panel (flashing it) when it has no place. One whose quote no longer reads anywhere
+comments" opens the Review panel on that doc's entries alone (its name × shows every doc's again, as the
+header's 💬 does), and each entry goes to its place in the doc. Below 840px wide the panel docks at the
+bottom, so the place it goes to stays in sight above it. One whose quote no longer reads anywhere
 (the text was edited after the comment was made) sits, dashed, at the end of the paragraph that shares
 the most of its words, half of them at least; its card says "its text has changed: here at the closest
 match".
