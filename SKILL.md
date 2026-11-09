@@ -404,8 +404,11 @@ of this skill.
 
 - Needs `pandoc` (`brew install pandoc`), and for specs the built-in browser.
 - Links between docs and section anchors are not rewritten; the page is for reading changes, not
-  for following links. A click on a link in the doc does nothing, so it never scrolls away from the
-  change being read; a web link opens in a new tab, and a modifier key follows any link as usual.
+  for following links. A click on a link into the doc or to another doc does nothing, so it never
+  scrolls away from the change being read. A link to the web, anywhere on the page (a Google Doc, a
+  comment on GitHub), opens in the default browser: the server opens it (`/open`, http and https only,
+  from the page alone), since the page may be in an embedded browser; failing that, in a new tab. A link
+  to docdiff's own pages opens in a new tab, and a modifier key follows any link as usual.
 - A deleted file shows struck through as a whole; a renamed file diffs against its old path.
 - Accepting and revisiting need the page served by docdiff (`--serve`); two identical changes with the
   same words around them in one file share a key, so accepting one accepts both.

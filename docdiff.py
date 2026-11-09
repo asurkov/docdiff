@@ -26,7 +26,7 @@ respec.py diffs ReSpec specs, gdoc_comments.py shows a Google Doc's comments (--
 links changes to a GitHub PR (--pr), review.py keeps review comments and shows revisits' answers.
 """
 import argparse, base64, difflib, hashlib, html, http.server, importlib.util, json, mimetypes, os, pathlib, re
-import shlex, shutil, subprocess, sys, tempfile, threading, time, urllib.parse, urllib.request
+import shlex, shutil, subprocess, sys, tempfile, threading, time, urllib.parse, urllib.request, webbrowser
 
 # Tags, entities, words and single punctuation marks, each with its trailing space: "nothing," and
 # "nothing" share the word.
@@ -542,11 +542,16 @@ for(const[label,key,href]of actsOf(x)){const b=document.createElement('a');b.cla
 b.href=href;b.target='_blank';b.rel='noopener';b.onmousedown=e=>e.preventDefault();b.onclick=hidePop;pop.append(b);}
 pop.hidden=false;
 pop.style.left=Math.max(8,Math.min(r.left,innerWidth-pop.offsetWidth-8))+scrollX+'px';pop.style.top=r.bottom+scrollY+4+'px';}
-// A link in the doc does not move the page off what is being read: one into the doc, or to another doc
-// (links are not rewritten), does nothing, and one to the web opens in a new tab; with a modifier key
-// the browser follows it as usual.
-document.addEventListener('click',e=>{const a=e.target.closest('main a[href]');if(!a||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button)return;
-e.preventDefault();if(/^https?:/.test(a.getAttribute('href')))window.open(a.href,'_blank','noopener');});
+// A link does not move the page off what is being read. One to the web opens in the default browser (the
+// server opens it, as the page may be in an embedded browser), or failing that in a new tab; one to
+// docdiff's own pages (127.0.0.1) in a new tab; in the doc, one into the doc or to another doc (links are
+// not rewritten) does nothing. With a modifier key the browser follows any link as usual.
+document.addEventListener('click',e=>{const a=e.target.closest('a[href]');if(!a||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button)return;
+const web=/^https?:/.test(a.getAttribute('href'));
+if(web&&!['127.0.0.1','localhost'].includes(new URL(a.href).hostname)){e.preventDefault();
+fetch('open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:a.href})})
+.then(r=>{if(!r.ok)throw new Error(r.status);}).catch(()=>window.open(a.href,'_blank','noopener'));return;}
+if(!a.closest('main'))return;e.preventDefault();if(web)window.open(a.href,'_blank','noopener');},true);
 // Clicks on the page's controls (plugins mark theirs .ui) are not clicks on the text.
 document.addEventListener('click',e=>{if(e.target.closest('header,#pop,.panel,.ui')||!getSelection().isCollapsed)return;
 // A removed block's summary only folds and unfolds it.
@@ -948,6 +953,18 @@ def handler(out):
             if self.headers.get('Origin') != f'http://127.0.0.1:{self.server.server_address[1]}':
                 return self.send_error(403)
             req = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            # A link to the web, opened in the default browser rather than in the page's own, which may be an
+            # embedded browser's tab.
+            if self.path == '/open':
+                url = str(req.get('url', ''))
+                if not re.match(r'https?://', url) or urllib.parse.urlsplit(url).hostname in ('127.0.0.1', 'localhost'):
+                    return self.send_error(400)
+                data = json.dumps({'opened': webbrowser.open(url)}).encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(data)))
+                self.end_headers()
+                return self.wfile.write(data)
             with lock:
                 if self.path in ('/accept', '/unaccept'):
                     try:
