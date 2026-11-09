@@ -113,7 +113,7 @@ The server writes both into the output dir:
   text starting "Draft a reply to this … thread") asks for a reply to that Google Docs or GitHub thread,
   its quote the thread (the text it is on, then each comment): edit nothing, answer with the reply as a
   blockquote, which the thread's card offers to copy; a revision of it has `remote` too. Its `mode`
-  says what the prompt is: `draft`, notes to write the reply from; `polish`, the user's own reply, to fix
+  says what the prompt is: `draft`, notes to write the reply from, or none (an empty prompt: draft it on your own judgment); `polish`, the user's own reply, to fix
   and tighten keeping their meaning and voice, the polished reply the first blockquote (the card marks its
   edits against what they wrote). With `weigh`, also say briefly, outside the blockquotes, whether you
   would answer differently on substance, and if so give that reply as one more blockquote.
@@ -374,18 +374,20 @@ the most of its words, half of them at least; its card says "its text has change
 match".
 
 **Drafting a reply** to a thread from elsewhere: its card and its panel entry have **✎ Draft a reply**,
-which opens a reply box inline, under the thread and its drafts, with two modes, remembered: **Draft
-from notes** (what the reply should say; the button reads Draft) or **Polish my reply** (your reply as
-you'd post it; Polish), and **☐ Weigh in**, for Claude's view on the substance and a reply of its own if
-it would answer differently. ↵ sends, ⇧↵ adds a line, Esc closes it; text being typed outlasts the
-page drawing again. The request names the thread (`remote`) and its mode and weigh, and goes to Claude
-as revisits do; the card says for a few seconds whether Claude is watching (or that it was copied to
-paste). Claude's answer shows in the card under **Drafted replies**, each draft with **Copy** (to paste
-as the reply there; Open in Google Docs ↗ or on GitHub ↗ goes to it), **✎ Revise** (a box under that
-draft) and **Dismiss**, as a draft for a comment of yours has Use. A polished reply shows its edits
-against your text, struck and inserted; Copy takes it clean. While a draft is pending the thread's mark is
-dashed, and a new one fills it until its card is opened; the header counts them with the revisits.
-Nothing is posted: replying stays yours.
+which opens a reply box inline, under the thread and its drafts (a folded panel entry unfolds, and the box
+scrolls into view; pressed again, it closes it): one text box, then **☐ weigh in**, **Polish** and
+**Draft**. Draft takes the text as notes for the reply, or with none has Claude draft on its own; Polish
+takes it as your reply, to fix and tighten, and waits for text. ↵ presses the one used last
+(highlighted), ⇧↵ adds a line, Esc closes the box; text being typed outlasts the page drawing again.
+Weigh in has Claude also say whether it would answer differently, with a reply of its own if so. The
+request names the thread (`remote`) and its mode and weigh, and goes to Claude as revisits do; the card
+says for a few seconds whether Claude is watching (or that it was copied to paste), and lists each
+request as Notes, Your reply or No notes. Claude's answer shows in the card under **Drafted replies**,
+each draft with **Copy** (to paste as the reply there; Open in Google Docs ↗ or on GitHub ↗ goes to
+it), **✎ Revise** (a box under that draft) and **Dismiss**, as a draft for a comment of yours has Use. A
+polished reply shows its edits against your text, struck and inserted; Copy takes it clean. While a
+draft is pending the thread's mark is dashed, and a new one fills it until its card is opened; the
+header counts them with the revisits. Nothing is posted: replying stays yours.
 
 **The PR's comments on GitHub** (`github_pr.py`, with `--pr`; read only, nothing is posted). The page
 reads the PR's review comments, its own comments and its reviews' bodies from GitHub's API on load and
