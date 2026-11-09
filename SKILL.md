@@ -112,7 +112,11 @@ The server writes both into the output dir:
   new draft as a blockquote. One with `remote` (a thread from elsewhere, `<source>:<comment id>`, its
   text starting "Draft a reply to this … thread") asks for a reply to that Google Docs or GitHub thread,
   its quote the thread (the text it is on, then each comment): edit nothing, answer with the reply as a
-  blockquote, which the thread's card offers to copy; a revision of it has `remote` too.
+  blockquote, which the thread's card offers to copy; a revision of it has `remote` too. Its `mode`
+  says what the prompt is: `draft`, notes to write the reply from; `polish`, the user's own reply, to fix
+  and tighten keeping their meaning and voice, the polished reply the first blockquote (the card marks its
+  edits against what they wrote). With `weigh`, also say briefly, outside the blockquotes, whether you
+  would answer differently on substance, and if so give that reply as one more blockquote.
   Open each reply with the request as sent, since the chat does not show it: the section and the quote
   as a blockquote, then the prompt, e.g. `> **Terms** · "visits a monetized document."` and
   `> monetized document or monetized page?`.
@@ -370,8 +374,12 @@ the most of its words, half of them at least; its card says "its text has change
 match".
 
 **Drafting a reply** to a thread from elsewhere: its card and its panel entry have **✎ Draft a reply**,
-which opens the revisit panel on the thread (the text it is on, then each comment) for what the reply
-should say; the request names the thread (`remote`) and goes to Claude as revisits do. Claude's answer
+which opens the revisit panel on the thread (the text it is on, then each comment) with two modes,
+remembered: **Draft from notes** (what the reply should say; the button reads Draft) or **Polish my
+reply** (your reply as you'd post it; Polish), and **☐ Weigh in**, for Claude's view on the substance
+and a reply of its own if it would answer differently. The request names the thread (`remote`) and its
+mode and weigh, and goes to Claude as revisits do. A polished reply shows its edits against your text,
+struck and inserted; Copy takes it clean. Claude's answer
 shows in the card under **Drafted replies**, each draft with **Copy** (to paste as the reply there; Open
 in Google Docs ↗ or on GitHub ↗ goes to it), **✎ Revise** and **Dismiss**, as a draft for a comment of
 yours has Use. While a draft is pending the thread's mark is dashed, and a new one fills it until its card

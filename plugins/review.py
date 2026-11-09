@@ -60,6 +60,8 @@ STYLE = '''
 .rvused{color:var(--insb)}
 .rvok{display:inline-block;margin-left:3px;padding:0 5px;border-radius:9px;font:600 11px/15px -apple-system,BlinkMacSystemFont,sans-serif;vertical-align:2px;color:var(--insb);background:var(--ins);user-select:none;-webkit-user-select:none}
 .rvok-c{color:var(--rw);background:color-mix(in srgb,var(--rw) 16%,transparent)}
+.rvopts{flex:1 0 100%;display:flex;gap:12px;align-items:center;font-size:13px} .rvweigh{display:flex;gap:4px;align-items:center;color:var(--muted)}
+.rvpol del{color:var(--delb);text-decoration:line-through;background:none} .rvpol ins{color:var(--insb);text-decoration:none;background:var(--ins)}
 ::highlight(rvgq){background-color:rgba(212,167,44,.22)} ::highlight(rvgq-on){background-color:rgba(212,167,44,.6)}
 .rvfc{font:12px -apple-system,BlinkMacSystemFont,sans-serif;color:var(--link);text-decoration:none} .rvfc:hover{text-decoration:underline}
 .rvb-g{color:var(--fg)} .rvb-g::before{content:'';display:inline-block;width:10px;height:10px;margin-right:3px;vertical-align:-1px;background:currentColor;
@@ -316,9 +318,23 @@ new MutationObserver(()=>{if(card.hidden)gq(null);}).observe(card,{attributes:tr
 // A thread from elsewhere, as Claude reads it in a request for a reply: the text it is on, then each comment.
 const threadText=it=>(it.quote?'On “'+norm(it.quote)+'”:\\n':'')+it.members.map(c=>(c.reply_to?'↳ ':'')+c.author+': '+norm(c.body)).join('\\n');
 // ✎ Draft a reply: a request to Claude naming the thread (remote), which adds to its earlier drafts if any.
-const reply=it=>act('✎ Draft a reply','Ask Claude to draft a reply to this thread, to copy into '+it.src.source,()=>{card.hidden=true;
-openRev({quote:threadText(it),el:elOf(it),key:null,fields:{remote:it.rid,thread:it.rts[0]?.time,lead:'Draft a reply to this '+it.src.source+' thread on '+it.file},
-context:'drafts a reply to '+it.root.author+' on '+it.src.source});});
+// The revisit panel then has the reply's options beside its text box: what the text is (notes to draft
+// from, or your reply to polish) and whether Claude weighs in on the substance; the request carries them
+// (mode, weigh) and its lead says them. The mode is remembered; the panel is plain again once it closes.
+let replyMode=(()=>{try{return localStorage.getItem('docdiff-reply-mode')||'draft';}catch(e){return 'draft';}})(),replyIt=null;
+const ropts=mk('div',{className:'rvopts'}),rseg=mk('span',{className:'seg'}),rweigh=mk('input',{type:'checkbox'}),rwl=mk('label',{className:'rvweigh',title:'Also say, briefly, whether Claude would answer differently'});
+for(const[m,l]of[['draft','Draft from notes'],['polish','Polish my reply']]){const b=mk('button',{textContent:l});b.dataset.m=m;b.onclick=()=>setMode(m);rseg.append(b);}
+rwl.append(rweigh,' Weigh in');ropts.append(rseg,rwl);rweigh.onchange=()=>setMode(replyMode);
+const leadFor=(it,m,w)=>(m==='polish'?'Polish my reply to this '+it.src.source+' thread on '+it.file+': fix the language and tighten it, keeping my meaning and voice':
+'Draft a reply to this '+it.src.source+' thread on '+it.file+' from my notes')+(w?'; and weigh in, briefly, if you would answer differently':'');
+function setMode(m){replyMode=m;try{localStorage.setItem('docdiff-reply-mode',m);}catch(e){}for(const b of rseg.children)b.setAttribute('aria-pressed',b.dataset.m===m);
+const t=document.getElementById('rt'),s=document.getElementById('rs');t.placeholder=m==='polish'?'Your reply, as you would post it':'What should the reply say? Points, stance, tone';
+s.textContent=m==='polish'?'Polish':'Draft';if(req&&replyIt)Object.assign(req,{mode:m,weigh:rweigh.checked,lead:leadFor(replyIt,m,rweigh.checked)});t.focus();}
+const rpEl=document.getElementById('rp');new MutationObserver(()=>{if(!rpEl.hidden||!ropts.isConnected)return;ropts.remove();replyIt=null;
+document.getElementById('rt').placeholder=W.question;document.getElementById('rs').textContent='Send';}).observe(rpEl,{attributes:true,attributeFilter:['hidden']});
+const reply=it=>act('✎ Draft a reply','Ask Claude to draft or polish a reply to this thread, to copy into '+it.src.source,()=>{card.hidden=true;replyIt=it;rweigh.checked=false;
+openRev({quote:threadText(it),el:elOf(it),key:null,fields:{remote:it.rid,thread:it.rts[0]?.time},context:'a reply to '+it.root.author+' on '+it.src.source});
+document.getElementById('rt').before(ropts);setMode(replyMode);});
 // Its card: the thread, its drafted replies (Copy, Revise, Dismiss), and Open in its source. Opening it reads
 // new drafts; it follows them while open (gcarded).
 let gcarded=null;
@@ -355,9 +371,17 @@ function answers(it,m,shown){if(!m.answers.length)return[mk('div',{className:'rv
 return m.answers.map(a=>{const d=mk('div',{className:'rva'});d.innerHTML=a.html;const qs=d.querySelectorAll(':scope>blockquote'),open=[];
 if(qs.length!==a.drafts.length)return d;
 qs.forEach((q,i)=>{const p=it.proposals.get(a.drafts[i].hash);if(shown.has(p.id)){if(p.state==='dismissed'||p.state==='replaced')q.classList.add('rvgone');else{q.classList.add('rvdup');q.after(mk('div',{className:'rvm rvpr',textContent:'the same draft as above'}));}return;}
-shown.add(p.id);decorate(q,p,it);if(p.state==='proposed')open.push(p);});
+shown.add(p.id);decorate(q,p,it,m,i);if(p.state==='proposed')open.push(p);});
 if(open.length>1&&!it.reply)d.append(act('💬 Use all '+open.length+' as one comment','One new comment of these drafts, open to edit',()=>use(it,open,open.map(p=>p.text).join('\\n\\n'))));return d;});}
-function decorate(q,p,it){const r=mk('div',{className:'rvpr'});
+// A polished reply (the answer's first draft, for a reply asked with mode polish) shows its edits against
+// the text sent; Copy still takes it clean.
+function wdiff(a,b){const A=a.split(/\\s+/).filter(Boolean),B=b.split(/\\s+/).filter(Boolean),n=A.length,m=B.length,f=document.createDocumentFragment();
+const L=Array.from({length:n+1},()=>new Uint16Array(m+1));for(let i=n-1;i>=0;i--)for(let j=m-1;j>=0;j--)L[i][j]=A[i]===B[j]?L[i+1][j+1]+1:Math.max(L[i+1][j],L[i][j+1]);
+const put=(t,w)=>f.append(t?mk(t,{textContent:w}):w,' ');let i=0,j=0;
+while(i<n&&j<m){if(A[i]===B[j]){put(null,A[i]);i++;j++;}else if(L[i+1][j]>=L[i][j+1])put('del',A[i++]);else put('ins',B[j++]);}
+while(i<n)put('del',A[i++]);while(j<m)put('ins',B[j++]);return f;}
+function decorate(q,p,it,m,i){const r=mk('div',{className:'rvpr'});
+if(it.reply&&m?.mode==='polish'&&i===0&&p.state==='proposed'){q.replaceChildren(wdiff(m.prompt,p.text));q.classList.add('rvpol');q.title='Your reply, with the edits marked';}
 if(p.state==='replaced'){const f=mk('details',{className:'rvrep'});q.replaceWith(f);f.append(mk('summary',{textContent:'replaced draft: '+short(p.text)}),q);return;}
 if(p.state==='dismissed'){q.classList.add('rvgone');r.classList.add('rvstub');r.append(mk('span',{className:'rvm',textContent:'dismissed draft: '+short(p.text)}),act('↶ Undo','Show it as proposed again',()=>setProposal(p,null)));q.after(r);return;}
 if(p.state==='used'){const u=act('↶ Undo','Delete the comment made of it',()=>{if(norm(p.comment.body)!==norm(p.text)&&u.textContent==='↶ Undo'){u.textContent='↶ Undo: delete your edited comment?';return;}save({id:p.comment.id,delete:true});});
@@ -570,7 +594,7 @@ def state(run, refresh=None, source=None):
             c['html'] = markdown(c['body'])
     return {'comments': doc['comments'], 'proposals': doc['proposals'], 'remotes': remotes,
             'revisits': [{**{k: r.get(k) for k in ('time', 'file', 'section', 'quote', 'view', 'prompt', 'key',
-                                                    'thread', 'revises', 'remote')},
+                                                    'thread', 'revises', 'remote', 'mode', 'weigh')},
                           'answers': answers.get(r.get('time'), []), **doc['revisits'].get(r.get('time'), {})}
                          for r in records(out / 'revisit.jsonl')]}
 
