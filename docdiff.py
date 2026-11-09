@@ -594,8 +594,9 @@ $('rx').textContent=g.context||'';$('rx').hidden=!g.context;rp.hidden=false;rt.f
 function closeRev(){rp.hidden=true;rt.value='';req=null;}
 async function copy(t){try{await navigator.clipboard.writeText(t);return true;}
 catch(e){const a=document.createElement('textarea');a.value=t;body.append(a);a.select();const done=document.execCommand('copy');a.remove();return done;}}
+// The request as Claude reads it: what it is about (a plugin may lead it its own way: lead), the quote, the ask.
 async function send(){const ask=rt.value.trim();if(!ask||!req)return;
-const text=W.prompt+repo+'/'+req.file+(req.section?', section "'+req.section+'"':'')+(req.view==='old'?' (old version)':'')+':\\n> '+req.quote.replace(/\\n/g,'\\n> ')+'\\n\\n'+ask;
+const text=(req.lead||W.prompt+repo+'/'+req.file+(req.section?', section "'+req.section+'"':'')+(req.view==='old'?' (old version)':''))+':\\n> '+req.quote.replace(/\\n/g,'\\n> ')+'\\n\\n'+ask;
 let queued=true;try{await post('revisit',{...req,prompt:ask,text});}catch(e){queued=false;}
 // A watcher touches the file every second while it waits; with none, the clipboard is the way in.
 const watched=queued&&await watching();

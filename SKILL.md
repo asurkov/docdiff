@@ -109,7 +109,10 @@ The server writes both into the output dir:
   nothing. Before answering one with `thread`, read the thread so far: the revisit.jsonl lines whose
   `time` or `thread` is that time (or whose quote is its quote), and their answers in answers.jsonl, and
   answer the new question in that light. A revision asks to rework the draft it quotes: answer with the
-  new draft as a blockquote.
+  new draft as a blockquote. One with `remote` (a thread from elsewhere, `<source>:<comment id>`, its
+  text starting "Draft a reply to this … thread") asks for a reply to that Google Docs or GitHub thread,
+  its quote the thread (the text it is on, then each comment): edit nothing, answer with the reply as a
+  blockquote, which the thread's card offers to copy; a revision of it has `remote` too.
   Open each reply with the request as sent, since the chat does not show it: the section and the quote
   as a blockquote, then the prompt, e.g. `> **Terms** · "visits a monetized document."` and
   `> monetized document or monetized page?`.
@@ -365,6 +368,14 @@ Highlight API, so the page's text is not wrapped in elements). One whose quote n
 (the text was edited after the comment was made) sits, dashed, at the end of the paragraph that shares
 the most of its words, half of them at least; its card says "its text has changed: here at the closest
 match".
+
+**Drafting a reply** to a thread from elsewhere: its card and its panel entry have **✎ Draft a reply**,
+which opens the revisit panel on the thread (the text it is on, then each comment) for what the reply
+should say; the request names the thread (`remote`) and goes to Claude as revisits do. Claude's answer
+shows in the card under **Drafted replies**, each draft with **Copy** (to paste as the reply there; Open
+in Google Docs ↗ or on GitHub ↗ goes to it), **✎ Revise** and **Dismiss**, as a draft for a comment of
+yours has Use. While a draft is pending the thread's mark is dashed, and a new one fills it until its card
+is opened; the header counts them with the revisits. Nothing is posted: replying stays yours.
 
 **The PR's comments on GitHub** (`github_pr.py`, with `--pr`; read only, nothing is posted). The page
 reads the PR's review comments, its own comments and its reviews' bodies from GitHub's API on load and
