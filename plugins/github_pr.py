@@ -23,6 +23,8 @@ WORD = re.compile(r'\w+')
 CONTEXT = 40
 # The fewest words in a row that place a change.
 RUN = 4
+# Its name as a source of comments made elsewhere (review.py), which its ↻ names.
+SOURCE = 'GitHub'
 API, AGENT = 'https://api.github.com', 'docdiff (github.com/asurkov/docdiff; reads PR comments)'
 # A page load asks GitHub for the PR's comments again once they are older than this, in seconds.
 FRESH = 300
@@ -181,7 +183,7 @@ def remarks(run, out, refresh=None):
             f.with_suffix('.tmp').replace(f)
     return {k: cache.get(k) for k in ('fetched', 'checked', 'error')} | {'me': run.get('me') or cache.get('me'),
                                                                          'comments': cache.get('comments', []),
-                                                                         'source': 'GitHub', 'open': 'Open on GitHub ↗',
+                                                                         'source': SOURCE, 'open': 'Open on GitHub ↗',
                                                                          'refresh': True, 'posting': True}
 
 

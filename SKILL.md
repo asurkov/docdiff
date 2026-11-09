@@ -200,8 +200,10 @@ The Google Docs' open comments (`plugins/gdoc_comments.py`) show as GitHub's do 
 speech-bubble mark where its quote reads in the old text, its card the comment and its replies, what a
 push does to its text ("a push deletes its text", "a push edits its text") and Open in Google Docs ↗;
 in the Review panel, in document order, and one whose quote no longer reads there (the Google Doc was
-edited after it was made) in its On Google Docs group. They are as fresh as the export: `browse` or an
-export reads them again. The file's bar says how many are on text a push changes, beside review.py's
+edited after it was made) in its On Google Docs group. They are as fresh as the export. With
+`--refresh CMD` (`browse` passes gdocsync's export), the panel's **↻ Google Docs** runs CMD in the
+background ("Google Docs being read…"), and when the export lands the page reloads into the Google Docs'
+new text and comments; a failed run's last line shows there instead. The file's bar says how many are on text a push changes, beside review.py's
 "💬 N comments" link to each.
 
 A revisit there names the export's file: apply it to the same file in the real repo, export again and

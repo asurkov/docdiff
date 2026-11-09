@@ -309,11 +309,12 @@ function showGh(it,b){gq(it);const h=mk('div',{className:'rvch'}),bd=mk('div',{c
 h.append(mk('span',{className:'rvm',textContent:['On '+it.src.source,ghLabel(it.root),it.near&&'its text has changed: here at the closest match',
 it.members.length+' comment'+(it.members.length>1?'s':'')].filter(Boolean).join(' · ')}),ghOpen(it));
 bd.append(...ghBodies(it));card.replaceChildren(h,bd);place(b);}
-// When each source was last read, and why not since; ↻ asks again where the source can be asked (refresh).
+// When each source was last read, and why not since; ↻ asks that source again where it can be asked
+// (refresh). A source being read in the background (busy) says so until its new copy comes in.
 function ghStatus(){return(data.remotes||[]).map(g=>{const r=mk('div',{className:'rvgs rvm'});
-r.append((g.fetched?g.source+' read '+ago(g.fetched*1e3):g.source+' not read yet')+(g.error?' · '+g.error+(g.fetched?', showing that copy':''):''));
-if(g.refresh){const b=act('↻ '+g.source,'Read the comments on '+g.source+' again',async()=>{b.textContent='reading…';
-try{take(await post('review',{github:'now'}));}catch(e){b.textContent='↻ '+g.source;}});r.append(b);}return r;});}
+r.append(g.busy?g.source+' being read…':(g.fetched?g.source+' read '+ago(g.fetched*1e3):g.source+' not read yet')+(g.error?' · '+g.error+(g.fetched?', showing that copy':''):''));
+if(g.refresh&&!g.busy){const b=act('↻ '+g.source,'Read '+g.source+' again',async()=>{b.textContent='reading…';
+try{take(await post('review',{github:'now',source:g.source}));}catch(e){b.textContent='↻ '+g.source;}});r.append(b);}return r;});}
 async function load(){try{const r=await fetch('review');if(!r.ok)throw new Error(r.status);const d=await r.json();rvt.disabled=false;rvt.title='Review: comments and '+W.revisits;
 if(JSON.stringify(d)!==seen)take(d);}catch(e){rvt.disabled=true;rvt.title='review: not served (restart the docdiff server)';}}
 function openCm(it){if(!it){pos.textContent='select text, or step to a change, then press c';return;}
@@ -484,7 +485,7 @@ def post(out, path, req):
         return None
     run = json.loads((out / '.run.json').read_text())
     if req.get('github'):
-        return state(run, req['github'])
+        return state(run, req['github'], req.get('source'))
     with lock:
         doc = load(out)
         cs = doc['comments']
@@ -523,7 +524,7 @@ def post(out, path, req):
     return state(run)
 
 
-def state(run, refresh=None):
+def state(run, refresh=None, source=None):
     out = pathlib.Path(run['out'])
     with lock:
         doc = load(out)
@@ -540,7 +541,9 @@ def state(run, refresh=None):
             {'text': d, 'hash': hashlib.sha1(' '.join(d.split()).encode()).hexdigest()[:8]} for d in drafts(text)]})
     # Comments made elsewhere, read only, from each plugin that has them: github_pr.py's on the PR (with
     # --pr), gdoc_comments.py's in the Google Docs (with --comments).
-    remotes = [r for r in (m.remarks(run, out, refresh) for m in docdiff.PLUGINS if hasattr(m, 'remarks')) if r]
+    # A refresh named for one source (its ↻) goes to that source's plugin (its SOURCE) alone.
+    remotes = [r for r in (m.remarks(run, out, refresh if not source or getattr(m, 'SOURCE', None) == source else None)
+                           for m in docdiff.PLUGINS if hasattr(m, 'remarks')) if r]
     for r in remotes:
         for c in r.get('comments', []):
             c['html'] = markdown(c['body'])
