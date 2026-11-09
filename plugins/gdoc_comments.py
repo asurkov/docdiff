@@ -69,6 +69,17 @@ def remarks(run, out, refresh=None):
             'comments': cs}
 
 
+def store(run):
+    """Where replies drafted for these comments are kept, shared by every page that shows them: beside the
+    export (<export>-replies), not in it, so writing there does not count as the export moving on."""
+    if not run.get('comments'):
+        return None
+    d = pathlib.Path(run['comments']).parent
+    d = d.with_name(d.name + '-replies')
+    d.mkdir(exist_ok=True)
+    return d
+
+
 def busy():
     return bool(job.get('proc')) and job['proc'].poll() is None
 

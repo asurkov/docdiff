@@ -353,10 +353,11 @@ async function sendBox(x,mode){const ask=x.ta.value.trim();if(!ask&&mode!=='draf
 quote=o.rev?o.rev.text:threadText(it),lead=o.rev?'Revise this reply drafted for a thread on '+o.t.file:leadFor(it,mode,x.weigh,!!ask);
 const r={file:(it||o.t).file,section:'',quote,view:cur,key:null,remote:o.rev?o.t.remote:it.rid,thread:o.rev?o.t.time:it.rts[0]?.time,lead,prompt:ask,
 ...(o.rev?{revises:o.rev.id}:{mode,weigh:x.weigh})},text=lead+':\\n> '+quote.replace(/\\n/g,'\\n> ')+(ask?'\\n\\n'+ask:'');
-let queued=true;try{await post('revisit',{...r,text});}catch(e){queued=false;}
+// It goes to the store shared by every page showing the thread (see state()), where Claude watches.
+let queued=true,st=null;try{st=await post('review',{reply:{...r,text}});take(st);}catch(e){queued=false;}
 x.close();
 // How it went shows in the thread's card for a few seconds: the header's own line is redrawn too often.
-const seen=queued&&await watching(),copied=!seen&&await copy(text);
+const src=r.remote.split(':')[0],seen=queued&&(st.stores?.[src]?st.stores[src].watched:await watching()),copied=!seen&&await copy(text);
 sentNote.set(r.remote,seen?'sent, Claude is watching':(queued?'saved, but nobody is watching: ':'not saved: ')+(copied?'copied, paste it in the chat':'tell Claude'));
 const g=items.find(i=>i.kind==='g'&&i.rid===r.remote);if(g)reshow(g);setTimeout(()=>{sentNote.delete(r.remote);const g=items.find(i=>i.kind==='g'&&i.rid===r.remote);if(g)reshow(g);},6000);}
 const sentNote=new Map();
@@ -565,12 +566,21 @@ def post(out, path, req):
     req['id'] names; or resolves (resolve true), reopens (false) or reads (seen) the revisits
     req['revisits'] names by time (by 'accept': as their change was accepted); or sets the state of the
     proposals req['proposals'] names, dismissed or none; or brings the PR's comments on GitHub up to date
-    (req['github']: 'auto' or 'now', as remarks() in github_pr.py takes it). Returns what get() does."""
+    (req['github']: 'auto' or 'now', as remarks() in github_pr.py takes it); or files a request for a reply
+    to a thread from elsewhere (req['reply']). Returns what get() does."""
     if path != '/review':
         return None
     run = json.loads((out / '.run.json').read_text())
     if req.get('github'):
         return state(run, req['github'], req.get('source'))
+    # A request for a reply to a thread from elsewhere goes to its source's shared store (or else the page's
+    # revisit.jsonl), with where that is (store), for Claude to answer there.
+    if req.get('reply'):
+        r = dict(req['reply'])
+        d = stores(run).get(str(r.get('remote') or '').partition(':')[0]) or out
+        with open(d / 'revisit.jsonl', 'a') as f:
+            f.write(json.dumps({'time': time.strftime('%Y-%m-%dT%H:%M:%S'), **r, 'store': str(d)}, ensure_ascii=False) + '\n')
+        return state(run)
     with lock:
         doc = load(out)
         cs = doc['comments']
@@ -582,7 +592,7 @@ def post(out, path, req):
                 else:
                     doc['proposals'].pop(p, None)
         elif req.get('revisits'):
-            read = collections.Counter(a.get('time') for a in records(out / 'answers.jsonl'))
+            read = collections.Counter(a.get('time') for a in answer_records(run))
             for t in map(str, req['revisits']):
                 st = doc['revisits'].setdefault(t, {})
                 # Resolved by accepting its change (by 'accept'), it reopens when that is taken back; by hand, not.
@@ -620,7 +630,7 @@ def state(run, refresh=None, source=None):
             locate(run, moved)
             save(out, doc)
     answers = {}
-    for a in records(out / 'answers.jsonl'):
+    for a in answer_records(run):
         text = str(a.get('answer') or '')
         answers.setdefault(a.get('time'), []).append({'html': markdown(text), 'drafts': [
             {'text': d, 'hash': hashlib.sha1(' '.join(d.split()).encode()).hexdigest()[:8]} for d in drafts(text)]})
@@ -636,7 +646,35 @@ def state(run, refresh=None, source=None):
             'revisits': [{**{k: r.get(k) for k in ('time', 'file', 'section', 'quote', 'view', 'prompt', 'key',
                                                     'thread', 'revises', 'remote', 'mode', 'weigh')},
                           'answers': answers.get(r.get('time'), []), **doc['revisits'].get(r.get('time'), {})}
-                         for r in records(out / 'revisit.jsonl')]}
+                         for r in revisit_records(run)],
+            # Whether Claude is watching each shared store, for a reply request sent there.
+            'stores': {src: {'watched': (d / 'watcher').exists() and time.time() - (d / 'watcher').stat().st_mtime < 5}
+                       for src, d in stores(run).items()}}
+
+
+def stores(run):
+    """Each source's shared store of drafted replies, {source: dir}, from its plugin (store(), as
+    gdoc_comments.py's): replies drafted for its comments there are seen by every page that shows them."""
+    return {m.SOURCE: d for m in docdiff.PLUGINS if hasattr(m, 'store') and hasattr(m, 'SOURCE') and (d := m.store(run))}
+
+
+def revisit_records(run):
+    """The page's revisits, then each store's reply requests; a reply request to a source with a store is read
+    from the store alone, so one sent before the store existed is not counted twice."""
+    out, ss = pathlib.Path(run['out']), stores(run)
+    own = [r for r in records(out / 'revisit.jsonl') if str(r.get('remote') or '').partition(':')[0] not in ss]
+    return own + [r for d in ss.values() for r in records(d / 'revisit.jsonl')]
+
+
+def answer_records(run):
+    """Claude's answers, the page's and each store's, each once."""
+    seen, out = set(), []
+    for a in [*records(pathlib.Path(run['out']) / 'answers.jsonl'), *(x for d in stores(run).values() for x in records(d / 'answers.jsonl'))]:
+        k = (a.get('time'), a.get('answer'))
+        if k not in seen:
+            seen.add(k)
+            out.append(a)
+    return out
 
 
 def locate(run, cs):

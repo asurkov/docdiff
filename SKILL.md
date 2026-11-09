@@ -116,7 +116,11 @@ The server writes both into the output dir:
   says what the prompt is: `draft`, notes to write the reply from, or none (an empty prompt: draft it on your own judgment); `polish`, the user's own reply, to fix
   and tighten keeping their meaning and voice, the polished reply the first blockquote (the card marks its
   edits against what they wrote). With `weigh`, also say briefly, outside the blockquotes, whether you
-  would answer differently on substance, and if so give that reply as one more blockquote.
+  would answer differently on substance, and if so give that reply as one more blockquote. A source
+  with a shared store (`store()`: gdoc_comments.py's is `<export>-replies/`, beside the export) keeps
+  its reply requests there, not in the page's out dir, so every page showing its comments shares the
+  drafts: such a line has `store`, and its answer goes to `<store>/answers.jsonl`. Watch the store's
+  revisit.jsonl for them, besides each page's.
   Open each reply with the request as sent, since the chat does not show it: the section and the quote
   as a blockquote, then the prompt, e.g. `> **Terms** · "visits a monetized document."` and
   `> monetized document or monetized page?`.
@@ -259,6 +263,8 @@ below; `load_plugins()` in `docdiff.py` has their exact shapes. `run` is the run
   (a spec's `index.html` for a section file).
 - `htmls(…)`: its docs rendered, both sides, or while they are not, what the file's section shows instead.
 - `section(run, name)`: words for a file's bar and data for the page.
+- `store(run)`, with `SOURCE`: a dir where replies drafted for this source's comments are kept,
+  shared by every page that shows them (gdoc_comments.py's); without one they stay in the page's out dir.
 - `title(run)`: what the page compares, for the header's first line, with a link or none: `github_pr.py`'s
   names the PR, `gdoc_comments.py`'s a Google Doc against its Markdown.
 - `top(run)`: html above the docs, such as `gdoc_docs.py`'s table; with it the page is served even when
@@ -389,7 +395,10 @@ each draft with **Copy** (to paste as the reply there; Open in Google Docs ↗ o
 it), **✎ Revise** (a box under that draft) and **Dismiss**, as a draft for a comment of yours has Use. A
 polished reply shows its edits against your text, struck and inserted; Copy takes it clean. While a
 draft is pending the thread's mark is dashed, and a new one fills it until its card is opened; the
-header counts them with the revisits. Nothing is posted: replying stays yours.
+header counts them with the revisits. Drafts belong to the thread, not the page: for Google Docs
+comments they are kept in one store beside the export, so the Google Docs page and the local edits page
+show the same ones (whether one was read, or a draft dismissed, stays per page). Nothing is posted:
+replying stays yours.
 
 **The PR's comments on GitHub** (`github_pr.py`, with `--pr`; read only, nothing is posted). The page
 reads the PR's review comments, its own comments and its reviews' bodies from GitHub's API on load and
