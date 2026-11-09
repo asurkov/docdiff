@@ -357,7 +357,9 @@ docdiff.
 **Comments made elsewhere**, on GitHub or in the Google Docs, are counted on each doc's bar: "💬 N
 comments" opens the Review panel on that doc's entries alone ("Only <file> · show all" shows every doc's
 again, as the header's 💬 does), and each entry goes to its place in the doc. Below 840px wide the panel docks at the
-bottom, so the place it goes to stays in sight above it. One whose quote no longer reads anywhere
+bottom, so the place it goes to stays in sight above it. The text each one is on is highlighted pale
+yellow, as Google Docs does, and darker while its card is open or just after going to it (the CSS Custom
+Highlight API, so the page's text is not wrapped in elements). One whose quote no longer reads anywhere
 (the text was edited after the comment was made) sits, dashed, at the end of the paragraph that shares
 the most of its words, half of them at least; its card says "its text has changed: here at the closest
 match".
