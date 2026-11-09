@@ -60,6 +60,9 @@ STYLE = '''
 .rvused{color:var(--insb)}
 .rvok{display:inline-block;margin-left:3px;padding:0 5px;border-radius:9px;font:600 11px/15px -apple-system,BlinkMacSystemFont,sans-serif;vertical-align:2px;color:var(--insb);background:var(--ins);user-select:none;-webkit-user-select:none}
 .rvok-c{color:var(--rw);background:color-mix(in srgb,var(--rw) 16%,transparent)}
+.rvbox{margin:8px 0;padding:8px;border:1px solid var(--line);border-radius:6px;display:flex;flex-direction:column;gap:6px;background:var(--bg)}
+.rvbox textarea{width:100%;box-sizing:border-box;min-height:4.5em;font:inherit;padding:6px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--fg)}
+.rvboxb{display:flex;gap:6px;align-items:center;justify-content:flex-end} .rvboxb .hint{margin-right:auto;font-size:12px}
 .rvopts{flex:1 0 100%;display:flex;gap:12px;align-items:center;font-size:13px} .rvweigh{display:flex;gap:4px;align-items:center;color:var(--muted)}
 .rvpol del{color:var(--delb);text-decoration:line-through;background:none} .rvpol ins{color:var(--insb);text-decoration:none;background:var(--ins)}
 ::highlight(rvgq){background-color:rgba(212,167,44,.22)} ::highlight(rvgq-on){background-color:rgba(212,167,44,.6)}
@@ -317,31 +320,57 @@ const gq=it=>{if(window.Highlight&&CSS.highlights)CSS.highlights.set('rvgq-on',n
 new MutationObserver(()=>{if(card.hidden)gq(null);}).observe(card,{attributes:true,attributeFilter:['hidden']});
 // A thread from elsewhere, as Claude reads it in a request for a reply: the text it is on, then each comment.
 const threadText=it=>(it.quote?'On “'+norm(it.quote)+'”:\\n':'')+it.members.map(c=>(c.reply_to?'↳ ':'')+c.author+': '+norm(c.body)).join('\\n');
-// ✎ Draft a reply: a request to Claude naming the thread (remote), which adds to its earlier drafts if any.
-// The revisit panel then has the reply's options beside its text box: what the text is (notes to draft
-// from, or your reply to polish) and whether Claude weighs in on the substance; the request carries them
-// (mode, weigh) and its lead says them. The mode is remembered; the panel is plain again once it closes.
-let replyMode=(()=>{try{return localStorage.getItem('docdiff-reply-mode')||'draft';}catch(e){return 'draft';}})(),replyIt=null;
-const ropts=mk('div',{className:'rvopts'}),rseg=mk('span',{className:'seg'}),rweigh=mk('input',{type:'checkbox'}),rwl=mk('label',{className:'rvweigh',title:'Also say, briefly, whether Claude would answer differently'});
-for(const[m,l]of[['draft','Draft from notes'],['polish','Polish my reply']]){const b=mk('button',{textContent:l});b.dataset.m=m;b.onclick=()=>setMode(m);rseg.append(b);}
-rwl.append(rweigh,' Weigh in');ropts.append(rseg,rwl);rweigh.onchange=()=>setMode(replyMode);
+// ✎ Draft a reply opens a reply box inline, under the thread and its drafts, in its card or its panel entry:
+// what the text is (notes to draft from, or your reply to polish; the mode is remembered) and whether Claude
+// weighs in on the substance. ↵ sends it to Claude as a request naming the thread (remote), with its mode
+// and weigh, which joins the thread's earlier drafts; Esc closes it. ✎ Revise on a drafted reply opens one
+// under that draft. Each box is kept by its key while the page draws again, so text being typed survives.
+let replyMode=(()=>{try{return localStorage.getItem('docdiff-reply-mode')||'draft';}catch(e){return 'draft';}})();
+const boxes=new Map(),opened=new Set();
 const leadFor=(it,m,w)=>(m==='polish'?'Polish my reply to this '+it.src.source+' thread on '+it.file+': fix the language and tighten it, keeping my meaning and voice':
 'Draft a reply to this '+it.src.source+' thread on '+it.file+' from my notes')+(w?'; and weigh in, briefly, if you would answer differently':'');
-function setMode(m){replyMode=m;try{localStorage.setItem('docdiff-reply-mode',m);}catch(e){}for(const b of rseg.children)b.setAttribute('aria-pressed',b.dataset.m===m);
-const t=document.getElementById('rt'),s=document.getElementById('rs');t.placeholder=m==='polish'?'Your reply, as you would post it':'What should the reply say? Points, stance, tone';
-s.textContent=m==='polish'?'Polish':'Draft';if(req&&replyIt)Object.assign(req,{mode:m,weigh:rweigh.checked,lead:leadFor(replyIt,m,rweigh.checked)});t.focus();}
-const rpEl=document.getElementById('rp');new MutationObserver(()=>{if(!rpEl.hidden||!ropts.isConnected)return;ropts.remove();replyIt=null;
-document.getElementById('rt').placeholder=W.question;document.getElementById('rs').textContent='Send';}).observe(rpEl,{attributes:true,attributeFilter:['hidden']});
-const reply=it=>act('✎ Draft a reply','Ask Claude to draft or polish a reply to this thread, to copy into '+it.src.source,()=>{card.hidden=true;replyIt=it;rweigh.checked=false;
-openRev({quote:threadText(it),el:elOf(it),key:null,fields:{remote:it.rid,thread:it.rts[0]?.time},context:'a reply to '+it.root.author+' on '+it.src.source});
-document.getElementById('rt').before(ropts);setMode(replyMode);});
-// Its card: the thread, its drafted replies (Copy, Revise, Dismiss), and Open in its source. Opening it reads
-// new drafts; it follows them while open (gcarded).
+// A box for a reply (o.it: the thread) or for revising a draft (o.rev: the draft, o.t: its reply thread).
+function box(key,o){let x=boxes.get(key);if(x){x.o=o;return x.el;}
+const el=mk('div',{className:'rvbox ui'}),ta=mk('textarea'),send=mk('button',{className:'primary'}),cancel=mk('button',{textContent:'Cancel'}),bar=mk('div',{className:'rvopts'});
+x={el,ta,o,mode:replyMode,weigh:false};boxes.set(key,x);
+const set=()=>{for(const b of bar.querySelectorAll('[data-m]'))b.setAttribute('aria-pressed',b.dataset.m===x.mode);
+ta.placeholder=x.o.rev?'What should change? e.g. shorter':x.mode==='polish'?'Your reply, as you would post it':'What should the reply say? Points, stance, tone';
+send.textContent=x.o.rev?'Revise':x.mode==='polish'?'Polish':'Draft';};
+if(!o.rev){const seg=mk('span',{className:'seg'});for(const[m,l]of[['draft','Draft from notes'],['polish','Polish my reply']]){const b=mk('button',{textContent:l});b.dataset.m=m;
+b.onclick=()=>{x.mode=replyMode=m;try{localStorage.setItem('docdiff-reply-mode',m);}catch(e){}set();ta.focus();};seg.append(b);}
+const w=mk('input',{type:'checkbox'}),wl=mk('label',{className:'rvweigh',title:'Also say, briefly, whether Claude would answer differently'});
+w.onchange=()=>{x.weigh=w.checked;ta.focus();};wl.append(w,' Weigh in');bar.append(seg,wl);}
+const close=()=>{opened.delete(key);el.remove();};cancel.onclick=close;send.onclick=()=>sendBox(key,x,close);
+ta.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();send.click();}if(e.key==='Escape')close();});
+const btns=mk('div',{className:'rvboxb'});btns.append(mk('span',{className:'hint n',textContent:'⇧↵ adds a line'}),cancel,send);el.append(bar,ta,btns);set();return el;}
+// Sends a box's request as the revisit panel does; with nobody watching, the clipboard is the way in.
+async function sendBox(key,x,close){const ask=x.ta.value.trim();if(!ask)return;const o=x.o,it=o.it,
+quote=o.rev?o.rev.text:threadText(it),lead=o.rev?'Revise this reply drafted for a thread on '+o.t.file:leadFor(it,x.mode,x.weigh);
+const r={file:(it||o.t).file,section:'',quote,view:cur,key:null,remote:o.rev?o.t.remote:it.rid,thread:o.rev?o.t.time:it.rts[0]?.time,lead,prompt:ask,
+...(o.rev?{revises:o.rev.id}:{mode:x.mode,weigh:x.weigh})},text=lead+':\\n> '+quote.replace(/\\n/g,'\\n> ')+'\\n\\n'+ask;
+let queued=true;try{await post('revisit',{...r,text});}catch(e){queued=false;}
+boxes.delete(key);close();
+// How it went shows in the thread's card for a few seconds: the header's own line is redrawn too often.
+const seen=queued&&await watching(),copied=!seen&&await copy(text);
+sentNote.set(r.remote,seen?'sent, Claude is watching':(queued?'saved, but nobody is watching: ':'not saved: ')+(copied?'copied, paste it in the chat':'tell Claude'));
+const g=items.find(i=>i.kind==='g'&&i.rid===r.remote);if(g)reshow(g);setTimeout(()=>{sentNote.delete(r.remote);const g=items.find(i=>i.kind==='g'&&i.rid===r.remote);if(g)reshow(g);},6000);}
+const sentNote=new Map();
+const reply=it=>act('✎ Draft a reply','Draft or polish a reply to this thread with Claude, to copy into '+it.src.source,()=>{opened.add(it.rid);reshow(it);});
+// Draws the thread again where it shows, card or panel entry, with its boxes, the cursor in the newest box.
+function reshow(it){if(!card.hidden&&gcarded===it.rid)showGh(it,elOf(it));else if(!lp.hidden)list();
+const x=[...boxes.values()].reverse().find(x=>x.el.isConnected);x?.ta.focus();}
+// A box being typed in keeps the cursor where it was when what holds it is drawn again.
+function keepFocus(){const a=document.activeElement;if(!a?.closest?.('.rvbox'))return()=>{};const s=a.selectionStart,e=a.selectionEnd;
+return()=>{if(a.isConnected){a.focus();a.setSelectionRange(s,e);}};}
+// Its card: the thread, its drafted replies (Copy, Revise, Dismiss), its reply box while open, and Open in
+// its source. Opening it reads new drafts; it follows them while open (gcarded).
 let gcarded=null;
-function showGh(it,b){gq(it);const h=mk('div',{className:'rvch'}),bd=mk('div',{className:'rvcb'});carded=null;gcarded=it.rid;
+function showGh(it,b){gq(it);const h=mk('div',{className:'rvch'}),bd=mk('div',{className:'rvcb'}),f=keepFocus();carded=null;gcarded=it.rid;
 h.append(mk('span',{className:'rvm',textContent:['On '+it.src.source,ghLabel(it.root),it.near&&'its text has changed: here at the closest match',
 it.members.length+' comment'+(it.members.length>1?'s':'')].filter(Boolean).join(' · ')}),...(it.file?[reply(it)]:[]),ghOpen(it));
-bd.append(...ghBodies(it),...drafts(it));card.replaceChildren(h,bd);place(b);for(const t of it.rts)if(t.unread)setThread(t,{seen:true});}
+bd.append(...ghBodies(it),...drafts(it),...(sentNote.has(it.rid)?[mk('div',{className:'rvm rvsaid',textContent:sentNote.get(it.rid)})]:[]),
+...(opened.has(it.rid)?[box(it.rid,{it})]:[]));card.replaceChildren(h,bd);place(b);f();
+for(const t of it.rts)if(t.unread)setThread(t,{seen:true});}
 const drafts=it=>it.rts.length?[mk('div',{className:'rvm rvdh',textContent:'Drafted replies'}),...it.rts.flatMap(t=>asks(t))]:[];
 // When each source was last read, and why not since; ↻ asks that source again where it can be asked
 // (refresh). A source being read in the background (busy) says so until its new copy comes in.
@@ -389,7 +418,10 @@ r.append(mk('span',{className:'rvm rvused',textContent:'✓ used'}),act('💬 Op
 // A drafted reply to a thread from elsewhere is copied, to paste there, rather than used as your comment.
 const c=it.reply&&act('Copy','Copy this reply, to paste in the thread',async()=>{c.textContent=await copy(p.text)?'copied':'copying failed';setTimeout(()=>c.textContent='Copy',1500);});
 r.append(...(p.revising?[mk('span',{className:'rvm',textContent:'revising…'})]:[]),c||act('💬 Use','A new comment of this draft, open to edit',()=>use(it,[p],p.text)),
-act('✎ Revise','Ask Claude to rework this draft',()=>revise(it,p)),act('Dismiss','Fold it away',()=>setProposal(p,'dismissed')));q.after(r);}
+act('✎ Revise','Ask Claude to rework this draft',()=>{if(!it.reply)return revise(it,p);opened.add(it.remote+'#'+p.id);const g=items.find(i=>i.kind==='g'&&i.rid===it.remote);if(g)reshow(g);}),
+act('Dismiss','Fold it away',()=>setProposal(p,'dismissed')));q.after(r);
+// A drafted reply is revised in a box under it, as replies are asked for.
+if(it.reply&&opened.has(it.remote+'#'+p.id))r.after(box(it.remote+'#'+p.id,{rev:p,t:it}));}
 const state=it=>it.done?'resolved':it.wait?'pending':it.unread?'new answer':it.handled?'drafts handled':'answered';
 // A thread's actions, at the top of its card and of its panel entry, so they stay in reach of a long
 // thread: Ask more (r while its card is open), and Resolve (urged once every draft is used or dismissed)
@@ -448,7 +480,8 @@ b.classList.add('rvb-hit');if(it.kind==='g')gq(it);setTimeout(()=>{b.classList.r
 function row(it,files){const r=it.kind==='r',d=mk('div',{className:'rvi'+(it.unread&&!it.done?' rvi-new':'')}),h=mk('div',{className:'rvih'}),m=mk('span',{className:'rvm'}),bd=mk('div',{className:'rvib'}),w=where(it);
 d.dataset.id=r?'r'+it.time:it.kind==='g'?it.id:'c'+it.id;
 if(it.kind==='g'){m.append(['On '+it.src.source,files>1&&it.file,ghLabel(it.root),it.rts.length&&(it.wait?'reply being drafted':it.unread?'new drafted reply':'drafted replies')].filter(Boolean).join(' · '));
-h.append(m,...(it.file?[reply(it)]:[]),ghOpen(it));bd.append(...ghBodies(it),...drafts(it));d.append(h,bd);
+h.append(m,...(it.file?[reply(it)]:[]),ghOpen(it));
+bd.append(...ghBodies(it),...drafts(it),...(opened.has(it.rid)&&!(!card.hidden&&gcarded===it.rid)?[box(it.rid,{it})]:[]));d.append(h,bd);
 d.onclick=e=>{if(e.target.closest('a,button'))return;jump(it);for(const t of it.rts)if(t.unread)setThread(t,{seen:true});};return d;}
 m.append((r?'✎ ':'💬 ')+[files>1&&it.file,it.section,r&&state(it)].filter(Boolean).join(' · ')+(Object.keys(it.at).length?'':' · not in the page now'));
 if(w)m.append(' · ',mk('a',{href:it.github.href,target:'_blank',rel:'noopener',textContent:w.split('/').pop()+' ↗'}));
@@ -471,7 +504,7 @@ let filter='open',folded=true;
 let ghFolded=false;
 // One doc's entries only, from its bar's comment count; the panel's 💬 button shows every doc's again.
 let only=null;
-function list(){const all=order().filter(i=>!only||i.file===only),nc=data.comments.length,files=document.querySelectorAll('section').length,done=all.filter(i=>i.done),
+function list(){const keep=keepFocus(),all=order().filter(i=>!only||i.file===only),nc=data.comments.length,files=document.querySelectorAll('section').length,done=all.filter(i=>i.done),
 loose=all.filter(i=>i.kind==='g'&&!i.hidden&&!Object.keys(i.at).length),its=all.filter(i=>!loose.includes(i)&&!i.hidden);
 const f=mk('div',{className:'seg rvf'}),g=mk('details',{className:'rvg',open:!folded});g.ontoggle=()=>{folded=!g.open;keep();if(g.open)g.querySelectorAll('.rvib').forEach(fold);};
 for(const[v,l]of[['open','Open'],['resolved','Resolved'],['all','All']]){const b=mk('button',{textContent:l});b.setAttribute('aria-pressed',v===filter);
@@ -487,7 +520,7 @@ const ghs=[...bySource].map(([n,l])=>{const gh=mk('details',{className:'rvg',ope
 gh.append(mk('summary',{textContent:'On '+n+' ('+l.length+')'}),...l.map(it=>row(it,files)));return gh;});
 lp.replaceChildren(h,...ghStatus(),f,...(filter==='resolved'?done:its.filter(i=>!i.done)).map(it=>row(it,files)),
 ...(filter!=='resolved'?ghs:[]),...(filter==='all'&&done.length?[g]:[]));
-lp.querySelectorAll('.rvib').forEach(fold);}
+lp.querySelectorAll('.rvib').forEach(fold);keep();}
 // Paste-ready: per comment, its file:line (linked to it on GitHub) or else its file and section, the
 // quoted text and the comment.
 function markdown(its){return its.filter(it=>it.kind==='c').map(it=>{const w=where(it),loc=w||it.file+(it.section?' · '+it.section:'');
