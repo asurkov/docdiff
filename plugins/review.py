@@ -240,7 +240,7 @@ function chips(){document.querySelectorAll('.rvfc').forEach(e=>e.remove());const
 for(const s of document.querySelectorAll('section')){const ts=all.filter(i=>i.kind==='g'&&!i.hidden&&i.file===s.dataset.file);if(!ts.length)continue;
 const a=mk('a',{className:'rvfc ui',href:'#',textContent:'💬 '+ts.length+' comment'+(ts.length>1?'s':''),
 title:'Comments on this doc, from '+[...new Set(ts.map(t=>t.src.source))].join(' and ')+': open them in the Review panel'});
-a.onclick=e=>{e.preventDefault();only=s.dataset.file;toggle(true);lp.scrollTop=0;};
+a.onclick=e=>{e.preventDefault();only=s.dataset.file;filter='open';toggle(true);lp.scrollTop=0;};
 const bar=s.querySelector('.file');bar.insertBefore(a,bar.querySelector('.fbar'));}}
 // Accepted (reviewed) changes that carry comments or open questions, counted on each file's line in the
 // header, so they are not lost once they leave To review; a count steps through them in the Accepted view.
@@ -408,8 +408,9 @@ const unfolded=new Set();
 function fold(bd){const id=bd.closest('.rvi').dataset.id;bd.nextElementSibling?.classList.contains('rvmore')&&bd.nextElementSibling.remove();
 bd.classList.add('rvfold');const long=bd.scrollHeight>bd.clientHeight+4;bd.classList.toggle('rvfold',long&&!unfolded.has(id));if(!long)return;
 bd.after(act(unfolded.has(id)?'Show less':'Show more','',()=>{unfolded.has(id)?unfolded.delete(id):unfolded.add(id);fold(bd);}));bd.nextElementSibling.classList.add('rvmore');}
-// Open (comments and unresolved revisits), then the resolved revisits folded; or either alone.
-let filter='all',folded=true;
+// Open (comments and unresolved revisits), then the resolved revisits folded; or either alone. The panel
+// opens on Open; a reload keeps whichever was chosen.
+let filter='open',folded=true;
 // Comments from elsewhere that have no place in the doc fold into a group per source (On GitHub, On Google
 // Docs), under the open ones.
 let ghFolded=false;
@@ -439,7 +440,7 @@ return '**'+(w&&it.github.href?'['+loc+']('+it.github.href+')':loc)+'**\\n\\n'+(
 function toggle(on){lp.hidden=!on;body.classList.toggle('rv-open',on);if(on){lp.style.top=document.querySelector('header').getBoundingClientRect().bottom+'px';list();}keep();}
 // The panel, its filter and its fold outlast reloads.
 function keep(){try{sessionStorage.setItem('docdiff-review',JSON.stringify({on:!lp.hidden,filter,folded}));}catch(e){}}
-rvt.onclick=()=>{only=null;toggle(lp.hidden);};addEventListener('resize',()=>{if(!lp.hidden)lp.style.top=document.querySelector('header').getBoundingClientRect().bottom+'px';});
+rvt.onclick=()=>{only=null;if(lp.hidden)filter='open';toggle(lp.hidden);};addEventListener('resize',()=>{if(!lp.hidden)lp.style.top=document.querySelector('header').getBoundingClientRect().bottom+'px';});
 pc.onmousedown=e=>e.preventDefault();pc.onclick=()=>{const a=anchorOf();hidePop();openCm(a);};
 // The doc's own click and selection handling leaves the panel and the card alone.
 for(const e of [lp,card])for(const t of ['click','mouseup'])e.addEventListener(t,ev=>ev.stopPropagation());

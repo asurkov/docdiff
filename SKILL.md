@@ -322,7 +322,7 @@ whose last question has no answer yet stays open, and so does one on text outsid
 several. ↺ not reviewed reopens the threads its accept resolved, not ones resolved by hand. On your own
 docs accepting resolves nothing. Asking again reopens a thread. A resolved thread folds to a faint dot in
 the text, which opens its card to ↺ Reopen, and in the panel into a folded Resolved group under the open
-ones (Open / Resolved / All filter). A thread's card keeps its header, the state with ✎ Ask more and ✓
+ones (Open / Resolved / All filter; the panel opens on Open). A thread's card keeps its header, the state with ✎ Ask more and ✓
 Resolve (↺ Reopen), at its top while a long thread scrolls under it; in the Review panel each entry has
 them on its first line, and a long entry folds to a few lines with Show more. On commits, a card whose
 thread is on one change still in To review leads with that change's accept, worded as the toolbar's (✓
