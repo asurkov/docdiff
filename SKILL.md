@@ -247,6 +247,11 @@ so nothing else staged goes in), checking first that every change in it is accep
 with changes left is not committed: a partial file would need its Markdown rebuilt from the render,
 which would reformat it. The click is the user's commit: never press it for them.
 
+On an edit session's page (a worktree of its own, on its own branch), `--commit-into PATH` then
+cherry-picks the commit onto the checkout at PATH (the repo's own), so the session's reviewed edits land
+there; the reply says where it landed, or, when it does not apply there (a conflict, or uncommitted edits
+in its way), that it stays on the session's branch, with git's reason, and PATH is left as it was.
+
 ## Plugins
 
 Source-specific features are plugins: the Python modules in `plugins/` next to `docdiff.py`, each loaded

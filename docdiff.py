@@ -932,8 +932,10 @@ def publish(out, name):
 
 def commit_accepted(out, req):
     """Commits the files req['files'] names, each as it reads on disk, once every change in it is accepted,
-    with req['message'] (or one naming them); then runs --after-commit in the background, if given (an
-    export, so a page of the Google Docs shows the commit). Returns the commit."""
+    with req['message'] (or one naming them). With --commit-into PATH (this page is an edit session's
+    worktree), the commit then lands on that checkout too, cherry-picked; if it does not apply there, it
+    stays on the session's branch and the reply says so. Then runs --after-commit in the background, if
+    given (an export, so a page of the Google Docs shows the commit). Returns what happened."""
     run = json.loads((out / '.run.json').read_text())
     repo, base, head = pathlib.Path(run['repo']), run['base'], run.get('head')
     if not run.get('commit') or head:
@@ -955,12 +957,21 @@ def commit_accepted(out, req):
         r = subprocess.run(['git', '-C', str(repo), *args], capture_output=True, text=True)
         if r.returncode:
             raise RuntimeError((r.stdout + r.stderr).strip() or f'git {args[0]} failed')
-    done = git(repo, 'log', '-1', '--format=%h %s').stdout.decode().strip()
+    done = f"committed {git(repo, 'log', '-1', '--format=%h %s').stdout.decode().strip()}"
+    if run.get('commit_into'):
+        into, sha = run['commit_into'], git(repo, 'rev-parse', 'HEAD').stdout.decode().strip()
+        r = subprocess.run(['git', '-C', into, 'cherry-pick', sha], capture_output=True, text=True)
+        if r.returncode:
+            subprocess.run(['git', '-C', into, 'cherry-pick', '--abort'], capture_output=True)
+            why = [l for l in (r.stdout + r.stderr).splitlines() if l.startswith(('CONFLICT', 'error', 'fatal'))]
+            done += f'; not landed on {into}, it stays on this session\'s branch: ' + (why[0] if why else 'git cherry-pick failed')
+        else:
+            done += f"; landed on {into} as {git(pathlib.Path(into), 'log', '-1', '--format=%h').stdout.decode().strip()}"
     if run.get('after_commit'):
         with open(out / 'after-commit.log', 'w') as log:
             subprocess.Popen(run['after_commit'], shell=True, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     rebuild(out)
-    return f'committed {done}'
+    return done
 
 
 def handler(out):
@@ -1098,6 +1109,7 @@ def main():
     p.add_argument('--publish')
     p.add_argument('--commit', action='store_true')
     p.add_argument('--after-commit')
+    p.add_argument('--commit-into')
     p.add_argument('--serve', action='store_true')
     p.add_argument('paths', nargs='*')
     for m in PLUGINS:
