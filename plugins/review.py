@@ -427,7 +427,7 @@ g.append(mk('summary',{textContent:'Resolved ('+done.length+')'}),...done.map(it
 const h=mk('div',{className:'rvh'}),cm=mk('button',{textContent:'Copy all as Markdown',title:'Your comments, each with its file:line and quote, to paste into GitHub'}),x=mk('button',{textContent:'×',title:'Close'});
 cm.onclick=async()=>{cm.textContent=await copy(markdown(its))?'copied '+nc:'copying failed';setTimeout(()=>cm.textContent='Copy all as Markdown',1500);};
 x.onclick=()=>toggle(false);h.append(mk('b',{textContent:'Review'}),mk('span',{className:'n',textContent:nc+' comment(s) · '+its.filter(i=>i.kind==='r'&&!i.done).length+' open · '+done.length+' resolved'}),...(nc?[cm]:[]),x);
-if(only){const o=mk('button',{className:'rvonly',textContent:only+' ×',title:'Show the entries on every doc'});o.onclick=()=>{only=null;list();};h.append(o);}
+if(only){const o=mk('button',{className:'rvonly',textContent:'Only '+only+' · show all',title:'Show the entries on every doc'});o.onclick=()=>{only=null;list();};h.append(o);}
 const bySource=new Map();for(const it of loose)bySource.set(it.src.source,[...(bySource.get(it.src.source)||[]),it]);
 const ghs=[...bySource].map(([n,l])=>{const gh=mk('details',{className:'rvg',open:!ghFolded});gh.ontoggle=()=>{ghFolded=!gh.open;if(gh.open)gh.querySelectorAll('.rvib').forEach(fold);};
 gh.append(mk('summary',{textContent:'On '+n+' ('+l.length+')'}),...l.map(it=>row(it,files)));return gh;});
