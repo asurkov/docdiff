@@ -400,8 +400,9 @@ m.append((r?'✎ ':'💬 ')+[files>1&&it.file,it.section,r&&state(it)].filter(Bo
 if(w)m.append(' · ',mk('a',{href:it.github.href,target:'_blank',rel:'noopener',textContent:w.split('/').pop()+' ↗'}));
 if(it.posted)m.append(' · ',mk('a',{href:it.posted,target:'_blank',rel:'noopener',className:'rvused',textContent:'posted ↗'}));
 if(it.quote)bd.append(mk('blockquote',{textContent:r?it.sent:it.quote}));
-if(r)h.append(m,...actions(it)),bd.append(...asks(it));else{const e=act('edit','',()=>openCm(it)),x=act('delete','',()=>x.textContent==='delete'?x.textContent='delete?':save({id:it.id,delete:true}));
-h.append(m,e,x);bd.append(mk('div',{className:'rvt',textContent:it.body}));}
+if(r)h.append(m,...actions(it)),bd.append(...asks(it));else{const e=act('edit','',()=>openCm(it)),x=act('delete','',()=>x.textContent==='delete'?x.textContent='delete?':save({id:it.id,delete:true})),
+c=act('copy','Copy as Markdown: its file:line, the quoted text and the comment',async()=>{c.textContent=await copy(markdown([it]))?'copied':'copying failed';setTimeout(()=>c.textContent='copy',1500);});
+h.append(m,e,c,x);bd.append(mk('div',{className:'rvt',textContent:it.body}));}
 d.append(h,bd);d.onclick=e=>{if(e.target.closest('a,button'))return;jump(it);if(it.unread)setThread(it,{seen:true});};return d;}
 // Folds an entry's body when it is longer than a few lines; Show more and Show less, kept across re-renders.
 const unfolded=new Set();
@@ -422,9 +423,10 @@ const f=mk('div',{className:'seg rvf'}),g=mk('details',{className:'rvg',open:!fo
 for(const[v,l]of[['open','Open'],['resolved','Resolved'],['all','All']]){const b=mk('button',{textContent:l});b.setAttribute('aria-pressed',v===filter);
 b.onclick=()=>{filter=v;keep();list();};f.append(b);}
 g.append(mk('summary',{textContent:'Resolved ('+done.length+')'}),...done.map(it=>row(it,files)));
-const h=mk('div',{className:'rvh'}),cm=mk('button',{textContent:'Copy as Markdown',title:'The comments, each with its file:line and quote, to paste into GitHub'}),x=mk('button',{textContent:'×',title:'Close'});
-cm.onclick=async()=>{cm.textContent=!nc?'no comments':await copy(markdown(its))?'copied '+nc:'copying failed';setTimeout(()=>cm.textContent='Copy as Markdown',1500);};
-x.onclick=()=>toggle(false);h.append(mk('b',{textContent:'Review'}),mk('span',{className:'n',textContent:nc+' comment(s) · '+its.filter(i=>i.kind==='r'&&!i.done).length+' open · '+done.length+' resolved'}),cm,x);
+// Copying all of your 💬 comments is offered only while there are some; each one has its own copy too.
+const h=mk('div',{className:'rvh'}),cm=mk('button',{textContent:'Copy all as Markdown',title:'Your comments, each with its file:line and quote, to paste into GitHub'}),x=mk('button',{textContent:'×',title:'Close'});
+cm.onclick=async()=>{cm.textContent=await copy(markdown(its))?'copied '+nc:'copying failed';setTimeout(()=>cm.textContent='Copy all as Markdown',1500);};
+x.onclick=()=>toggle(false);h.append(mk('b',{textContent:'Review'}),mk('span',{className:'n',textContent:nc+' comment(s) · '+its.filter(i=>i.kind==='r'&&!i.done).length+' open · '+done.length+' resolved'}),...(nc?[cm]:[]),x);
 if(only){const o=mk('button',{className:'rvonly',textContent:only+' ×',title:'Show the entries on every doc'});o.onclick=()=>{only=null;list();};h.append(o);}
 const bySource=new Map();for(const it of loose)bySource.set(it.src.source,[...(bySource.get(it.src.source)||[]),it]);
 const ghs=[...bySource].map(([n,l])=>{const gh=mk('details',{className:'rvg',open:!ghFolded});gh.ontoggle=()=>{ghFolded=!gh.open;if(gh.open)gh.querySelectorAll('.rvib').forEach(fold);};

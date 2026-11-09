@@ -306,9 +306,10 @@ ignored, as a selection across paragraphs keeps no space between them. In To rev
 Accepted, on none in To review) is muted, still a click from its comment; marks never count as changes or
 take n/p. A mark on removed words sits after them, so settled Reviewed shows it. Clicking the mark edits
 or deletes it. The header's **💬 N** opens the Review panel: the comments and revisits in the order they
-come in the doc, each a click from its place, comments with edit and delete, and **Copy as Markdown**,
-which copies per comment its `path:line` (linked to the line on GitHub; without `--pr`, the file and
-section), the quote and the comment, to paste into GitHub. Saving a comment shows it in place, with no
+come in the doc, each a click from its place, comments with edit, copy and delete. Copy puts one comment
+on the clipboard as Markdown: its `path:line` (linked to the line on GitHub; without `--pr`, the file and
+section), the quote and the comment, to paste into GitHub. **Copy all as Markdown**, shown while you have
+comments, does that for all of them. Saving a comment shows it in place, with no
 rebuild; comments outlast rebuilds, accepts and server restarts.
 
 Revisits show the same way, as ✎ marks, one per thread: the revisits of one change, or of one quote, each
