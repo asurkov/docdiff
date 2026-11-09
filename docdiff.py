@@ -463,7 +463,7 @@ header button,.panel button{height:28px;padding:0 12px;line-height:26px;font-siz
 [data-key]::after{content:attr(data-key);display:inline-block;margin-left:7px;padding:0 4px;min-width:7px;border:1px solid color-mix(in srgb,currentColor 25%,transparent);border-radius:4px;font:11px/15px ui-monospace,SFMono-Regular,Menlo,monospace;color:color-mix(in srgb,currentColor 70%,transparent);text-align:center;vertical-align:1px}
 .seg[data-key]::after{align-self:center;color:var(--muted);border-color:var(--line)} @media (max-width:640px){[data-key]::after{display:none}}
 .panel{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);box-shadow:0 -2px 8px rgba(0,0,0,.06);padding:12px max(16px,calc(50% - 444px));z-index:4;font-size:14px;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px}
-.panel[hidden]{display:none} #pt{flex:1 0 100%;white-space:pre-wrap;max-height:40vh;overflow:auto;font:13px ui-monospace,Menlo,monospace} .panel>blockquote,.panel>textarea,.panel>#rx{flex:1 0 100%;box-sizing:border-box} #rx{font-size:12px} .panel .hint{margin-right:auto;font-size:12px}
+.panel[hidden]{display:none} #cmx{flex:1 0 100%;white-space:pre-wrap;font:13px ui-monospace,Menlo,monospace} #cmm{flex:1 0 100%;box-sizing:border-box;font:inherit;padding:4px 6px} #pt{flex:1 0 100%;white-space:pre-wrap;max-height:40vh;overflow:auto;font:13px ui-monospace,Menlo,monospace} .panel>blockquote,.panel>textarea,.panel>#rx{flex:1 0 100%;box-sizing:border-box} #rx{font-size:12px} .panel .hint{margin-right:auto;font-size:12px}
 #pop{position:absolute;z-index:3;display:flex;background:var(--bg);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12);overflow:hidden}
 #pop[hidden]{display:none} #pop button,#pop a{border:0;border-radius:0;background:none;color:var(--muted);padding:2px 9px;font-size:14px;line-height:1.5;text-decoration:none}
 #pop button:hover,#pop a:hover{background:var(--code);color:var(--fg)} #pop button+button,#pop button+a{border-left:1px solid var(--line)}
@@ -531,6 +531,16 @@ for(const[i,[f]]of fs.entries()){pb.textContent=ps.textContent='publishing '+(i+
 try{const r=await fetch('publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file:f})});
 said.push((r.ok?'✓ Published ':'✗ Not published ')+f+'\\n'+(await r.text()).trim());}catch(e){said.push('✗ Not published '+f+': '+e.message);}}
 pt.textContent=said.join('\\n\\n');ps.textContent='Done';ps.disabled=false;ps.dataset.done=1;ps.focus();};}
+// Commit accepted, with --commit: its panel lists the files it commits, as they read on disk, and the ones
+// still waiting on changes to review; the message is editable (↵ commits); the page reloads on Done.
+const cb=document.getElementById('cmt');if(cb){const cp=document.getElementById('cmp'),cx=document.getElementById('cmx'),cm=document.getElementById('cmm'),
+cc=document.getElementById('cmc'),cs=document.getElementById('cms'),fs=JSON.parse(cb.dataset.files),ws=JSON.parse(cb.dataset.waiting);
+cb.onclick=()=>{cx.textContent='Commit, as they read on disk:\\n'+fs.join('\\n')+(ws.length?'\\n\\nNot these, with changes still to review:\\n'+ws.map(([f,n])=>f+': '+n).join('\\n'):'');
+cm.value=cm.value||'Update '+fs.join(', ');cp.hidden=false;cm.focus();};cc.onclick=()=>{cp.hidden=true;};
+cs.onclick=async()=>{if(cs.dataset.done){location.reload();return;}cs.disabled=cb.disabled=true;cs.textContent='committing…';let t;
+try{const r=await fetch('commit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({files:fs,message:cm.value})});t=(r.ok?'✓ ':'✗ ')+(await r.text()).trim();}
+catch(e){t='✗ '+e.message;}cx.textContent=t;cs.textContent='Done';cs.disabled=false;cs.dataset.done=1;cc.hidden=true;cs.focus();};
+cm.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter'){e.preventDefault();cs.click();}if(e.key==='Escape')cc.click();});}
 function hidePop(){pop.hidden=true;popX=null;}
 // Plugins' buttons per change (see load_plugins): [label, key, href], href opened in a new tab.
 const acts=new Map([...document.querySelectorAll('script.acts')].map(j=>[j.closest('section'),JSON.parse(j.textContent)]));
@@ -751,7 +761,7 @@ def plugin_actions(actors, old, new, *diffs):
 
 
 def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=None, publish=False, actors=()):
-    sections, nav, words, pubs = [], [], WORDS[bool(head)], []
+    sections, nav, words, pubs, commits, waiting = [], [], WORDS[bool(head)], [], [], []
     none_yet = f'<p class=n>(nothing {words["accepted"]} yet)</p>'
     for k, (old, new) in enumerate(files):
         name = new or old
@@ -778,6 +788,9 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
                (f'<button class="accf" data-a="unaccept">{words["unaccept_file"]}</button>' if accepted else ''))
         if publish and accepted:
             pubs.append([name, accepted])
+        # With --commit, a file whose changes are all accepted can be committed as it reads on disk.
+        if run and run.get('commit') and not head and accepted:
+            (waiting.append([name, todo]) if todo else commits.append(name))
         view = lambda v, h: f'<div class="v v-{v}" data-view="{v}">{h}</div>'
         # What plugins add to the file: words for its bar, data for the page.
         extra = [x for x in (m.section(run, name) for m in PLUGINS if hasattr(m, 'section')) if x]
@@ -799,6 +812,11 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
     pub = (f'<button id="pub" data-files="{html.escape(json.dumps(pubs, ensure_ascii=False))}" '
            f'title="Publish the accepted changes of {len(pubs)} file(s)">⇪ publish accepted ({sum(n for _, n in pubs)})</button>'
            if pubs else '')
+    # And one commits every file whose changes are all accepted; the ones with changes left wait.
+    cmt = (f'<button id="cmt" data-files="{html.escape(json.dumps(commits, ensure_ascii=False))}" '
+           f'data-waiting="{html.escape(json.dumps(waiting, ensure_ascii=False))}" '
+           f'title="Commit the {len(commits)} file(s) whose changes are all accepted, as they read on disk">⇪ commit accepted ({len(commits)})</button>'
+           if commits else '')
     buttons = [('review', 'To review'), ('acc', words['Accepted']), ('diff', f'Diff vs {base}'), ('old', 'Old'), ('new', 'New')]
     seg = ''.join(f'<button data-v="{v}" aria-pressed="{str(v == "review").lower()}">{label}</button>' for v, label in buttons)
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -807,11 +825,12 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
 {" · ".join(nav)}<span style="flex:1"></span>
 <span class="seg" data-key="v" title="v cycles the views">{seg}</span>
 <div class="bar"><span id="pos" class="n"></span><span class="tools"><span class="pair step"><button id="prev" class="step" data-key="p" title="Previous change (p or k)">↑ prev</button><button id="next" class="step" data-key="n" title="Next change (n or j)">next change ↓</button></span>
-<button id="acc" class="step primary" data-key="a">{words['accept']}</button><button id="rev" data-key="r" title="{words['revisit_title']}">{words['revisit']}</button>{pub}</span></div></header>
+<button id="acc" class="step primary" data-key="a">{words['accept']}</button><button id="rev" data-key="r" title="{words['revisit_title']}">{words['revisit']}</button>{pub}{cmt}</span></div></header>
 <main>{page_top(run)}{"".join(sections)}</main>
 <div id="rp" class="panel" hidden><div id="rx" class="n" hidden></div><blockquote id="rq"></blockquote><textarea id="rt" placeholder="{words['question']}"></textarea>
 <span class="hint n">⇧↵ adds a line</span><button id="rc" data-key="esc">Cancel</button><button id="rs" class="primary" data-key="↵">Send</button></div>
 {'<div id="pp" class="panel" hidden><div id="pt"></div><button id="pc">Cancel</button><button id="ps" class="primary">Publish</button></div>' if pub else ''}
+{'<div id="cmp" class="panel" hidden><div id="cmx"></div><input id="cmm" placeholder="Commit message"><button id="cmc">Cancel</button><button id="cms" class="primary">Commit</button></div>' if cmt else ''}
 <div id="pop" hidden><button id="pa">✓</button><button id="pr" title="{words['revisit_key']}">✎</button></div>
 <script type="application/json" id="words">{json.dumps(words, ensure_ascii=False)}</script>
 <script>{SCRIPT}{"".join(getattr(m, 'SCRIPT', '') for m in PLUGINS)}</script></body></html>''', len(sections)
@@ -911,6 +930,39 @@ def publish(out, name):
     return printed
 
 
+def commit_accepted(out, req):
+    """Commits the files req['files'] names, each as it reads on disk, once every change in it is accepted,
+    with req['message'] (or one naming them); then runs --after-commit in the background, if given (an
+    export, so a page of the Google Docs shows the commit). Returns the commit."""
+    run = json.loads((out / '.run.json').read_text())
+    repo, base, head = pathlib.Path(run['repo']), run['base'], run.get('head')
+    if not run.get('commit') or head:
+        raise LookupError('this page does not commit')
+    names = [str(n) for n in req.get('files') or []]
+    files = {new or old: (old, new) for old, new in files_for(repo, base, head, run['paths'])[0]}
+    for n in names:
+        if n not in files:
+            raise LookupError(f'{n}: not in this diff')
+        old, new = files[n]
+        old_html, new_html, wait = htmls(repo, base, head, old, new, out)
+        copy = None if wait else accepted_html(repo, base, head, out, old, new, old_html, new_html)
+        if wait or block_diff(copy, new_html, 'c')[1] or not block_diff(old_html, copy, 'c')[1]:
+            raise LookupError(f'{n}: not every change in it is accepted')
+    if not names:
+        raise LookupError('nothing to commit')
+    message = str(req.get('message') or '').strip() or 'Update ' + ', '.join(names)
+    for args in (['add', '--', *names], ['commit', '-q', '-m', message, '--', *names]):
+        r = subprocess.run(['git', '-C', str(repo), *args], capture_output=True, text=True)
+        if r.returncode:
+            raise RuntimeError((r.stdout + r.stderr).strip() or f'git {args[0]} failed')
+    done = git(repo, 'log', '-1', '--format=%h %s').stdout.decode().strip()
+    if run.get('after_commit'):
+        with open(out / 'after-commit.log', 'w') as log:
+            subprocess.Popen(run['after_commit'], shell=True, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    rebuild(out)
+    return f'committed {done}'
+
+
 def handler(out):
     """Static files from out with caching off, so a reload after a rebuild shows the new page, plus
     the page's POSTs: /accept and /unaccept move a change into or out of the accepted copy and rebuild
@@ -978,6 +1030,16 @@ def handler(out):
                         f.write(json.dumps({'time': time.strftime('%Y-%m-%dT%H:%M:%S'), **req},
                                            ensure_ascii=False) + '\n')
                     reply = {}
+                elif self.path == '/commit':
+                    try:
+                        data, code = commit_accepted(out, req).encode(), 200
+                    except (LookupError, RuntimeError) as e:
+                        data, code = str(e).encode(), 409 if isinstance(e, LookupError) else 500
+                    self.send_response(code)
+                    self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                    self.send_header('Content-Length', str(len(data)))
+                    self.end_headers()
+                    return self.wfile.write(data)
                 elif self.path == '/publish':
                     try:
                         data, code = publish(out, req['file']).encode(), 200
@@ -1034,6 +1096,8 @@ def main():
     p.add_argument('--out')
     p.add_argument('--new-label')
     p.add_argument('--publish')
+    p.add_argument('--commit', action='store_true')
+    p.add_argument('--after-commit')
     p.add_argument('--serve', action='store_true')
     p.add_argument('paths', nargs='*')
     for m in PLUGINS:

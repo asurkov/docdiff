@@ -235,7 +235,17 @@ with the published changes in the old side and the rest still to review. A push 
 Google Doc or the Markdown changed since the export publishes nothing for that file: export again,
 rerun docdiff (accepts that still apply carry over), and publish again; a file already published has
 nothing accepted left, so it is not published twice. The click is the user's
-go: never press it on a doc other people read.
+go: never press it on a doc other people read. Since gdocsync follows the committed Markdown, the
+Google page shows committed changes only; an edit is reviewed and committed first (below).
+
+**Committing accepted changes.** On a page of the working tree (no `--head`), `--commit` adds
+"⇪ commit accepted (N)" to the header while some file has all its changes accepted. Its panel lists those
+files and the ones still waiting on changes to review, with an editable message ("Update <files>"; ↵
+commits); the server commits each listed file as it reads on disk (`git add` and `git commit -- <files>`,
+so nothing else staged goes in), checking first that every change in it is accepted, then runs
+`--after-commit CMD` in the background (gdocsync's export, so the Google page shows the commit). A file
+with changes left is not committed: a partial file would need its Markdown rebuilt from the render,
+which would reformat it. The click is the user's commit: never press it for them.
 
 ## Plugins
 
