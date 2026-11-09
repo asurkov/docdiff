@@ -239,7 +239,9 @@ Source-specific features are plugins: the Python modules in `plugins/` next to `
 on every run and used where it applies.
 
 - `respec.py`: ReSpec specs ([ReSpec specs](#respec-specs)).
-- `gdoc_comments.py`: `--comments`, a Google Doc's comments, shown as comments made elsewhere
+- `gdoc_comments.py`: `--comments`, a Google Doc's comments, shown as comments made elsewhere, on any
+  page (the repo's own uncommitted edits too); it titles the page "Google Docs vs Markdown" only on base
+  `google`
   ([Google Doc vs Markdown](#google-doc-vs-markdown)).
 - `gdoc_docs.py`: `--docs`, the repo's docs and their Google Docs listed above the diff.
 - `github_pr.py`: `--pr`, a link from each change to its line in a GitHub PR, and the PR's comments read

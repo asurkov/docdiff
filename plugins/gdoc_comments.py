@@ -23,8 +23,9 @@ def add_args(p):
 
 
 def title(run):
-    """A Google Doc against its Markdown, as gdocsync's export (<repo>-google) holds them."""
-    if not run.get('comments'):
+    """A Google Doc against its Markdown, as gdocsync's export (<repo>-google) holds them: base google. The
+    comments shown on another page (the repo's own edits, say) leave its title alone."""
+    if not run.get('comments') or run.get('base') != 'google':
         return None
     return f'Google Docs vs Markdown · {pathlib.Path(run["repo"]).name.removesuffix("-google")}', None
 
