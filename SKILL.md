@@ -154,8 +154,8 @@ The server writes both into the review's dir, `<out>`:
   <the answer>
   EOF
   ```
-- `review.json` — the user's review comments, and which revisits they resolved or read
-  ([Review comments](#review-comments)). When the user says they left comments, read them there.
+- `review.json` — the user's review comments, which revisits they resolved or read
+  ([Review comments](#review-comments)), and what was pushed to the PR ([GitHub PR](#github-pr), Pushing). When the user says they left comments, read them there.
 
 **Watching for revisits.** While the user reviews, keep one background Bash command (`run_in_background`)
 waiting for the next request. It has no time limit, unlike Monitor, and it touches `<out>/watcher` every
@@ -325,7 +325,8 @@ python3 -I ~/.claude/skills/docdiff/docdiff.py --restart
 `--stop` stops it, and `--port N` (with `--serve`, `--restart` or `--stop`) works with another server on
 port N instead, a test's say, which serves the same reviews. `DOCDIFF_HOME=<dir>` keeps the reviews, the
 clones and the server's log in `<dir>` instead of `~/.docdiff`, so a test server on another port neither
-sees nor writes the reviews in use.
+sees nor writes the reviews in use, and `DOCDIFF_GITHUB_API=<url>` sends its GitHub API calls, reads and
+pushes, to a stand-in at url.
 
 **Keeping it running.** `--install-agent` prints a LaunchAgent, `com.asurkov.docdiff`, which starts the
 server at login and again whenever it stops, its PATH set to find pandoc and git, its output in the same
@@ -340,7 +341,8 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.asurkov.docdiff.plis
 Under it, `--restart` has launchd restart the server, and `--stop` amounts to a restart, as launchd
 starts it again. To remove it: `launchctl bootout gui/$(id -u)/com.asurkov.docdiff`, then delete the
 plist. launchd starts the server with none of the shell's environment, so a `GITHUB_TOKEN` set there does
-not reach it.
+not reach it: to push comments to a PR from it, the plist needs `GITHUB_TOKEN` under
+`EnvironmentVariables`, where the token then sits in plain text.
 
 Servers from before the umbrella server, one per review on a port of its own, run their old code until
 stopped; a review's dir from one of them comes over with `--out` (or, in `~/.docdiff` already, with its
@@ -389,9 +391,12 @@ below; `load_plugins()` in `docdiff.py` has their exact shapes. `run` is the run
 - `place(run, old, new, side, before, after)`: for other plugins, where text of a file's block is in its
   source; `github_pr.py`'s gives review comments their file and line.
 - `remarks(run, out, refresh)`: for other plugins, comments made on the docs elsewhere, which review
-  comments show, one source per plugin: `{source, open, refresh, posting, fetched, error, me, comments}`
-  (its name, its link's words, whether ↻ can ask it again, whether your 💬 may be posted there).
-  `github_pr.py`'s reads the PR's on GitHub, `gdoc_comments.py`'s the Google Docs' from the export.
+  comments show, one source per plugin: `{source, open, refresh, posting, push, fetched, error, me,
+  comments}` (its name, its link's words, whether ↻ can ask it again, whether your 💬 may be posted
+  there, whether `push()` sends them there). `github_pr.py`'s reads the PR's on GitHub, `gdoc_comments.py`'s
+  the Google Docs' from the export.
+- `push(run, cs, last, dry)`: for other plugins, sends your comments to the source as your pending review,
+  or with `dry` only says what it would do; `github_pr.py`'s ([GitHub PR](#github-pr), Pushing).
 - `STYLE`, `SCRIPT`: CSS and JavaScript for the page, after docdiff's own. An element of class `panel`
   holds off the reload after a rebuild while it shows, and clicks in it leave the doc alone; so do clicks
   in an element of class `ui` (a card or side panel), which does not hold off the reload. Every review's
@@ -456,7 +461,8 @@ take n/p. A mark on removed words sits after them, so a settled change shows it.
 come in the doc, each a click from its place, comments with edit, copy and delete. Copy puts one comment
 on the clipboard as Markdown: its `path:line` (linked to the line on GitHub; without `--pr`, the file and
 section), the quote and the comment, to paste into GitHub. **Copy all as Markdown**, shown while you have
-comments, does that for all of them. Saving a comment shows it in place, with no
+comments, does that for all of them, and with `--pr` **⇪ Push** sends them to the PR as your pending
+review ([GitHub PR](#github-pr), Pushing). Saving a comment shows it in place, with no
 rebuild; comments outlast rebuilds, accepts and server restarts.
 
 Revisits show the same way, one thread per 💬 (✎ in its card): the revisits of one change, or of one quote,
@@ -530,7 +536,7 @@ comments they are kept in one store beside the export, so the Google Docs page a
 show the same ones (whether one was read, or a draft dismissed, stays per page). Nothing is posted:
 replying stays yours.
 
-**The PR's comments on GitHub** (`github_pr.py`, with `--pr`; read only, nothing is posted). The page
+**The PR's comments on GitHub** (`github_pr.py`, with `--pr`; read only: only ⇪ Push posts, below). The page
 reads the PR's review comments, its own comments and its reviews' bodies from GitHub's API on load and
 from ↻ GitHub in the Review panel, which says when they were read and, offline or rate limited, that it
 shows the last copy. They are kept in `<out>/github.json` with each page's ETag; a page load asks again
@@ -563,11 +569,29 @@ its wording has the dotted amber underline. Its 💬 is amber, still read only w
 the Review panel names you "(you)". A 💬 is posted only by a comment of yours, and the thread holding that
 comment then shows as that 💬 alone, not counted twice.
 
-**Pushing, later** (not built). `review.json` as a pending review through `gh api`
-(`POST /repos/<owner>/<repo>/pulls/<N>/reviews` with `commit_id` the head and `comments: [{path, line,
-side, body}]`, no `event`, so it stays pending for the user to submit on GitHub), keeping each comment's
-GitHub id in `review.json` so a second push updates instead of duplicating; comments without a line go
-in the review's body. Submitting stays the user's click.
+**Pushing** (`push()` in `github_pr.py`). While some of your 💬 are not on GitHub, the Review panel has
+**⇪ Push N as a pending review** (N the ones new or edited since pushed; with none, **⇪ Pending
+review**). It sends them, in the doc's order, to the PR as your **pending review**, which GitHub shows to
+you alone until you submit it there: submitting stays your click on GitHub. Its panel first reads your
+pending review on GitHub and lists what a push would do: **Add**; **Update** (edited here since pushed);
+**In the review text** (a comment without a line goes in the review's own text, with its file, section
+and quote); **In your pending review already**; and **Left out**, each with why. One to add that reads
+much like a comment of yours on GitHub says so: a copy reworded here after it was posted no longer counts
+as posted, and would go again. **Push** (↵) does it, then says what went and links to the PR's Files
+changed, where you submit it. Without a pending review, a push starts one: `POST
+/repos/<owner>/<repo>/pulls/<N>/reviews` with `commit_id` the head and `comments: [{path, line, side,
+body}]`, no `event`. With one, a new comment is added to it (GraphQL's `addPullRequestReviewThread`, as
+REST adds comments only in the request that makes a review), an edited one is updated (`PATCH
+…/pulls/comments/<id>`), and the review's text rewritten (`PUT …/reviews/<id>`). Each comment keeps what
+it became there in `review.json`, `pushed: {review, id, body, time}`, and the review is `push: {review,
+body, url, time}`, so pushing again updates instead of duplicating. Left out: a comment GitHub has the
+text of (posted); one edited on GitHub since it was pushed, or the review's text edited there (left as
+they read there); one in a review you submitted (edit it there); and new ones while your pending review
+is on another commit than the page's head (submit or discard it first). Deleting a comment here leaves it
+in the pending review. Your pending review and its comments never count as posted. A push needs
+`GITHUB_TOKEN` in the server's environment, a token that may write the PR's comments (classic
+`public_repo`, or fine-grained Pull requests: read and write); the launchd server has none unless its
+plist gives it one ([The umbrella server](#the-umbrella-server)).
 
 ## Proposing wording with it
 

@@ -12,7 +12,9 @@ finds other text of a block the same way, for other plugins: review comments.
 
 remarks() reads the PR's own comments from GitHub, for other plugins too, and puts each line comment
 back on the diff the other way round: the words of its line against the blocks of the diff, with me, your
-login (--me, or GITHUB_TOKEN's user), so yours count as your review. Read only: nothing is ever posted.
+login (--me, or GITHUB_TOKEN's user), so yours count as your review. push() sends your comments, for
+other plugins, as your pending review on the PR, which stays pending until you submit it on GitHub;
+nothing else is ever posted.
 """
 # docdiff, the running docdiff.py, is set by its load_plugins().
 import difflib, hashlib, html, json, os, pathlib, re, subprocess, sys, threading, time, urllib.error, urllib.request
@@ -25,7 +27,8 @@ CONTEXT = 40
 RUN = 4
 # Its name as a source of comments made elsewhere (review.py), which its ↻ names.
 SOURCE = 'GitHub'
-API, AGENT = 'https://api.github.com', 'docdiff (github.com/asurkov/docdiff; reads PR comments)'
+# DOCDIFF_GITHUB_API sends every call to a stand-in for GitHub's API instead, a test's.
+API, AGENT = os.environ.get('DOCDIFF_GITHUB_API') or 'https://api.github.com', 'docdiff (github.com/asurkov/docdiff)'
 # A page load asks GitHub for the PR's comments again once they are older than this, in seconds.
 FRESH = 300
 lock = threading.Lock()
@@ -160,8 +163,8 @@ def pr_of(repo, pr):
 
 def remarks(run, out, refresh=None):
     """For other plugins (review.py): the PR's comments on GitHub, read only, {fetched, checked, error, me,
-    comments, source, open, refresh, posting} (the last four: GitHub's name, its link's words, that ↻ can
-    ask GitHub again, and that your 💬 may be posted there), me the user's login (--me, or GITHUB_TOKEN's user): its line comments, each placed on the diff where it can be (see place_lines()), its own
+    comments, source, open, refresh, posting, push} (the last five: GitHub's name, its link's words, that ↻
+    can ask GitHub again, that your 💬 may be posted there, and that push() sends them), me the user's login (--me, or GITHUB_TOKEN's user): its line comments, each placed on the diff where it can be (see place_lines()), its own
     comments and its reviews' bodies. Kept in <out>/github.json, which refresh 'auto' (a page load) asks
     GitHub to bring up to date when it is older than FRESH, and 'now' (a button) always; each page is
     asked for with its last ETag, so a list that did not change comes back empty (304), though without a
@@ -191,7 +194,7 @@ def remarks(run, out, refresh=None):
     return {k: cache.get(k) for k in ('fetched', 'checked', 'error')} | {'me': run.get('me') or cache.get('me'),
                                                                          'comments': cache.get('comments', []),
                                                                          'source': SOURCE, 'open': 'Open on GitHub ↗',
-                                                                         'refresh': True, 'posting': True}
+                                                                         'refresh': True, 'posting': True, 'push': True}
 
 
 def whoami():
@@ -240,16 +243,19 @@ def fetch(run, cache):
 def comments(run, out, data):
     """The PR's comments as the page shows them, and whether every doc could be looked at (a spec waiting
     for its render could not): line comments (outdated ones too, with their old line), with where they
-    are when place_lines() finds it, then the PR's own comments and its reviews with a body."""
+    are when place_lines() finds it, then the PR's own comments and its reviews with a body. Not your
+    pending review, nor its comments: GitHub shows them to you alone, so they are not posted yet."""
     who = lambda c: (c.get('user') or {}).get('login') or '?'
+    pending = {r['id'] for r in data.get('reviews', []) if r.get('state') == 'PENDING'}
     cs = [{'id': c['id'], 'kind': 'line', 'author': who(c), 'time': c.get('created_at'), 'body': c.get('body') or '',
            'url': c.get('html_url'), 'reply_to': c.get('in_reply_to_id'), 'path': c.get('path'),
            'side': 'L' if c.get('side') == 'LEFT' else 'R', 'line': c.get('line') or c.get('original_line'),
-           'outdated': c.get('line') is None} for c in data.get('review', [])]
+           'outdated': c.get('line') is None} for c in data.get('review', []) if c.get('pull_request_review_id') not in pending]
     cs += [{'id': c['id'], 'kind': 'pr', 'author': who(c), 'time': c.get('created_at'), 'body': c.get('body') or '',
             'url': c.get('html_url')} for c in data.get('issue', [])]
     cs += [{'id': r['id'], 'kind': 'review', 'author': who(r), 'time': r.get('submitted_at'), 'body': r.get('body') or '',
-            'url': r.get('html_url'), 'state': r.get('state')} for r in data.get('reviews', []) if (r.get('body') or '').strip()]
+            'url': r.get('html_url'), 'state': r.get('state')} for r in data.get('reviews', [])
+           if (r.get('body') or '').strip() and r['id'] not in pending]
     done = place_lines(run, out, [c for c in cs if c['kind'] == 'line' and not c['outdated'] and not c['reply_to'] and c['line']])
     return cs, done
 
@@ -356,3 +362,140 @@ def source(repo, rev, path):
 
 def git(repo, *args):
     return subprocess.run(['git', '-C', repo, *args], capture_output=True, text=True).stdout.strip()
+
+
+# Adds a thread to a pending review, which GitHub's REST API cannot do: it only makes a review with its comments.
+THREAD = ('mutation($r:ID!,$p:String!,$l:Int!,$s:DiffSide!,$b:String!){addPullRequestReviewThread(input:'
+          '{pullRequestReviewId:$r,path:$p,line:$l,side:$s,body:$b}){thread{comments(first:1){nodes{fullDatabaseId}}}}}')
+
+
+class Refused(Exception):
+    """GitHub said no, in its own words, or was not reached."""
+
+
+def push(run, cs, last, dry=False):
+    """For other plugins (review.py): your comments cs as your pending review on the PR, never submitted:
+    you submit it on GitHub. With dry, only what it would do, after reading your pending review.
+    cs [{id, body, path, line, side, where, quote, pushed}]: where it is in the PR's files (side L or R),
+    or for one without a line where it is in the docs and its quote, and pushed what an earlier push made
+    of it, {review, id, body}; last what it made the review, {review, body}.
+
+    A comment without a line goes in the review's own text. Your pending review is your review in state
+    PENDING, which GitHub shows its author alone, one per PR. Without one, a push starts it (POST .../reviews
+    with no event) with every comment; with one, a comment new to it is added to it, one already in it and
+    edited here since is updated, and the review's text rewritten, unless edited on GitHub since. One in a
+    review you submitted is left out. Returns {plan: [{id, act, why}], pushed: {comment id: pushed}, review:
+    {review, body} once there is one, url: where to submit it, error}, act one of add, update, text (in the
+    review's text), same (there already, as it reads here) and leave (why says why)."""
+    slug, n = pr_of(run['repo'], run['pr'])
+    norm, side = lambda t: ' '.join((t or '').split()), {'L': 'LEFT', 'R': 'RIGHT'}
+    out = {'plan': [], 'pushed': {}, 'review': None, 'url': files_url(run['repo'], run['pr']), 'error': None}
+    if not os.environ.get('GITHUB_TOKEN'):
+        return {**out, 'error': 'the docdiff server has no GITHUB_TOKEN, which a push needs'}
+    try:
+        reviews = pages(f'/repos/{slug}/pulls/{n}/reviews')
+        states, pending = {r['id']: r['state'] for r in reviews}, next((r for r in reviews if r['state'] == 'PENDING'), None)
+        there = {c['id']: c.get('body') or '' for c in pages(f'/repos/{slug}/pulls/{n}/reviews/{pending["id"]}/comments')} if pending else {}
+    except Refused as e:
+        return {**out, 'error': str(e)}
+    last = last if pending and (last or {}).get('review') == pending['id'] else {}
+    adds, edits, texts = [], [], []
+    for c in cs:
+        p = c.get('pushed') or {}
+        act, why = 'add', None
+        if states.get(p.get('review'), 'PENDING') != 'PENDING':
+            act, why = 'leave', 'in a review you submitted on GitHub: edit it there'
+        elif not c.get('path') or not c.get('line'):
+            texts.append(c)
+            continue
+        elif pending and p.get('review') == pending['id'] and p.get('id') in there:
+            act, why = (('same', None) if c['body'] == p['body'] else ('update', None) if norm(there[p['id']]) == norm(p['body'])
+                        else ('leave', 'edited on GitHub since it was pushed: left as it reads there'))
+        elif pending and pending.get('commit_id') != run['head']:
+            act, why = 'leave', (f'your pending review is on {pending["commit_id"][:7]}, this page on {run["head"][:7]}: '
+                                 'submit or discard it on GitHub, then push again')
+        (adds if act == 'add' else edits if act == 'update' else []).append(c)
+        out['plan'].append({'id': c['id'], 'act': act, 'why': why})
+    # The comments without a line, as the review's text: each its place in the docs, the quoted text and the
+    # comment. It is rewritten while it reads as the last push left it.
+    text = '\n\n---\n\n'.join(f"**{c['where']}**\n\n" + (f"> {q}\n\n" if (q := short(c.get('quote'))) else '') + c['body'] for c in texts)
+    now = norm((pending or {}).get('body'))
+    act, why = (('same', None) if pending and now == norm(text) else ('text', None) if not now or now == norm(last.get('body'))
+                else ('leave', "the review's text was edited on GitHub: left as it reads there"))
+    out['plan'] += [{'id': c['id'], 'act': act, 'why': why} for c in texts]
+    writing = bool(texts) and act == 'text'
+    if pending:
+        out['review'] = {'review': pending['id'], 'body': last.get('body')}
+    if dry or not adds and not edits and not writing:
+        return out
+    try:
+        if not pending:
+            pending = ask('POST', f'/repos/{slug}/pulls/{n}/reviews', {'commit_id': run['head'], **({'body': text} if writing else {}),
+                          'comments': [{'path': c['path'], 'line': c['line'], 'side': side[c['side']], 'body': c['body']} for c in adds]})
+            out['review'] = {'review': pending['id'], 'body': text if writing else None}
+            got = pages(f'/repos/{slug}/pulls/{n}/reviews/{pending["id"]}/comments')
+            for c in adds:
+                g = next((g for g in got if g.get('path') == c['path'] and norm(g.get('body')) == norm(c['body'])), None)
+                got.remove(g) if g else None
+                out['pushed'][c['id']] = {'review': pending['id'], 'id': g and g['id'], 'body': c['body']}
+        else:
+            for c in edits:
+                ask('PATCH', f'/repos/{slug}/pulls/comments/{c["pushed"]["id"]}', {'body': c['body']})
+                out['pushed'][c['id']] = {**c['pushed'], 'body': c['body']}
+            for c in adds:
+                t = ask('POST', '/graphql', {'query': THREAD, 'variables': {'r': pending['node_id'], 'p': c['path'], 'l': c['line'],
+                                                                            's': side[c['side']], 'b': c['body']}})
+                out['pushed'][c['id']] = {'review': pending['id'], 'body': c['body'], 'id': int(
+                    t['data']['addPullRequestReviewThread']['thread']['comments']['nodes'][0]['fullDatabaseId'])}
+            if writing:
+                ask('PUT', f'/repos/{slug}/pulls/{n}/reviews/{pending["id"]}', {'body': text})
+                out['review']['body'] = text
+        if act in ('text', 'same'):
+            out['pushed'].update({c['id']: {'review': pending['id'], 'body': c['body']} for c in texts})
+    except Refused as e:
+        out['error'] = str(e)
+    return out
+
+
+def short(q):
+    """A quote of at most 300 characters, cut at a word."""
+    q = ' '.join((q or '').split())
+    return q[:300].rsplit(' ', 1)[0] + '…' if len(q) > 300 else q
+
+
+def ask(method, path, data=None):
+    """GitHub's API with GITHUB_TOKEN: what it answers, as JSON; Refused, in GitHub's words, when it says no."""
+    return call(method, API + path, data)[0]
+
+
+def pages(path):
+    """Every item of a list GitHub gives page by page."""
+    items, url = [], f'{API}{path}?per_page=100'
+    while url:
+        got, url = call('GET', url)
+        items += got
+    return items
+
+
+def call(method, url, data=None):
+    """What GitHub answers, as JSON, and the link to its next page, if any."""
+    r = urllib.request.Request(url, method=method, data=None if data is None else json.dumps(data).encode(),
+                               headers={'User-Agent': AGENT, 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json',
+                                        'Authorization': f'Bearer {os.environ["GITHUB_TOKEN"]}'})
+    try:
+        with urllib.request.urlopen(r, timeout=20) as r:
+            got, more = json.load(r), next(iter(re.findall(r'<([^>]+)>;\s*rel="next"', r.headers.get('Link') or '')), None)
+    except urllib.error.HTTPError as e:
+        try:
+            m = json.load(e)
+            why = '; '.join(filter(None, [m.get('message')] + [x if isinstance(x, str) else x.get('message') or json.dumps(x)
+                                                                for x in m.get('errors') or []]))
+        except ValueError:
+            why = ''
+        raise Refused(f'GitHub answered {e.code}' + (f': {why}' if why else ''))
+    except (urllib.error.URLError, OSError, ValueError):
+        raise Refused('GitHub not reached (offline?)')
+    # GraphQL answers 200, with what went wrong in errors.
+    if isinstance(got, dict) and got.get('errors'):
+        raise Refused('GitHub answered: ' + '; '.join(x.get('message') or json.dumps(x) for x in got['errors']))
+    return got, more

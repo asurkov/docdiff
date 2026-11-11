@@ -5,7 +5,9 @@ A comment is made on a change or on selected text (💬 in its popup, or c) and 
 change's (None on a selection), quote its text as it reads on its side, side L for the base's text (in
 Old, or a change that only removes) and R otherwise, before and after the text of its block around it.
 github is where a plugin's place() (github_pr.py's, with --pr) finds that text in the PR's files,
-{pr, head, path, line, side, href}, found again when the run's PR or head is another.
+{pr, head, path, line, side, href}, found again when the run's PR or head is another. Pushed to the PR
+as your pending review (a plugin's push(), github_pr.py's), a comment keeps what it became there,
+pushed {review, id, body, time}, and review.json the review, {push: {review, body, url, time}}.
 
 The page marks each comment on its change in every view that has the change, and elsewhere where its
 quote reads, the text before it picking among repeats: so a comment stays on a change once it is
@@ -81,6 +83,10 @@ header .rvn button,header .rvn button:hover{border:0;background:none;padding:0;h
 #rvp .rva blockquote,#rvc .rva blockquote{max-height:none;margin:6px 0 2px} .rvi-new{box-shadow:inset 3px 0 var(--insb)} .rvi-new>.rvm{font-weight:600}
 .rvf{margin:0 0 6px} .rvf button{font-size:12px;padding:1px 8px} .rvg>summary{cursor:pointer;color:var(--muted);font-size:13px;padding:6px 0;border-top:1px solid var(--line)}
 #rvc>.rvpart+.rvpart{border-top:1px solid var(--line)}
+#rvpush .rvpl{flex:1 0 100%;max-height:40vh;overflow:auto;font-size:13px} #rvpush .rvcmh a{margin-left:6px}
+.rvpg{margin:8px 0 2px;font-size:12px;font-weight:600;color:var(--muted)} .rvpg:first-child{margin-top:0}
+.rvpi{display:flex;flex-wrap:wrap;gap:0 8px;align-items:baseline;padding:1px 0 1px 8px} .rvpw{flex:0 0 auto;font:12px ui-monospace,Menlo,monospace;color:var(--muted)}
+.rvpt{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} .rvpwhy{flex:1 0 100%;font-size:12px;color:var(--rw)}
 #rvc{position:absolute;z-index:0;overflow:auto;overscroll-behavior:contain;box-sizing:border-box;background:var(--bg);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12);padding:0;font-size:14px}
 '''
 
@@ -207,7 +213,7 @@ wait=open.some(t=>t.wait)||gs.some(g=>g.wait),unread=open.some(t=>t.unread)||gs.
 b.className='rvb'+(n?'':' rvb-done')+(wait?' rvb-wait':unread?' rvb-new':'')+(gs.some(g=>g.yours)?' rvb-gme':'')+(posted?' rvb-posted':'')+
 (gs.length===its.length&&gs.every(g=>g.near)?' rvb-near':'');b.textContent=n>1?' '+n:'';if(posted&&r)b.dataset.r=' '+r+'↩';else delete b.dataset.r;
 b.title=its.map(it=>it.kind==='g'?'On '+it.src.source+': '+it.root.author+': '+short(it.root.body)+(it.yours?' (yours)':'')+(it.near?' (its text has changed: here at the closest match)':''):
-it.kind==='c'?(it.posted?'Your comment, posted on GitHub'+(r?' · '+r+(r>1?' replies':' reply'):''):'Your comment')+': '+short(it.body):
+it.kind==='c'?(it.posted?'Your comment, posted on GitHub'+(r?' · '+r+(r>1?' replies':' reply'):''):'Your comment'+(pend(it)?' ('+pend(it)+')':''))+': '+short(it.body):
 '✎ '+(it.done?'Resolved: ':'')+short(it.members.map(m=>m.prompt).join(' / '))).join('\\n')+
 (wait?'\\n\\n(waiting for Claude)':unread?'\\n\\n(new answer: click to read)':n?'':'\\n\\n(resolved: click to reopen)');}
 // One comment of yours, not posted, opens in its editor; anything else in a card.
@@ -502,7 +508,7 @@ else if(it.kind==='r'){h.append(mk('span',{className:'rvm',textContent:'✎ '+[i
 bd.append(mk('blockquote',{textContent:it.sent}),...asks(it));}
 else{const x=act('delete','Delete this comment',()=>{if(x.textContent==='delete'){x.textContent='delete?';return;}card.hidden=true;save({id:it.id,delete:true});}),
 c=act('copy','Copy as Markdown: its file:line, the quoted text and the comment',async()=>{c.textContent=await copy(markdown([it]))?'copied':'copying failed';setTimeout(()=>c.textContent='copy',1500);});
-h.append(mk('span',{className:'rvm',textContent:'💬 Your comment · '+(it.section||it.file)}),act('edit','Edit this comment',()=>{card.hidden=true;openCm(it);}),c,x);
+h.append(mk('span',{className:'rvm',textContent:['💬 Your comment',it.section||it.file,pend(it)].filter(Boolean).join(' · ')}),act('edit','Edit this comment',()=>{card.hidden=true;openCm(it);}),c,x);
 bd.append(...(it.quote?[mk('blockquote',{textContent:it.quote})]:[]),mk('div',{className:'rvt',textContent:it.body}));}
 d.append(h,bd);return d;}
 // Your comments come first, then threads from elsewhere, then questions, the resolved ones last; a posted
@@ -539,7 +545,7 @@ if(it.kind==='g'){m.append(['On '+it.src.source,files>1&&it.file,ghLabel(it.root
 h.append(m,...(it.file?[reply(it)]:[]),ghOpen(it));
 bd.append(...ghBodies(it),...drafts(it),...(opened.has(it.rid)&&!inCard(it)?[box(it.rid,{it})]:[]));d.append(h,bd);
 d.onclick=e=>{if(e.target.closest('a,button'))return;jump(it);for(const t of it.rts)if(t.unread)setThread(t,{seen:true});};return d;}
-const t=it.kind==='c'&&it.thread;m.append(t?postedAs(it,t):(r?'✎ ':'💬 ')+[files>1&&it.file,it.section,r&&state(it)].filter(Boolean).join(' · ')+(Object.keys(it.at).length?'':' · not in the page now'));
+const t=it.kind==='c'&&it.thread;m.append(t?postedAs(it,t):(r?'✎ ':'💬 ')+[files>1&&it.file,it.section,r&&state(it),pend(it)].filter(Boolean).join(' · ')+(Object.keys(it.at).length?'':' · not in the page now'));
 if(w)m.append(' · ',mk('a',{href:it.github.href,target:'_blank',rel:'noopener',textContent:w.split('/').pop()+' ↗'}));
 if(it.quote)bd.append(mk('blockquote',{textContent:r?it.sent:it.quote}));
 if(r)h.append(m,...actions(it)),bd.append(...asks(it));else{const e=act('edit','',()=>openCm(it)),x=act('delete','',()=>x.textContent==='delete'?x.textContent='delete?':save({id:it.id,delete:true})),
@@ -571,7 +577,11 @@ g.append(mk('summary',{textContent:'Resolved ('+done.length+')'}),...done.map(it
 // Copying all of your 💬 comments is offered only while there are some; each one has its own copy too.
 const h=mk('div',{className:'rvh'}),cm=mk('button',{textContent:'Copy all as Markdown',title:'Your comments, each with its file:line and quote, to paste into GitHub'}),x=mk('button',{textContent:'×',title:'Close'});
 cm.onclick=async()=>{cm.textContent=await copy(markdown(its))?'copied '+nc:'copying failed';setTimeout(()=>cm.textContent='Copy all as Markdown',1500);};
-x.onclick=()=>toggle(false);h.append(mk('b',{textContent:'Review'}),mk('span',{className:'n',textContent:nc+' comment(s) · '+its.filter(i=>i.kind==='r'&&!i.done).length+' open · '+done.length+' resolved'}),...(nc?[cm]:[]),x);
+// ⇪ Push, while some of your comments are not on GitHub, with how many are new or edited since pushed.
+const ups=unposted(),fresh=ups.filter(c=>c.pushed?.body!==c.body).length,pb=ups.length&&(data.remotes||[]).some(r=>r.push)&&
+mk('button',{textContent:fresh?'⇪ Push '+fresh+' as a pending review':'⇪ Pending review',title:'Your comments not on GitHub yet, as your pending review on the PR, which you submit there'});
+if(pb)pb.onclick=openPush;
+x.onclick=()=>toggle(false);h.append(mk('b',{textContent:'Review'}),mk('span',{className:'n',textContent:nc+' comment(s) · '+its.filter(i=>i.kind==='r'&&!i.done).length+' open · '+done.length+' resolved'}),...(nc?[cm]:[]),...(pb?[pb]:[]),x);
 if(only){const o=mk('button',{className:'rvonly',textContent:'Only '+only+' · show all',title:'Show the entries on every doc'});o.onclick=()=>{only=null;list();};h.append(o);}
 const bySource=new Map();for(const it of loose)bySource.set(it.src.source,[...(bySource.get(it.src.source)||[]),it]);
 const ghs=[...bySource].map(([n,l])=>{const gh=mk('details',{className:'rvg',open:!ghFolded});gh.ontoggle=()=>{ghFolded=!gh.open;if(gh.open)gh.querySelectorAll('.rvib').forEach(fold);};
@@ -584,6 +594,46 @@ lp.querySelectorAll('.rvib').forEach(fold);keep();}
 function markdown(its){return its.filter(it=>it.kind==='c').map(it=>{const w=where(it),loc=w||it.file+(it.section?' · '+it.section:'');
 const q=it.quote.length>300?it.quote.slice(0,300).replace(/\\s+\\S*$/,'')+'…':it.quote;
 return '**'+(w&&it.github.href?'['+loc+']('+it.github.href+')':loc)+'**\\n\\n'+(q?'> '+q+'\\n\\n':'')+it.body;}).join('\\n\\n---\\n\\n');}
+// Your comments pushed to the PR as your pending review: whether one here is there as it reads here, or
+// edited since; one GitHub has the text of counts as posted instead.
+const pend=it=>it.kind==='c'&&!it.posted&&it.pushed?(it.pushed.body===it.body?'in your pending review':'edited since pushed'):'';
+const unposted=()=>order().filter(i=>i.kind==='c'&&!i.posted);
+// ⇪ Push sends your comments not on GitHub yet, in the doc's order, to the PR as your pending review, which
+// stays pending until you submit it there (push() in github_pr.py). Its panel first lists what a push would
+// do, which the server works out after reading your pending review on GitHub (dry); Push does it, and the
+// panel then says what went, and where to submit it. (No confirm(): an embedded browser may block it.)
+const pp=mk('div',{id:'rvpush',className:'panel',hidden:true}),ph=mk('div',{className:'n rvcmh'}),pl=mk('div',{className:'rvpl'}),
+pq=mk('button',{textContent:'Cancel'}),pg=mk('button',{className:'primary',textContent:'Push'});pq.dataset.key='esc';pg.dataset.key='↵';
+pp.append(ph,pl,mk('span',{className:'hint n',textContent:'It stays pending: you submit it on GitHub'}),pq,pg);body.append(pp);
+const groupsOf=[['add','Add'],['update','Update, edited here since pushed'],['text','In the review text, as it has no line'],['same','In your pending review already'],['leave','Left out']];
+let pushing=null;
+// A comment to add that reads much like one of yours on GitHub (most of their words shared) is said to: a copy
+// reworded here after it was posted is no longer posted, and would go to GitHub again.
+const wordset=t=>new Set(norm(t).toLowerCase().match(/[\\p{L}\\p{N}]+/gu)||[]),like=(a,b)=>{const x=wordset(a),y=wordset(b);let n=0;for(const w of x)if(y.has(w))n++;return n/Math.max(1,x.size+y.size-n);};
+const twin=c=>(data.remotes||[]).flatMap(r=>r.push&&r.me?r.comments.filter(g=>g.author===r.me):[]).find(g=>like(g.body,c.body)>=.6);
+function showPlan(got,sent){const by=new Map(data.comments.map(c=>[c.id,c])),sends=got.plan.filter(p=>['add','update','text'].includes(p.act));pl.replaceChildren();
+for(const[a,l]of groupsOf){const ps=got.plan.filter(p=>p.act===a&&by.has(p.id));if(!ps.length)continue;pl.append(mk('div',{className:'rvpg',textContent:l+' ('+ps.length+')'}));
+for(const p of ps){const c=by.get(p.id),r=mk('div',{className:'rvpi'}),miss=sent&&a!=='same'&&a!=='leave'&&!(p.id in got.pushed);
+r.append(mk('span',{className:'rvpw',textContent:where(c).split('/').pop()||c.section||c.file}),mk('span',{className:'rvpt',textContent:short(c.body)}));
+const g=!sent&&a==='add'&&twin(c),why=miss?'not sent':p.why||g&&'much like your comment on GitHub: “'+short(g.body)+'”';
+if(why)r.append(mk('span',{className:'rvpwhy',textContent:why}));pl.append(r);}}
+if(!got.plan.length)pl.append(mk('div',{className:'rvpg',textContent:'Nothing to push'}));return sends.length;}
+const submitAt=got=>mk('a',{href:got.url,target:'_blank',rel:'noopener',textContent:'Submit it on GitHub, under Files changed ↗'});
+async function openPush(){pushing=unposted().map(c=>c.id);ph.textContent='⇪ Your pending review on GitHub: reading it…';pl.replaceChildren();
+pg.textContent='Push';pg.disabled=true;delete pg.dataset.done;pq.hidden=false;pp.hidden=false;pq.focus();
+try{const{pushed:got,...st}=await post('review',{push:pushing,dry:true});take(st);if(pp.hidden)return;
+if(got.error){ph.textContent='✗ Cannot push: '+got.error;return;}const n=showPlan(got,false);
+ph.textContent='⇪ Push to your pending review on GitHub: '+(n?n+' comment'+(n>1?'s':''):'nothing new');
+if(n){pg.textContent='Push '+n;pg.disabled=false;pg.focus();}else if(got.plan.some(p=>p.act==='same'))ph.append(submitAt(got));}
+catch(e){ph.textContent='✗ Not read: '+e.message+' (is the docdiff server running?)';}}
+function closePush(){pp.hidden=true;pushing=null;}
+pq.onclick=closePush;pp.addEventListener('keydown',e=>{if(e.key==='Escape'){e.stopPropagation();closePush();}});
+pg.onclick=async()=>{if(pg.dataset.done)return closePush();pg.disabled=true;pq.hidden=true;pg.textContent='pushing…';
+try{const{pushed:got,...st}=await post('review',{push:pushing,dry:false});take(st);showPlan(got,true);
+const k=a=>got.plan.filter(p=>p.act===a&&p.id in got.pushed).length,said=[[k('add'),'added'],[k('update'),'updated'],[k('text'),'in its text']].filter(x=>x[0]).map(x=>x.join(' '));
+ph.textContent=(got.error?'✗ '+got.error+(said.length?'; before that, ':''):'✓ ')+(said.length?said.join(', ')+': in your pending review on GitHub, not submitted.':'');
+if(got.review)ph.append(submitAt(got));}catch(e){ph.textContent='✗ Not pushed: '+e.message+' (is the docdiff server running?)';}
+pg.textContent='Done';pg.disabled=false;pg.dataset.done=1;pg.focus();};
 function toggle(on){lp.hidden=!on;body.classList.toggle('rv-open',on);if(on){lp.style.top=document.querySelector('header').getBoundingClientRect().bottom+'px';list();}keep();}
 // The panel, its filter and its fold outlast reloads.
 function keep(){try{sessionStorage.setItem(sk('docdiff-review'),JSON.stringify({on:!lp.hidden,filter,folded}));}catch(e){}}
@@ -617,12 +667,15 @@ def post(out, path, req):
     req['revisits'] names by time (by 'accept': as their change was accepted); or sets the state of the
     proposals req['proposals'] names, dismissed or none; or brings the PR's comments on GitHub up to date
     (req['github']: 'auto' or 'now', as remarks() in github_pr.py takes it); or files a request for a reply
-    to a thread from elsewhere (req['reply']). Returns what get() does."""
+    to a thread from elsewhere (req['reply']); or pushes comments to the PR (req['push'], see push()).
+    Returns what get() does."""
     if path != '/review':
         return None
     run = json.loads((out / '.run.json').read_text())
     if req.get('github'):
         return state(run, req['github'], req.get('source'))
+    if 'push' in req:
+        return push(run, out, req)
     # A request for a reply to a thread from elsewhere goes to its source's shared store (or else the page's
     # revisit.jsonl), with where that is (store), for Claude to answer there.
     if req.get('reply'):
@@ -702,6 +755,33 @@ def state(run, refresh=None, source=None):
                        for src, d in stores(run).items()}}
 
 
+def push(run, out, req):
+    """Sends the comments req['push'] names, in that order, to the PR as your pending review, through the
+    plugin that pushes (github_pr.py's push()), or with req['dry'] only says what that would do; keeps
+    what each became there in its pushed, and the review in push. Returns what get() does, with the
+    push's own answer as pushed."""
+    m = next((m for m in docdiff.PLUGINS if hasattr(m, 'push')), None)
+    if not m or not run.get('pr') or not run.get('head'):
+        return {**state(run), 'pushed': {'error': 'nothing to push to: this page is not a PR\'s (--pr)'}}
+    ids = {str(i): n for n, i in enumerate(req['push'])}
+    doc = load(out)
+    cs = sorted((c for c in doc['comments'] if c['id'] in ids), key=lambda c: ids[c['id']])
+    got = m.push(run, [{'id': c['id'], 'body': c['body'], 'pushed': c.get('pushed'), 'quote': c.get('quote'),
+                        'where': ' · '.join(filter(None, [(c.get('github') or {}).get('path') or c['file'], c.get('section')])),
+                        **{k: (c.get('github') or {}).get(k) for k in ('path', 'line', 'side')}} for c in cs],
+                 doc.get('push'), bool(req.get('dry')))
+    if not req.get('dry') and (got['pushed'] or got['review']):
+        with lock:
+            doc = load(out)
+            for c in doc['comments']:
+                if c['id'] in got['pushed']:
+                    c['pushed'] = {**got['pushed'][c['id']], 'time': now()}
+            if got['review']:
+                doc['push'] = {**got['review'], 'url': got['url'], 'time': now()}
+            save(out, doc)
+    return {**state(run), 'pushed': got}
+
+
 def counts(run):
     """For the index of reviews: the comments, and the open threads of revisits, grouped as the page groups
     them (threads()): by the thread a revisit goes on in, its change, or its quote."""
@@ -760,7 +840,8 @@ def locate(run, cs):
 def load(out):
     f = out / 'review.json'
     doc = json.loads(f.read_text()) if f.exists() else {}
-    return {'comments': doc.get('comments', []), 'revisits': doc.get('revisits', {}), 'proposals': doc.get('proposals', {})}
+    return {'comments': doc.get('comments', []), 'revisits': doc.get('revisits', {}), 'proposals': doc.get('proposals', {}),
+            **({'push': doc['push']} if doc.get('push') else {})}
 
 
 def save(out, doc):
