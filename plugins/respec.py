@@ -25,7 +25,7 @@ if(frames.length)Promise.all(frames.map(f=>new Promise(ok=>{const state=f.closes
 const fail=m=>{state.textContent='· not rendered: '+m;ok(null);},late=setTimeout(()=>fail('timed out'),120000);
 addEventListener('message',e=>{if(e.source!==f.contentWindow)return;clearTimeout(late);
 typeof e.data?.html==='string'?ok({id:f.dataset.id,html:inert(e.data.html)}):fail(e.data?.error||'no result');});
-f.src='http://localhost:'+location.port+'/'+f.dataset.src;}))).then(rs=>{rs=rs.filter(Boolean);
+f.src='http://localhost:'+location.port+location.pathname.replace(/[^/]*$/,'')+f.dataset.src;}))).then(rs=>{rs=rs.filter(Boolean);
 if(rs.length)post('rendered',{renders:rs}).catch(e=>{pos.textContent='renders not saved: '+e.message;});});
 function inert(h){const d=new DOMParser().parseFromString(h,'text/html');
 d.querySelectorAll('script,iframe,frame,object,embed,base,meta,link,style,form').forEach(e=>e.remove());

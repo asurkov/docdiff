@@ -66,31 +66,36 @@ Read them from the invocation, in any order:
 
 ## Steps
 
-1. Build and serve in one background command (`run_in_background: true`):
+1. Build and serve; the command returns once the page is built:
 
    ```bash
-   python3 -I ~/.claude/skills/docdiff/docdiff.py --repo <repo> --base <rev> [--head <rev>] --serve [paths…]
+   python3 -I ~/.claude/skills/docdiff/docdiff.py --repo <repo> --base <rev> [--head <rev>] [--name <name>] --serve [paths…]
    ```
 
-   It prints `<k> changed doc(s) … → <out>/index.html`, then `URL: http://127.0.0.1:<port>/index.html`.
-   The output dir defaults to `$TMPDIR/docdiff-<repo name>`. If a server for that dir is already running,
-   the script only rebuilds the page, prints the existing URL and exits. A running server also notices
-   on its own when the repo moves on (a commit, an edit, a new export: the revisions or the changed
-   files' sizes and times differ from the build's) and rebuilds, and an open page reloads into it. A
-   server keeps the code it started with: after changing docdiff itself, stop it and run again. A new
-   server takes its predecessor's port when that is free, so the URL and open tabs outlive a restart.
-2. Read the background command's output file once for the `URL:` line. With `0 changed doc(s)`
-   there is nothing to show: say so and stop.
+   It prints `<k> changed doc(s) … → <out>/index.html`, then `URL: http://127.0.0.1:7878/<name>/index.html`.
+   Each review has a name: `--name`, or else the repo's name, with `--pr` the repo's name and the PR's
+   number (`webmonetization-780`). Its page and state live in `~/.docdiff/<name>` (`<out>` below), out
+   of reach of macOS's temp cleanup, so a rerun with the same name picks up its accepts, comments and
+   revisits. `--out DIR` keeps them elsewhere, an older review's `$TMPDIR/docdiff-<repo name>` say:
+   the review is then named after DIR, unless `--name` says otherwise, and `~/.docdiff/<name>` links
+   to DIR. A name already taken by a review of another repo is refused: pass `--name`.
+   [The umbrella server](#the-umbrella-server) serves every review under its name, so the URL stays
+   the same from run to run. `--serve` starts it if it is not running, and otherwise leaves the new
+   build to it, and an open page reloads into the new build. The server also notices on its own when
+   the repo moves on (a commit, an edit, a new export: the revisions or the changed files' sizes and
+   times differ from the build's) and rebuilds.
+2. Read the `URL:` line. With `0 changed doc(s)` there is nothing to show: say so and stop.
 3. Open the URL in the built-in browser (`navigate`, a new tab if the current one shows something else).
    Use http, never `file://`: a local file there renders as a static snapshot with no scripts, so the
    navigation does not work. Open it on `127.0.0.1` as printed, never `localhost`: specs render on
-   `localhost`, and the server takes posts only from the `127.0.0.1` page.
+   `localhost`, where the server gives out a spec's sources and nothing else, and it takes posts only
+   from the `127.0.0.1` page.
 4. Tell the user the files and change counts in one or two lines, and that `n`/`p` step through changes,
    `a` accepts one, `r` revisits a selection and `c` comments on it.
 
 ## Accepts and revisits
 
-The server writes both into the output dir:
+The server writes both into the review's dir, `<out>`:
 
 - `accepted/<file>.html` — the accepted copy: the file as the user has accepted it, rendered. It starts as
   the base; each accept moves one change in, each unaccept takes one out, and the server rebuilds the page.
@@ -145,7 +150,7 @@ otherwise copies the prompt for the user to paste. The command exits with the ne
 append the answer to `answers.jsonl`, then start the next wait at once.
 
 ```bash
-sh -c 'd=<out>; f=$d/revisit.jsonl; touch "$f"; n=$(($(wc -l < "$f"))); while [ $(($(wc -l < "$f"))) -le $n ]; do touch "$d/watcher"; sleep 1; done; tail -n +$((n+1)) "$f"'
+sh -c 'd=$HOME/.docdiff/<name>; f=$d/revisit.jsonl; touch "$f"; n=$(($(wc -l < "$f"))); while [ $(($(wc -l < "$f"))) -le $n ]; do touch "$d/watcher"; sleep 1; done; tail -n +$((n+1)) "$f"'
 ```
 
 ## ReSpec specs
@@ -167,19 +172,21 @@ holds the quote (`grep -rl`) and edit that.
 
 ### Spec PRs
 
-For a GitHub PR, run against a clone of its repo (with none, a blobless one is enough:
-`git clone --filter=blob:none --no-checkout <repo url> "$TMPDIR/<name>"`):
+For a GitHub PR, run against a clone of its repo in `~/.docdiff/clones/<repo>`, the same clone for
+every PR of that repo; with none there yet, make a blobless one:
 
 ```bash
-git -C <clone> fetch -q origin main
-git -C <clone> fetch -q origin "pull/<N>/head"
-head=$(git -C <clone> rev-parse FETCH_HEAD)
-base=$(git -C <clone> merge-base origin/main "$head")
+clone=~/.docdiff/clones/<repo>
+[ -d "$clone" ] || git clone -q --filter=blob:none --no-checkout <repo url> "$clone"
+git -C "$clone" fetch -q origin main
+git -C "$clone" fetch -q origin "pull/<N>/head"
+head=$(git -C "$clone" rev-parse FETCH_HEAD)
+base=$(git -C "$clone" merge-base origin/main "$head")
 ```
 
-then step 1 with `--base $base --head $head --pr <owner>/<repo>#<N> --out "$TMPDIR/docdiff-<name>-<N>"`.
-Base is the merge base, as on GitHub, so changes that landed on main since do not show as reverted. Pass
-hashes, not `FETCH_HEAD`: the server re-resolves both on every rebuild. `--pr` gives each change a button
+then step 1 with `--repo "$clone" --base $base --head $head --pr <owner>/<repo>#<N>`: the review is
+named `<repo>-<N>`. Base is the merge base, as on GitHub, so changes that landed on main since do not
+show as reverted. Pass hashes, not `FETCH_HEAD`: the server re-resolves both on every rebuild. `--pr` gives each change a button
 to its line on GitHub, and `--me <login>` makes your comments there your review ([GitHub PR](#github-pr)).
 
 ## Google Doc vs Markdown
@@ -252,6 +259,46 @@ cherry-picks the commit onto the checkout at PATH (the repo's own), so the sessi
 there; the reply says where it landed, or, when it does not apply there (a conflict, or uncommitted edits
 in its way), that it stays on the session's branch, with git's reason, and PATH is left as it was.
 
+## The umbrella server
+
+One server on `127.0.0.1:7878` serves every review in `~/.docdiff`, each under `/<name>/`, found by its
+`.run.json`. Its index, http://127.0.0.1:7878/, lists them, the last active first: each one's name,
+linked to its page, what it compares (the PR, or the repo with its revisions), its counts (to review,
+reviewed or accepted, comments, open questions) and when it was last active. `--serve` starts the server
+in the background, apart from the command, so it outlives the command and the session that ran it; its
+log is `~/.docdiff/server.log`. It answers on `127.0.0.1` and, for spec renders, on `localhost`, and to
+no other name for the address.
+
+The server runs docdiff's code as it is on disk: once `docdiff.py` or a plugin changes, the next request
+loads it again (code that does not load goes to the log, and the code before it goes on). Only a change
+to the server itself (`umbrella()`, `Umbrella`, `live()`) needs a restart:
+
+```bash
+python3 -I ~/.claude/skills/docdiff/docdiff.py --restart
+```
+
+`--stop` stops it, and `--port N` (with `--serve`, `--restart` or `--stop`) works with another server on
+port N instead, a test's say, which serves the same reviews.
+
+**Keeping it running.** `--install-agent` prints a LaunchAgent, `com.asurkov.docdiff`, which starts the
+server at login and again whenever it stops, its PATH set to find pandoc and git, its output in the same
+log. It is not installed until the user says so, as it changes their Mac for good; then:
+
+```bash
+python3 -I ~/.claude/skills/docdiff/docdiff.py --install-agent > ~/Library/LaunchAgents/com.asurkov.docdiff.plist
+python3 -I ~/.claude/skills/docdiff/docdiff.py --stop
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.asurkov.docdiff.plist
+```
+
+Under it, `--restart` has launchd restart the server, and `--stop` amounts to a restart, as launchd
+starts it again. To remove it: `launchctl bootout gui/$(id -u)/com.asurkov.docdiff`, then delete the
+plist. launchd starts the server with none of the shell's environment, so a `GITHUB_TOKEN` set there does
+not reach it.
+
+Servers from before the umbrella server, one per review on a port of its own, run their old code until
+stopped; a review's dir from one of them comes over with `--out` (or, in `~/.docdiff` already, with its
+name).
+
 ## Plugins
 
 Source-specific features are plugins: the Python modules in `plugins/` next to `docdiff.py`, each loaded
@@ -274,6 +321,10 @@ below; `load_plugins()` in `docdiff.py` has their exact shapes. `run` is the run
 
 - `add_args(parser)`: its command-line arguments, kept in `.run.json` with the rest, so the server's
   rebuilds see them.
+- `name(run)`: the review's name when neither `--name` nor `--out` gives one: `github_pr.py`'s is the
+  repo's name and the PR's number.
+- `counts(run)`: words for the review's line in the index of reviews: `review.py`'s count its comments
+  and open questions (or revisits).
 - `PATHS` and `doc(…)`: the files it makes docs of beside `*.md`, and the doc a changed one stands for
   (a spec's `index.html` for a section file).
 - `htmls(…)`: its docs rendered, both sides, or while they are not, what the file's section shows instead.
@@ -296,9 +347,13 @@ below; `load_plugins()` in `docdiff.py` has their exact shapes. `run` is the run
   `github_pr.py`'s reads the PR's on GitHub, `gdoc_comments.py`'s the Google Docs' from the export.
 - `STYLE`, `SCRIPT`: CSS and JavaScript for the page, after docdiff's own. An element of class `panel`
   holds off the reload after a rebuild while it shows, and clicks in it leave the doc alone; so do clicks
-  in an element of class `ui` (a card or side panel), which does not hold off the reload.
-- `get(run, path, query)`, `post(out, path, req)`: the server's routes; the page rebuilds after a post,
-  unless the path is in the plugin's `IN_PLACE`.
+  in an element of class `ui` (a card or side panel), which does not hold off the reload. Every review's
+  page shares the server's origin: the script names what it fetches relative to the page (`fetch('review')`,
+  never `/review`), and its sessionStorage and localStorage keys through `sk(key)`, which makes them the
+  review's own.
+- `get(run, path, query)`, `post(out, path, req)`: the server's routes, path within the review
+  (`/review`, not `/<name>/review`); the page rebuilds after a post, unless the path is in the plugin's
+  `IN_PLACE`.
 
 ### GitHub PR
 
@@ -323,7 +378,9 @@ comments.
 ### Review comments
 
 `plugins/review.py`. Both popups, a change's and a selection's, get **💬** (`c`): a comment on that change
-or that text, typed in a panel like the revisit one (↵ saves, ⇧↵ adds a line). It is kept in
+or that text, typed in a panel like the revisit one: what it is on (section and quote, muted), the text,
+then **Delete** apart and in red (an existing comment only), **Cancel** (Esc) and **Save** (↵; ⇧↵ adds a
+line). It is kept in
 `<out>/review.json` with its file, view, change key (none on a selection), quote (its text as it reads),
 the text of its block around it, section, body and time; with `--pr`, also `github`: its file and line in
 the PR, found as its change's GitHub ↗ button finds them, and found again when the run's head moves.
@@ -337,7 +394,7 @@ the mark sits on its section's heading. A quote that does not read as it is is m
 ignored, as a selection across paragraphs keeps no space between them. In To review, a mark on text already accepted (on a change in
 Accepted, on none in To review) is muted, still a click from its comment; marks never count as changes or
 take n/p. A mark on removed words sits after them, so settled Reviewed shows it. Clicking the mark edits
-or deletes it. The header's **💬 N** opens the Review panel: the comments and revisits in the order they
+or deletes it, unless it was posted ([GitHub PR](#github-pr)). The header's **💬 N** opens the Review panel: the comments and revisits in the order they
 come in the doc, each a click from its place, comments with edit, copy and delete. Copy puts one comment
 on the clipboard as Markdown: its `path:line` (linked to the line on GitHub; without `--pr`, the file and
 section), the quote and the comment, to paste into GitHub. **Copy all as Markdown**, shown while you have
@@ -382,9 +439,9 @@ header says "drafts handled" and urges Resolve, where the card has no change to 
 the draft's hash, `proposals: {"<time>#<hash>": {state: used | dismissed, comment}}`; deleting the comment
 frees the draft again. `revisit.jsonl` and `answers.jsonl` are only ever appended to.
 
-The page asks the server every 2 seconds, so a request or an answer shows without a reload. A server
-started before `review.py` existed has no route for any of this (💬 N greys out): stop it and rerun
-docdiff.
+The page asks the server every 2 seconds, so a request or an answer shows without a reload. A
+per-review server started before `review.py` existed has no route for any of this (💬 N greys out): stop
+it and rerun docdiff with `--serve`.
 
 **Comments made elsewhere**, on GitHub or in the Google Docs, are counted on each doc's bar: "💬 N
 comments" opens the Review panel on that doc's entries alone ("Only <file> · show all" shows every doc's
@@ -432,14 +489,21 @@ text. Each thread (a comment and its replies) is a neutral speech-bubble mark wi
 ✎ and 💬, in every view where its text reads, or else its block, as a 💬 is; clicking it opens it read only: author, time, the body as
 Markdown (rendered as answers are), the replies, and Open on GitHub ↗. Outdated comments, ones that
 could not be placed, the PR's own comments and review bodies are listed in the Review panel under
-On GitHub. A 💬 of yours whose text a GitHub comment has (spacing aside, or one holding the other) shows
-as posted, linked to it.
+On GitHub.
+
+**Posted.** A 💬 of yours whose text a GitHub comment has (spacing aside, or one holding the other) was
+posted: GitHub holds the real copy. Its mark has GitHub's glyph (a ✓ on a mark only ever means reviewed)
+and, when the thread there has replies, their count (`1↩`). Clicking it, or the amber ✓ 💬 chip of its
+reviewed change, opens it as GitHub's threads open, read only: "Your comment · posted 7 days ago · 1
+reply", the text it is on, GitHub's copy of it, the replies, ✎ Draft a reply and Open on GitHub ↗; its
+Review panel entry is the same. Under them, **Local copy: edit · delete** act on the copy kept here alone:
+GitHub's stays as it is, and a copy edited past matching is no longer posted.
 
 **Yours** (your login known): a thread you wrote in, first or as a reply, is your comment on its change,
 as a 💬 is: accept there reads ✓ reviewed, the change counts in "with comments", and in settled Reviewed
 its wording has the dotted amber underline. Its mark is amber, still read only with Open on GitHub ↗, and
-the Review panel names you "(you)". A 💬 is posted only by a comment of yours, and that comment then shows
-as the 💬 alone: a thread of nothing else has no mark, one with replies counts the replies.
+the Review panel names you "(you)". A 💬 is posted only by a comment of yours, and the thread holding that
+comment then shows as the 💬 alone, with no mark of its own.
 
 **Pushing, later** (not built). `review.json` as a pending review through `gh api`
 (`POST /repos/<owner>/<repo>/pulls/<N>/reviews` with `commit_id` the head and `comments: [{path, line,

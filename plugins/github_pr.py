@@ -41,6 +41,13 @@ def add_args(p):
                                 "(default: GITHUB_TOKEN's user, if set)")
 
 
+def name(run):
+    """The review's name: the repo's and the PR's number, as webmonetization-780."""
+    if not run.get('pr'):
+        return None
+    return f"{pathlib.Path(run['repo']).name}-{pr_of(run['repo'], run['pr'])[1]}"
+
+
 def title(run):
     if not run.get('pr'):
         return None
