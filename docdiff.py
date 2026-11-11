@@ -64,6 +64,12 @@ SHORT = 6
 FOLD = 200
 TAG = re.compile(r'<(/?)([a-zA-Z][\w-]*)[^>]*?(/?)>')
 VOID = {'area', 'br', 'col', 'hr', 'img', 'input', 'wbr'}
+# Elements that sit in a line of text: bare text between blocks, with these in it, is a block of its own.
+INLINE = {'a', 'abbr', 'b', 'bdi', 'bdo', 'br', 'cite', 'code', 'data', 'del', 'dfn', 'em', 'i', 'img', 'ins', 'kbd',
+          'mark', 'q', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u', 'var', 'wbr'}
+COMMENT = re.compile(r'<!--.*?-->', re.S)
+# A ReSpec algorithm's wrapper, which the diff sees through: its steps are items of its list.
+ALGORITHM = re.compile(r'<div\s(?:[^>]*?\s)?class="(?:[^"]*\s)?algorithm[\s"]')
 
 
 def git(repo, *args, check=True):
@@ -250,13 +256,36 @@ class ListTag(str):
 
 
 def split_blocks(page):
-    """pandoc HTML as its top-level blocks, each list item a block of its own: [(list tag or '', html)]."""
-    out, depth, start, lst, n = [], 0, None, '', 1
+    """pandoc HTML as its top-level blocks, each list item a block of its own, and so is bare text between
+    blocks, with its inline elements: [(list tag or '', html)]. A ReSpec algorithm (ALGORITHM) is seen through
+    and left out, as the render leaves out sections: its steps are items of a list, and text that opens it
+    outside a paragraph is bare text. So the pages apply() puts back together have no such wrappers."""
+    out, depth, start, lst, n, bare, gap, algorithms = [], 0, None, '', 1, None, 0, 0
+
+    def end_bare(at):
+        nonlocal bare
+        if bare is not None and COMMENT.sub('', page[bare:at]).strip():
+            out.append(('', page[bare:at]))
+        bare = None
     for m in TAG.finditer(page):
         closing, name = m.group(1), m.group(2).lower()
         top = 1 if lst else 0
+        # Between top-level blocks, text or an inline element starts bare text, and anything else ends it.
+        loose = depth == 0 and start is None and not lst
+        inline = name in INLINE and not closing
+        if loose and bare is None and (inline or COMMENT.sub('', page[gap:m.start()]).strip()):
+            bare = gap
+        gap = m.end()
+        if loose and not inline:
+            end_bare(m.start())
+            if closing and name == 'div' and algorithms:
+                algorithms -= 1
+                continue
+            if ALGORITHM.match(m.group(0)):
+                algorithms += 1
+                continue
         if name in VOID or m.group(3):
-            if depth == top and start is None:
+            if depth == top and start is None and bare is None:
                 out.append((lst, m.group(0)))
             continue
         if not closing:
@@ -264,7 +293,7 @@ def split_blocks(page):
                 lst = m.group(0)
                 first = re.search(r'\sstart="?(-?\d+)', lst)
                 n = int(first.group(1)) if first else 1
-            elif depth == top and start is None:
+            elif depth == top and start is None and bare is None:
                 start = m.start()
             depth += 1
             continue
@@ -275,6 +304,9 @@ def split_blocks(page):
             start = None
         elif depth == 0 and lst:
             lst = ''
+    if depth == 0 and start is None and not lst and bare is None and COMMENT.sub('', page[gap:]).strip():
+        bare = gap
+    end_bare(len(page))
     return out
 
 
@@ -374,6 +406,8 @@ def block_diff(old, new, gid):
     a, b = split_blocks(old), split_blocks(new)
     norm = lambda h: re.sub(r'\s+', ' ', h).strip()
     sm = difflib.SequenceMatcher(None, [norm(h) for _, h in a], [norm(h) for _, h in b], autojunk=False)
+    # Bare text (see split_blocks()) shows in a paragraph, where the page finds it as a block.
+    para = lambda h, body: body if re.match(r'<(?!(?:%s)\b)\w' % '|'.join(INLINE), h) else f'<p>{body}</p>'
     items, pieces, n = [], [], 0
     run, sides = [], []
 
@@ -397,7 +431,7 @@ def block_diff(old, new, gid):
 
     for op, i1, i2, j1, j2 in sm.get_opcodes():
         if op == 'equal':
-            items += b[j1:j2]
+            items += [(lst, para(h, h)) for lst, h in b[j1:j2]]
             pieces += [(x[0], y[0], [(None, x[1], y[1])]) for x, y in zip(a[i1:i2], b[j1:j2])]
             continue
         for i, j in pair([h for _, h in a[i1:i2]], [h for _, h in b[j1:j2]]):
@@ -407,7 +441,7 @@ def block_diff(old, new, gid):
             if o and w and similarity(o[1], w[1]) >= REWRITE:
                 flush()
                 body, k, parts = diff(o[1], w[1], f'{gid}-b{len(items)}')
-                items.append((lst, body))
+                items.append((lst, para(w[1], body)))
                 pieces.append((o[0], w[0], parts))
                 n += k
             else:
@@ -420,20 +454,21 @@ def block_diff(old, new, gid):
     return wrap_lists(items), n, pieces
 
 
-def wrap_lists(items, renumber=True):
+def wrap_lists(items, shown=True):
     """Blocks [(list tag or '', html)] back into one page: consecutive items of one list go back into it.
-    With renumber, an ordered list opened again around a change starts at its first item's number."""
+    Shown (on the page, not compared), an ordered list opened again around a change starts at its first
+    item's number, and a line parts two blocks, so that text read across them has a space between."""
     out, open_ = [], ''
     for lst, h in items:
         if not h:
             continue
         if lst != open_:
             out += [f'</{open_[1:3]}>'] if open_ else []
-            out += [numbered(lst) if renumber else lst] if lst else []
+            out += [numbered(lst) if shown else lst] if lst else []
             open_ = lst
         out.append(h)
     out += [f'</{open_[1:3]}>'] if open_ else []
-    return ''.join(out)
+    return ('\n' if shown else '').join(out)
 
 
 def numbered(lst):
@@ -461,7 +496,7 @@ def apply(pieces, side, flip):
             text.append(t)
         keyed = [k for k, _, _ in parts if k]
         items.append((lst_new if new(keyed[0] if keyed else None) else lst_old, ''.join(text)))
-    return wrap_lists(items, renumber=False)
+    return wrap_lists(items, shown=False)
 
 
 def news(last, new_html, k, diffed):
