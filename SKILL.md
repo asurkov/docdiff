@@ -565,15 +565,16 @@ or **↺ Reopen** on a resolved one, which resolve or reopen it on GitHub (`reso
 `unresolveReviewThread`), on that click alone, and show what GitHub answers. A thread resolved there,
 whoever resolved it ("resolved by MichaelKohler"), goes as a resolved question does: its mark folds to the
 faint dot, and the Review panel lists it under Resolved, not Open, nor under On GitHub; the doc bar's
-count leaves it out. Without a token its state is not known, and ✓ Resolve is off. Nothing resolves
-here alone: the state is always GitHub's.
+count leaves it out. Without a token there is no ✓ Resolve, and a thread's state is not known; with one,
+✓ Resolve is off until the threads have been read. Nothing resolves here alone: the state is always
+GitHub's.
 
 **Posted.** A 💬 of yours whose text a GitHub comment has (spacing aside, or one holding the other) was
 posted: GitHub holds the real copy. Its 💬 has GitHub's glyph (a ✓ on a mark only ever means reviewed)
 and, when the thread there has replies, their count (`1↩`). Its part of the card shows it as GitHub's
 threads show, read only: "Your comment · posted 7 days ago · 1
-reply", the text it is on, GitHub's copy of it, the replies, ✎ Draft a reply, ✓ Resolve and Open on
-GitHub ↗; its Review panel entry is the same, with no copy, which is for pasting a comment not posted yet. Under them, **Local copy: edit · delete** act on the copy kept here alone:
+reply", the text it is on, GitHub's copy of it, the replies, ✎ Draft a reply, ✓ Resolve (with a token)
+and Open on GitHub ↗; its Review panel entry is the same, with no copy, which is for pasting a comment not posted yet. Under them, **Local copy: edit · delete** act on the copy kept here alone:
 GitHub's stays as it is, and a copy edited past matching is no longer posted.
 
 **Yours** (your login known): a thread you wrote in, first or as a reply, is your comment on its change,
@@ -582,7 +583,8 @@ its wording has the dotted amber underline. Its 💬 is amber, still read only w
 the Review panel names you "(you)". A 💬 is posted only by a comment of yours, and the thread holding that
 comment then shows as that 💬 alone, not counted twice.
 
-**Pushing** (`push()` in `github_pr.py`). While some of your 💬 are not on GitHub, the Review panel has
+**Pushing** (`push()` in `github_pr.py`). Without `GITHUB_TOKEN` the page only reads GitHub: comments go
+there by hand, through Copy all as Markdown. With one, while some of your 💬 are not on GitHub, the Review panel has
 **⇪ Push N as a pending review** (N the ones new or edited since pushed; with none, **⇪ Pending
 review**). It sends them, in the doc's order, to the PR as your **pending review**, which GitHub shows to
 you alone until you submit it there: submitting stays your click on GitHub. Its panel first reads your
@@ -601,8 +603,8 @@ body, url, time}`, so pushing again updates instead of duplicating. Left out: a 
 text of (posted); one edited on GitHub since it was pushed, or the review's text edited there (left as
 they read there); one in a review you submitted (edit it there); and new ones while your pending review
 is on another commit than the page's head (submit or discard it first). Deleting a comment here leaves it
-in the pending review. Your pending review and its comments never count as posted. A push needs
-`GITHUB_TOKEN` in the server's environment, a token that may write the PR's comments (classic
+in the pending review. Your pending review and its comments never count as posted. The token is the
+server's `GITHUB_TOKEN`, one that may write the PR's comments (classic
 `public_repo`, or fine-grained Pull requests: read and write); the launchd server has none unless its
 plist gives it one ([The umbrella server](#the-umbrella-server)).
 

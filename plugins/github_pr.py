@@ -164,8 +164,8 @@ def pr_of(repo, pr):
 def remarks(run, out, refresh=None):
     """For other plugins (review.py): the PR's comments on GitHub, read only, {fetched, checked, error, me,
     comments, source, open, refresh, posting, push, resolve} (the last six: GitHub's name, its link's words,
-    that ↻ can ask GitHub again, that your 💬 may be posted there, that push() sends them, and that
-    resolve() resolves threads), me the user's login (--me, or GITHUB_TOKEN's user): its line comments, each placed on the diff where it can be (see place_lines()), its own
+    that ↻ can ask GitHub again, that your 💬 may be posted there, and that push() sends them and resolve()
+    resolves threads: only with GITHUB_TOKEN, so without one the page reads GitHub and writes nothing), me the user's login (--me, or GITHUB_TOKEN's user): its line comments, each placed on the diff where it can be (see place_lines()), its own
     comments and its reviews' bodies. A thread's first comment has its thread, {thread (its id), resolved,
     resolved_by}, where GitHub said, which takes a token. Kept in <out>/github.json, which refresh 'auto' (a page load) asks
     GitHub to bring up to date when it is older than FRESH, and 'now' (a button) always; each page is
@@ -193,13 +193,14 @@ def remarks(run, out, refresh=None):
         if json.dumps(cache, sort_keys=True) != was:
             f.with_suffix('.tmp').write_text(json.dumps(cache, ensure_ascii=False))
             f.with_suffix('.tmp').replace(f)
+    writes = bool(os.environ.get('GITHUB_TOKEN'))
     # Threads, resolved or not, are kept apart from the comments, so a resolve places nothing again.
     threads = {t['root']: t for t in cache.get('threads') or []}
     cs = [{**c, 'thread': t['id'], 'resolved': t['resolved'], 'resolved_by': t['by']} if c['kind'] == 'line' and (t := threads.get(c['id']))
           else c for c in cache.get('comments', [])]
     return {k: cache.get(k) for k in ('fetched', 'checked', 'error')} | {'me': run.get('me') or cache.get('me'), 'comments': cs,
                                                                          'source': SOURCE, 'open': 'Open on GitHub ↗', 'refresh': True,
-                                                                         'posting': True, 'push': True, 'resolve': True}
+                                                                         'posting': True, 'push': writes, 'resolve': writes}
 
 
 def whoami():
