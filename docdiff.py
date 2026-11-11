@@ -366,6 +366,16 @@ def pair(olds, news):
     return out + gone + [(k, None) for k in range(i, n)] + added + [(None, k) for k in range(j, m)]
 
 
+def box_of(kinds):
+    """The box of whole_blocks() each block of a run goes in, by the blocks' kinds ('del', 'add' or 'rw'):
+    consecutive removed blocks share one, and so do consecutive added ones."""
+    out, n = [], -1
+    for i, kind in enumerate(kinds):
+        n += not (i and kind in ('del', 'add') and kinds[i - 1] == kind)
+        out.append(n)
+    return out
+
+
 def whole_blocks(run, gid):
     """A run of added, removed or rewritten blocks [(list tag, kind, old, new)] as one change under one
     key. Old text sits under a one-line summary, open when it is short. Consecutive removed blocks share
@@ -373,8 +383,8 @@ def whole_blocks(run, gid):
     key = hashlib.sha1('|'.join(f'{k}|{text(o)}|{text(w)}' for _, k, o, w in run).encode()).hexdigest()[:12]
     inner = lambda b: re.sub(r'^<li\b[^>]*>|</li>$', '', b)
     merged = []
-    for lst, kind, old, new in run:
-        if kind in ('del', 'add') and merged and merged[-1][1] == kind:
+    for (lst, kind, old, new), box in zip(run, box_of([kind for _, kind, _, _ in run])):
+        if box < len(merged):
             merged[-1][2 if kind == 'del' else 3].append((lst, old or new))
         else:
             merged.append((lst, kind, [(lst, old)] if old else [], [(lst, new)] if new else []))
@@ -502,15 +512,28 @@ def apply(pieces, side, flip):
 
 def news(last, new_html, k, diffed):
     """What changed since the last review (last, rendered): each change of base to head it touches, with the
-    changes of last to now that touch it, {key: [since keys]}; and the blocks of last to now that changed,
-    for the page to show what changed in a change since its last review."""
+    changes of last to now that touch it, {key: [since keys]}; of such a change in several boxes of whole
+    blocks (whole_blocks()), the boxes they touch, where not all of them, {key: [box]}; and the blocks of
+    last to now that changed, for the page to show what changed in a change since its last review."""
     since = block_diff(last, new_html, f's{k}')
-    hit, fresh = [(c, s, e) for c, _, _, s, e in places(since) if c], {}
-    for c, ss in by_key(places(diffed)).items():
+    hit, fresh, touched, spans = [(c, s, e) for c, _, _, s, e in places(since) if c], {}, {}, by_key(places(diffed))
+    for c, ss in spans.items():
         got = list(dict.fromkeys(h for h, s, e in hit if meets(ss, [(s, e)])))
         if got:
             fresh[c] = got
-    return fresh, wrap_lists([b for b in split_blocks(since[0]) if 'data-k="' in b[1]])
+    # A change of whole blocks has one part per block, in its run's order; a key the page shows in another
+    # number of boxes (two runs alike) keeps its edge on all of them. A box takes what shares text with it
+    # (overlaps()): blocks added next to a removed one leave it alone.
+    page, _, pieces = diffed
+    shown = re.findall(r'class="chg blk"[^>]*data-k="(\w+)"', page)
+    for c, got in fresh.items():
+        box = box_of(['rw' if o and w else 'del' if o else 'add' for _, _, parts in pieces for g, o, w in parts if g == c])
+        if not 1 < shown.count(c) == len(set(box)):
+            continue
+        on = sorted({b for b, s in zip(box, spans[c]) if overlaps([s], [(x, y) for h, x, y in hit if h in got])})
+        if len(on) < len(set(box)):
+            touched[c] = on
+    return fresh, touched, wrap_lists([b for b in split_blocks(since[0]) if 'data-k="' in b[1]])
 
 
 def states(diffed, reviewing, reviewed):
@@ -699,11 +722,12 @@ for(const e of document.querySelectorAll('.v-diff .chg')){let x=byG.get(e.datase
 x={k:e.dataset.k,file:s.dataset.file,sec:s,view:'diff',done:!!dones.get(s)?.has(e.dataset.k),els:[]};byG.set(e.dataset.g,x);groups.push(x);}
 x.els.push(e);if(x.done)e.classList.add('done');}
 // What changed since the last review (see news()): per doc, the changes it touched, each with the changes
-// of last review to now in it (x.since). Each is new: a blue edge on it, or on the block it is in.
+// of last review to now in it (x.since). Each is new: a blue edge on it, or on the block it is in; of a change
+// in several boxes, on the boxes those touched (on).
 const rounds=new Map([...document.querySelectorAll('script.round')].map(j=>[j.closest('section'),JSON.parse(j.textContent)]));
 const blocks='p,li,dt,dd,td,th,h1,h2,h3,h4,h5,h6,pre,blockquote,figcaption';
-for(const x of groups){x.since=rounds.get(x.sec)?.fresh[x.k]||null;
-if(x.since)x.els.forEach(e=>{e.classList.add('fresh');if(!e.classList.contains('blk'))e.closest(blocks)?.classList.add('fresh-b');});}
+for(const x of groups){const r=rounds.get(x.sec),on=r?.boxes?.[x.k];x.since=r?.fresh[x.k]||null;
+if(x.since)x.els.forEach((e,i)=>{if(on&&!on.includes(i))return;e.classList.add('fresh');if(!e.classList.contains('blk'))e.closest(blocks)?.classList.add('fresh-b');});}
 // The filter: which changes n and p step through and the status counts, all of them, the ones to review or
 // the reviewed ones; ● new (onlyNew), pressed, narrows it to the ones in it new since the last review. It
 // hides nothing. Each filter's count has its new ones beside it, and ● new counts the ones in the filter on.
@@ -1160,7 +1184,7 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
         done = sorted(c for c, (t, _) in stand.items() if not t)
         todo, accepted = len(stand) - len(done), len(done)
         acts = plugin_actions(actors, old, new, pieces)
-        fresh, since = news(last, new_html, k, diffed) if last is not None else ({}, '')
+        fresh, boxes, since = news(last, new_html, k, diffed) if last is not None else ({}, {}, '')
         counts[0] += todo
         counts[1] += accepted
         state = 'new file' if not old else 'deleted' if not new else f'renamed from {old}' if old != new else ''
@@ -1187,7 +1211,7 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
         # What changed since the last review, for its blue edges and the changes' own diffs since then.
         if fresh:
             data += ('<script type="application/json" class="round">' + json.dumps(
-                {'last': version_name(rnd['last']), 'time': rnd['last']['time'], 'fresh': fresh}).replace('</', '<\\/') +
+                {'last': version_name(rnd['last']), 'time': rnd['last']['time'], 'fresh': fresh, 'boxes': boxes}).replace('</', '<\\/') +
                 '</script>' + f'<template class="since">{since}</template>')
         sections.append(f'<section id="{sid}" data-file="{label}">{data}<div class="file">{label}'
                         f'{f" <span class=state>· {html.escape(state)}</span>" if state else ""}'

@@ -181,7 +181,9 @@ review.
 
 **New since last review.** Each round also keeps **last**, the version last reviewed. A change that changed
 since then is new: a blue edge on it (its block's bar, or a bar beside the paragraph or item that holds an
-inline change), reviewed again or not. Each filter's count has its new ones beside it in blue ("To review
+inline change), reviewed again or not. A change in several boxes (removed blocks, then the added ones) gets
+it only on the boxes the update shares text with: a TODO removed before last, next to steps the author
+rewrote since, keeps its red bar. Each filter's count has its new ones beside it in blue ("To review
 9 ●6", "Reviewed 45 ●3"), and **● 6 new since 04041c3** counts the ones in the filter on: pressed, it has
 `n`/`p` step through those alone ("2 of 6 new to review"), and it stays pressed across filters (All: every
 new change). A new change's popup has **Δ since 04041c3** (`s`): a
