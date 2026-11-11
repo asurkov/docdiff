@@ -270,30 +270,56 @@ def text(block):
     return ' '.join(words(TOKEN.findall(block))) if block else ''
 
 
+def plain_words(block):
+    """A block's words, lowercased, punctuation left out."""
+    return [w.lower() for w in text(block).split() if re.match(r'\w', w)]
+
+
 def similarity(a, b):
     """Share of words two blocks have in common, punctuation left out. A block of a few words, a
     heading say, has to keep most of them to count as similar at all."""
-    wa, wb = ([w.lower() for w in text(x).split() if re.match(r'\w', w)] for x in (a, b))
-    r = difflib.SequenceMatcher(None, wa, wb, autojunk=False).ratio()
-    return r if min(len(wa), len(wb)) >= SHORT or r >= REWRITE else 0
+    return likeness(plain_words(a), plain_words(b))
+
+
+def likeness(wa, wb):
+    """similarity() of two blocks' plain_words(); 0 for any share at or below PAIR."""
+    if wa == wb:
+        return 1.0 if wa else 0
+    sm = difflib.SequenceMatcher(None, wa, wb, autojunk=False)
+    # The quick bounds first: most blocks of a long replaced run are nothing alike.
+    if sm.real_quick_ratio() <= PAIR or sm.quick_ratio() <= PAIR:
+        return 0
+    r = sm.ratio()
+    return r if r > PAIR and (min(len(wa), len(wb)) >= SHORT or r >= REWRITE) else 0
 
 
 def pair(olds, news):
     """Match the blocks of a replaced run, keeping their order: [(old index or None, new index or None)].
-    Between two matches, the removed blocks come before the added ones, as the old text came first."""
-    out, i, added = [], 0, []
-    for j, new in enumerate(news):
-        best, at = PAIR, None
-        for k in range(i, len(olds)):
-            r = similarity(olds[k], new)
-            if r > best:
-                best, at = r, k
-        if at is None:
+    Of all the ways to, the one whose matches are the most alike in all, each counting by how far it is
+    above PAIR: so a block keeps its own match rather than give it up for a weak one further on, and an
+    item inserted in a list leaves the items after it matched with themselves. Between two matches, the
+    removed blocks come before the added ones, as the old text came first."""
+    wo, wn, n, m = [plain_words(b) for b in olds], [plain_words(b) for b in news], len(olds), len(news)
+    # most[i][j]: the most that olds[i:] and news[j:] match for.
+    gain, most = {}, [[0.0] * (m + 1) for _ in range(n + 1)]
+    for i in range(n - 1, -1, -1):
+        for j in range(m - 1, -1, -1):
+            r = likeness(wo[i], wn[j])
+            if r:
+                gain[i, j] = r - PAIR
+            most[i][j] = max(most[i + 1][j], most[i][j + 1], most[i + 1][j + 1] + gain[i, j] if r else 0)
+    out, gone, added, i, j = [], [], [], 0, 0
+    while i < n and j < m:
+        if (i, j) in gain and most[i][j] == most[i + 1][j + 1] + gain[i, j]:
+            out += gone + added + [(i, j)]
+            gone, added, i, j = [], [], i + 1, j + 1
+        elif most[i][j] == most[i + 1][j]:
+            gone.append((i, None))
+            i += 1
+        else:
             added.append((None, j))
-            continue
-        out += [(k, None) for k in range(i, at)] + added + [(at, j)]
-        i, added = at + 1, []
-    return out + [(k, None) for k in range(i, len(olds))] + added
+            j += 1
+    return out + gone + [(k, None) for k in range(i, n)] + added + [(None, k) for k in range(j, m)]
 
 
 def whole_blocks(run, gid):
