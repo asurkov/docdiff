@@ -565,9 +565,10 @@ or **↺ Reopen** on a resolved one, which resolve or reopen it on GitHub (`reso
 `unresolveReviewThread`), on that click alone, and show what GitHub answers. A thread resolved there,
 whoever resolved it ("resolved by MichaelKohler"), goes as a resolved question does: its mark folds to the
 faint dot, and the Review panel lists it under Resolved, not Open, nor under On GitHub; the doc bar's
-count leaves it out. Without a token there is no ✓ Resolve, and a thread's state is not known; with one,
-✓ Resolve is off until the threads have been read. Nothing resolves here alone: the state is always
-GitHub's.
+count leaves it out. Its only action is ↺ Reopen: ✎ Draft a reply comes back once it is reopened.
+Without a token a thread's state is not known and there is no ✓ Resolve; with one, ✓ Resolve shows once
+the threads have been read, never greyed out, which would read as resolved. Nothing resolves here
+alone: the state is always GitHub's.
 
 **Posted.** A 💬 of yours whose text a GitHub comment has (spacing aside, or one holding the other) was
 posted: GitHub holds the real copy. Its 💬 has GitHub's glyph (a ✓ on a mark only ever means reviewed)

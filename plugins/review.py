@@ -348,12 +348,12 @@ d.append(...(own&&c===own.gh&&!c.reply_to?[]:[mk('div',{className:'rvm',textCont
 const postedAs=(own,t)=>'💬 Your comment · posted '+ago(new Date(own.gh.time))+(t.shown?' · '+t.shown+(t.shown>1?' replies':' reply'):'')+(t.done?' · '+ghSettled(t):'');
 const ghSettled=t=>'resolved'+(t.by?' by '+t.by:'');
 // ✓ Resolve or ↺ Reopen a thread on its source (GitHub), as its own Resolve conversation does, on this click
-// alone; its state here is what the source answers. Not known until the server has read it, with a token,
-// so till then the button is off.
-function ghSettle(t){if(!t.settles)return[];const known=!!t.root.thread,b=act(t.done?'↺ Reopen':'✓ Resolve',known?(t.done?'Reopen this thread on ':'Resolve this thread on ')+t.src.source+(t.by?' (resolved by '+t.by+')':''):
-'Whether it is resolved on '+t.src.source+' is not known yet: the docdiff server reads and sets that with a GITHUB_TOKEN, if it has one, on ↻ '+t.src.source,async()=>{b.disabled=true;b.textContent=t.done?'reopening…':'resolving…';
+// alone; its state here is what the source answers. Until the server has read that (it takes a token) there
+// is no button: one greyed out would read as resolved.
+function ghSettle(t){if(!t.settles||!t.root.thread)return[];const b=act(t.done?'↺ Reopen':'✓ Resolve',(t.done?'Reopen this thread on ':'Resolve this thread on ')+t.src.source+(t.by?' (resolved by '+t.by+')':''),
+async()=>{b.disabled=true;b.textContent=t.done?'reopening…':'resolving…';
 try{const{refused,...st}=await post('review',{resolve_thread:t.root.thread,resolved:!t.done,source:t.src.source});take(st);if(refused)pos.textContent='not '+(t.done?'reopened':'resolved')+' on '+t.src.source+': '+refused;}
-catch(e){pos.textContent='not saved: '+e.message+' (is the docdiff server running?)';}});b.disabled=!known;return[b];}
+catch(e){pos.textContent='not saved: '+e.message+' (is the docdiff server running?)';}});return[b];}
 function local(own){const r=mk('div',{className:'rvpr rvloc'}),e=act('edit','Edit the copy kept here; GitHub keeps the posted one',()=>{card.hidden=true;openCm(own);}),
 x=act('delete','Delete the copy kept here; the comment stays on GitHub',()=>{if(x.textContent==='delete'){x.textContent='delete?';return;}card.hidden=true;save({id:own.id,delete:true});});
 e.classList.add('rvsec');x.classList.add('rvsec');r.append(mk('span',{className:'rvm',textContent:'Local copy:'}),e,x);return r;}
@@ -417,9 +417,9 @@ return()=>{if(a.isConnected){a.focus();a.setSelectionRange(s,e);}};}
 // header, the text it is on, GitHub's copy of it, the replies there, and its local copy last.
 function ghPart(it,h,bd){const own=items.find(i=>i.kind==='c'&&i.thread?.rid===it.rid);
 h.append(mk('span',{className:'rvm',textContent:own?postedAs(own,it):['On '+it.src.source,ghLabel(it.root),it.near&&'its text has changed: here at the closest match',
-it.members.length+' comment'+(it.members.length>1?'s':''),it.done&&ghSettled(it)].filter(Boolean).join(' · ')}),...(it.file?[reply(it)]:[]),...ghSettle(it),ghOpen(it));
+it.members.length+' comment'+(it.members.length>1?'s':''),it.done&&ghSettled(it)].filter(Boolean).join(' · ')}),...(it.file&&!it.done?[reply(it)]:[]),...ghSettle(it),ghOpen(it));
 bd.append(...(own?[mk('blockquote',{textContent:own.quote})]:[]),...ghBodies(it,own),...drafts(it),...(sentNote.has(it.rid)?[mk('div',{className:'rvm rvsaid',textContent:sentNote.get(it.rid)})]:[]),
-...(opened.has(it.rid)?[box(it.rid,{it})]:[]),...(own?[local(own)]:[]));}
+...(opened.has(it.rid)&&!it.done?[box(it.rid,{it})]:[]),...(own?[local(own)]:[]));}
 const drafts=it=>it.rts.length?[mk('div',{className:'rvm rvdh',textContent:'Drafted replies'}),...it.rts.flatMap(t=>asks(t))]:[];
 // When each source was last read, and why not since; ↻ asks that source again where it can be asked
 // (refresh). A source being read in the background (busy) says so until its new copy comes in.
@@ -550,8 +550,8 @@ b.classList.add('rvb-hit');if(it.kind==='g')gq(it);setTimeout(()=>{b.classList.r
 function row(it,files){const r=it.kind==='r',d=mk('div',{className:'rvi'+(it.unread&&!it.done?' rvi-new':'')}),h=mk('div',{className:'rvih'}),m=mk('span',{className:'rvm'}),bd=mk('div',{className:'rvib'}),w=where(it);
 d.dataset.id=r?'r'+it.time:it.kind==='g'?it.id:'c'+it.id;
 if(it.kind==='g'){m.append(['On '+it.src.source,files>1&&it.file,ghLabel(it.root),it.done&&ghSettled(it),it.rts.length&&(it.wait?'reply being drafted':it.unread?'new drafted reply':'drafted replies')].filter(Boolean).join(' · '));
-h.append(m,...(it.file?[reply(it)]:[]),...ghSettle(it),ghOpen(it));
-bd.append(...ghBodies(it),...drafts(it),...(opened.has(it.rid)&&!inCard(it)?[box(it.rid,{it})]:[]));d.append(h,bd);
+h.append(m,...(it.file&&!it.done?[reply(it)]:[]),...ghSettle(it),ghOpen(it));
+bd.append(...ghBodies(it),...drafts(it),...(opened.has(it.rid)&&!it.done&&!inCard(it)?[box(it.rid,{it})]:[]));d.append(h,bd);
 d.onclick=e=>{if(e.target.closest('a,button'))return;jump(it);for(const t of it.rts)if(t.unread)setThread(t,{seen:true});};return d;}
 const t=it.kind==='c'&&it.thread;m.append(t?postedAs(it,t):(r?'✎ ':'💬 ')+[files>1&&it.file,it.section,r&&state(it),pend(it)].filter(Boolean).join(' · ')+(Object.keys(it.at).length?'':' · not in the page now'));
 if(w)m.append(' · ',mk('a',{href:it.github.href,target:'_blank',rel:'noopener',textContent:w.split('/').pop()+' ↗'}));
@@ -559,7 +559,7 @@ if(it.quote)bd.append(mk('blockquote',{textContent:r?it.sent:it.quote}));
 if(r)h.append(m,...actions(it)),bd.append(...asks(it));else{const e=act('edit','',()=>openCm(it)),x=act('delete','',()=>x.textContent==='delete'?x.textContent='delete?':save({id:it.id,delete:true})),
 c=act('copy','Copy as Markdown: its file:line, the quoted text and the comment',async()=>{c.textContent=await copy(markdown([it]))?'copied':'copying failed';setTimeout(()=>c.textContent='copy',1500);});
 // Posted, it shows as its thread on GitHub does, with its local copy's edit and delete under it.
-if(t){h.append(m,...(t.file?[reply(t)]:[]),...ghSettle(t),ghOpen(t));bd.append(...ghBodies(t,it),...drafts(t),...(opened.has(t.rid)&&!inCard(t)?[box(t.rid,{it:t})]:[]));
+if(t){h.append(m,...(t.file&&!t.done?[reply(t)]:[]),...ghSettle(t),ghOpen(t));bd.append(...ghBodies(t,it),...drafts(t),...(opened.has(t.rid)&&!t.done&&!inCard(t)?[box(t.rid,{it:t})]:[]));
 d.append(h,bd,local(it));d.onclick=e=>{if(e.target.closest('a,button'))return;jump(it);for(const x of t.rts)if(x.unread)setThread(x,{seen:true});};return d;}
 h.append(m,e,c,x);bd.append(mk('div',{className:'rvt',textContent:it.body}));}
 d.append(h,bd);d.onclick=e=>{if(e.target.closest('a,button'))return;jump(it);if(it.unread)setThread(it,{seen:true});};return d;}
