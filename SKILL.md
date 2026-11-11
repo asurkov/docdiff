@@ -464,8 +464,9 @@ take n/p. A mark on removed words sits after them, so a settled change shows it.
 come in the doc, each a click from its place, comments with edit, copy and delete. Copy puts one comment
 on the clipboard as Markdown: its `path:line` (linked to the line on GitHub; without `--pr`, the file and
 section), the quote and the comment, to paste into GitHub. **Copy all as Markdown**, shown while you have
-comments, does that for all of them, and with `--pr` **⇪ Push** sends them to the PR as your pending
-review ([GitHub PR](#github-pr), Pushing). Saving a comment shows it in place, with no
+comments not posted yet, does that for all of those, leaving out the posted ones ([GitHub PR](#github-pr),
+Posted), which pasted again would be posted twice; with a token, **⇪ Push** sends them to the PR as your
+pending review (Pushing). Saving a comment shows it in place, with no
 rebuild; comments outlast rebuilds, accepts and server restarts.
 
 Revisits show the same way, one thread per 💬 (✎ in its card): the revisits of one change, or of one quote,

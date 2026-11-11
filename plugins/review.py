@@ -582,14 +582,16 @@ const f=mk('div',{className:'seg rvf'}),g=mk('details',{className:'rvg',open:!fo
 for(const[v,l]of[['open','Open'],['resolved','Resolved'],['all','All']]){const b=mk('button',{textContent:l});b.setAttribute('aria-pressed',v===filter);
 b.onclick=()=>{filter=v;keep();list();};f.append(b);}
 g.append(mk('summary',{textContent:'Resolved ('+done.length+')'}),...done.map(it=>row(it,files)));
-// Copying all of your 💬 comments is offered only while there are some; each one has its own copy too.
-const h=mk('div',{className:'rvh'}),cm=mk('button',{textContent:'Copy all as Markdown',title:'Your comments, each with its file:line and quote, to paste into GitHub'}),x=mk('button',{textContent:'×',title:'Close'});
-cm.onclick=async()=>{cm.textContent=await copy(markdown(its))?'copied '+nc:'copying failed';setTimeout(()=>cm.textContent='Copy all as Markdown',1500);};
+// Copying all of your 💬 comments not posted yet is offered only while there are some: a posted one is on
+// GitHub already, and pasted again would be posted twice. Each one has its own copy too.
+const unsent=its.filter(i=>i.kind==='c'&&!i.posted),h=mk('div',{className:'rvh'}),x=mk('button',{textContent:'×',title:'Close'}),
+cm=mk('button',{textContent:'Copy all as Markdown',title:'Your comments not posted yet, each with its file:line and quote, to paste into GitHub'});
+cm.onclick=async()=>{cm.textContent=await copy(markdown(unsent))?'copied '+unsent.length:'copying failed';setTimeout(()=>cm.textContent='Copy all as Markdown',1500);};
 // ⇪ Push, while some of your comments are not on GitHub, with how many are new or edited since pushed.
 const ups=unposted(),fresh=ups.filter(c=>c.pushed?.body!==c.body).length,pb=ups.length&&(data.remotes||[]).some(r=>r.push)&&
 mk('button',{textContent:fresh?'⇪ Push '+fresh+' as a pending review':'⇪ Pending review',title:'Your comments not on GitHub yet, as your pending review on the PR, which you submit there'});
 if(pb)pb.onclick=openPush;
-x.onclick=()=>toggle(false);h.append(mk('b',{textContent:'Review'}),mk('span',{className:'n',textContent:nc+' comment(s) · '+its.filter(i=>i.kind==='r'&&!i.done).length+' open · '+done.length+' resolved'}),...(nc?[cm]:[]),...(pb?[pb]:[]),x);
+x.onclick=()=>toggle(false);h.append(mk('b',{textContent:'Review'}),mk('span',{className:'n',textContent:nc+' comment(s) · '+its.filter(i=>i.kind==='r'&&!i.done).length+' open · '+done.length+' resolved'}),...(unsent.length?[cm]:[]),...(pb?[pb]:[]),x);
 if(only){const o=mk('button',{className:'rvonly',textContent:'Only '+only+' · show all',title:'Show the entries on every doc'});o.onclick=()=>{only=null;list();};h.append(o);}
 const bySource=new Map();for(const it of loose)bySource.set(it.src.source,[...(bySource.get(it.src.source)||[]),it]);
 const ghs=[...bySource].map(([n,l])=>{const gh=mk('details',{className:'rvg',open:!ghFolded});gh.ontoggle=()=>{ghFolded=!gh.open;if(gh.open)gh.querySelectorAll('.rvib').forEach(fold);};
