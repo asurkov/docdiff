@@ -380,8 +380,9 @@ def whole_blocks(run, gid):
             merged.append((lst, kind, [(lst, old)] if old else [], [(lst, new)] if new else []))
     out = []
     for lst, kind, olds, news in merged:
-        # Several blocks go in one box outside any list, so one bar marks them all.
-        lst = '' if len(olds) > 1 or len(news) > 1 else lst
+        # Several blocks go in one box outside any list, so one bar marks them all; so does an item removed
+        # from an ordered list, where it would take a number from the items after it.
+        lst = '' if len(olds) > 1 or len(news) > 1 or kind == 'del' and lst.startswith('<ol') else lst
         body = lambda bs: inner(bs[0][1]) if lst else wrap_lists(bs)
         was = ''
         if olds:
