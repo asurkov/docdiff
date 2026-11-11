@@ -59,7 +59,7 @@ STYLE = '''
 #rvp .rvmore,#rvp .rvmore:hover{border:0;background:none;color:var(--link);padding:0;height:auto;font-size:12px;cursor:pointer}
 .rvpr{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:2px 0 10px} .rvpr .rvx{margin:0} .rvpr .rvm{margin-right:2px}
 .rvgone{display:none} .rvstub{opacity:.65} .rvdup{opacity:.6} .rvrep>summary{font-size:12px;color:var(--muted);cursor:pointer} .rvrep[open]>blockquote{opacity:.7}
-.rvused{color:var(--insb)}
+.rvused{color:var(--insb)} #rvp .rvtwin,#rvc .rvtwin{color:var(--rw)}
 .rvok{display:inline-block;margin:0 3px;padding:0 5px;border-radius:9px;font:600 11px/15px -apple-system,BlinkMacSystemFont,sans-serif;vertical-align:2px;color:var(--insb);background:var(--ins);cursor:default;user-select:none;-webkit-user-select:none}
 .rvbox{margin:8px 0;padding:8px;border:1px solid var(--line);border-radius:6px;display:flex;flex-direction:column;gap:6px;background:var(--bg)}
 .rvbox textarea{width:100%;box-sizing:border-box;min-height:4.5em;font:inherit;padding:6px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--fg)}
@@ -516,7 +516,8 @@ else if(it.kind==='r'){h.append(mk('span',{className:'rvm',textContent:'✎ '+[i
 bd.append(mk('blockquote',{textContent:it.sent}),...asks(it));}
 else{const x=act('delete','Delete this comment',()=>{if(x.textContent==='delete'){x.textContent='delete?';return;}card.hidden=true;save({id:it.id,delete:true});}),
 c=act('copy','Copy as Markdown: its file:line, the quoted text and the comment',async()=>{c.textContent=await copy(markdown([it]))?'copied':'copying failed';setTimeout(()=>c.textContent='copy',1500);});
-h.append(mk('span',{className:'rvm',textContent:['💬 Your comment',it.section||it.file,pend(it)].filter(Boolean).join(' · ')}),act('edit','Edit this comment',()=>{card.hidden=true;openCm(it);}),c,x);
+const hm=mk('span',{className:'rvm',textContent:['💬 Your comment',it.section||it.file,pend(it)].filter(Boolean).join(' · ')});hm.append(...twinLink(it));
+h.append(hm,act('edit','Edit this comment',()=>{card.hidden=true;openCm(it);}),c,x);
 bd.append(...(it.quote?[mk('blockquote',{textContent:it.quote})]:[]),mk('div',{className:'rvt',textContent:it.body}));}
 d.append(h,bd);return d;}
 // Your comments come first, then threads from elsewhere, then questions, the resolved ones last; a posted
@@ -554,7 +555,7 @@ h.append(m,...(it.file&&!it.done?[reply(it)]:[]),...ghSettle(it),ghOpen(it));
 bd.append(...ghBodies(it),...drafts(it),...(opened.has(it.rid)&&!it.done&&!inCard(it)?[box(it.rid,{it})]:[]));d.append(h,bd);
 d.onclick=e=>{if(e.target.closest('a,button'))return;jump(it);for(const t of it.rts)if(t.unread)setThread(t,{seen:true});};return d;}
 const t=it.kind==='c'&&it.thread;m.append(t?postedAs(it,t):(r?'✎ ':'💬 ')+[files>1&&it.file,it.section,r&&state(it),pend(it)].filter(Boolean).join(' · ')+(Object.keys(it.at).length?'':' · not in the page now'));
-if(w)m.append(' · ',mk('a',{href:it.github.href,target:'_blank',rel:'noopener',textContent:w.split('/').pop()+' ↗'}));
+if(w)m.append(' · ',mk('a',{href:it.github.href,target:'_blank',rel:'noopener',textContent:w.split('/').pop()+' ↗'}));if(!r&&!t)m.append(...twinLink(it));
 if(it.quote)bd.append(mk('blockquote',{textContent:r?it.sent:it.quote}));
 if(r)h.append(m,...actions(it)),bd.append(...asks(it));else{const e=act('edit','',()=>openCm(it)),x=act('delete','',()=>x.textContent==='delete'?x.textContent='delete?':save({id:it.id,delete:true})),
 c=act('copy','Copy as Markdown: its file:line, the quoted text and the comment',async()=>{c.textContent=await copy(markdown([it]))?'copied':'copying failed';setTimeout(()=>c.textContent='copy',1500);});
@@ -583,10 +584,13 @@ for(const[v,l]of[['open','Open'],['resolved','Resolved'],['all','All']]){const b
 b.onclick=()=>{filter=v;keep();list();};f.append(b);}
 g.append(mk('summary',{textContent:'Resolved ('+done.length+')'}),...done.map(it=>row(it,files)));
 // Copying all of your 💬 comments not posted yet is offered only while there are some: a posted one is on
-// GitHub already, and pasted again would be posted twice. Each one has its own copy too.
-const unsent=its.filter(i=>i.kind==='c'&&!i.posted),h=mk('div',{className:'rvh'}),x=mk('button',{textContent:'×',title:'Close'}),
-cm=mk('button',{textContent:'Copy all as Markdown',title:'Your comments not posted yet, each with its file:line and quote, to paste into GitHub'});
-cm.onclick=async()=>{cm.textContent=await copy(markdown(unsent))?'copied '+unsent.length:'copying failed';setTimeout(()=>cm.textContent='Copy all as Markdown',1500);};
+// GitHub already, and pasted again would be posted twice; so is, in other words, one much like a comment of
+// yours there (twin()), which it leaves out too. Each one has its own copy too.
+const unsent=its.filter(i=>i.kind==='c'&&!i.posted&&!twin(i)),twins=its.filter(i=>i.kind==='c'&&!i.posted).length-unsent.length,
+h=mk('div',{className:'rvh'}),x=mk('button',{textContent:'×',title:'Close'}),cm=mk('button',{textContent:'Copy all as Markdown',
+title:'Your comments not posted yet, each with its file:line and quote, to paste into GitHub'+(twins?'; not the '+twins+' much like comments of yours there':'')});
+cm.onclick=async()=>{cm.textContent=await copy(markdown(unsent))?'copied '+unsent.length+(twins?' · left out '+twins+' already on GitHub in other words':''):'copying failed';
+setTimeout(()=>cm.textContent='Copy all as Markdown',twins?3000:1500);};
 // ⇪ Push, while some of your comments are not on GitHub, with how many are new or edited since pushed.
 const ups=unposted(),fresh=ups.filter(c=>c.pushed?.body!==c.body).length,pb=ups.length&&(data.remotes||[]).some(r=>r.push)&&
 mk('button',{textContent:fresh?'⇪ Push '+fresh+' as a pending review':'⇪ Pending review',title:'Your comments not on GitHub yet, as your pending review on the PR, which you submit there'});
@@ -617,10 +621,13 @@ pq=mk('button',{textContent:'Cancel'}),pg=mk('button',{className:'primary',textC
 pp.append(ph,pl,mk('span',{className:'hint n',textContent:'It stays pending: you submit it on GitHub'}),pq,pg);body.append(pp);
 const groupsOf=[['add','Add'],['update','Update, edited here since pushed'],['text','In the review text, as it has no line'],['same','In your pending review already'],['leave','Left out']];
 let pushing=null;
-// A comment to add that reads much like one of yours on GitHub (most of their words shared) is said to: a copy
-// reworded here after it was posted is no longer posted, and would go to GitHub again.
+// A comment of yours not posted that reads much like one of yours on GitHub (most of their words shared) is
+// most likely a copy reworded here after it was posted: no longer posted, it would go to GitHub again. Its row
+// and card headers say so, linking to the one there; Copy all leaves it out, and a push's list says so.
 const wordset=t=>new Set(norm(t).toLowerCase().match(/[\\p{L}\\p{N}]+/gu)||[]),like=(a,b)=>{const x=wordset(a),y=wordset(b);let n=0;for(const w of x)if(y.has(w))n++;return n/Math.max(1,x.size+y.size-n);};
-const twin=c=>(data.remotes||[]).flatMap(r=>r.push&&r.me?r.comments.filter(g=>g.author===r.me):[]).find(g=>like(g.body,c.body)>=.6);
+const twin=c=>(data.remotes||[]).flatMap(r=>r.posting&&r.me?r.comments.filter(g=>g.author===r.me):[]).find(g=>like(g.body,c.body)>=.6);
+const twinLink=it=>{const g=it.kind==='c'&&!it.posted&&twin(it);return g?[' · ',mk('a',{className:'rvtwin',href:g.url,target:'_blank',rel:'noopener',
+textContent:'on GitHub in other words ↗',title:'Much like your comment on GitHub: “'+short(g.body)+'”. Copy all leaves it out; open it there to edit it'})]:[];};
 function showPlan(got,sent){const by=new Map(data.comments.map(c=>[c.id,c])),sends=got.plan.filter(p=>['add','update','text'].includes(p.act));pl.replaceChildren();
 for(const[a,l]of groupsOf){const ps=got.plan.filter(p=>p.act===a&&by.has(p.id));if(!ps.length)continue;pl.append(mk('div',{className:'rvpg',textContent:l+' ('+ps.length+')'}));
 for(const p of ps){const c=by.get(p.id),r=mk('div',{className:'rvpi'}),miss=sent&&a!=='same'&&a!=='leave'&&!(p.id in got.pushed);

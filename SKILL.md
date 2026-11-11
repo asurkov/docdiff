@@ -473,7 +473,8 @@ come in the doc, each a click from its place, comments with edit, copy and delet
 on the clipboard as Markdown: its `path:line` (linked to the line on GitHub; without `--pr`, the file and
 section), the quote and the comment, to paste into GitHub. **Copy all as Markdown**, shown while you have
 comments not posted yet, does that for all of those, leaving out the posted ones ([GitHub PR](#github-pr),
-Posted), which pasted again would be posted twice; with a token, **⇪ Push** sends them to the PR as your
+Posted), which pasted again would be posted twice, and the ones that read much like a comment of yours
+there ("copied 2 · left out 2 already on GitHub in other words"); with a token, **⇪ Push** sends them to the PR as your
 pending review (Pushing). Saving a comment shows it in place, with no
 rebuild; comments outlast rebuilds, accepts and server restarts.
 
@@ -585,7 +586,9 @@ and, when the thread there has replies, their count (`1↩`). Its part of the ca
 threads show, read only: "Your comment · posted 7 days ago · 1
 reply", the text it is on, GitHub's copy of it, the replies, ✎ Draft a reply, ✓ Resolve (with a token)
 and Open on GitHub ↗; its Review panel entry is the same, with no copy, which is for pasting a comment not posted yet. Under them, **Local copy: edit · delete** act on the copy kept here alone:
-GitHub's stays as it is, and a copy edited past matching is no longer posted.
+GitHub's stays as it is, and a copy edited past matching is no longer posted. Such a copy, one that still
+shares most of its words (60%) with a comment of yours on GitHub, says **on GitHub in other words ↗** in
+its row and card, linking to that comment, where you edit it if the new wording matters.
 
 **Yours** (your login known): a thread you wrote in, first or as a reply, is your comment on its change,
 as a 💬 is: accept there reads ✓ reviewed, the change counts in "with comments", and once it is settled
