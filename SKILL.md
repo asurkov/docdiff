@@ -155,7 +155,8 @@ The server writes both into the review's dir, `<out>`:
   <the answer>
   EOF
   ```
-- `review.json` — the user's review comments, which revisits they resolved or read
+- `review.json` — the user's review comments, which revisits they resolved or read, which comments on
+  GitHub they read
   ([Review comments](#review-comments)), and what was pushed to the PR ([GitHub PR](#github-pr), Pushing). When the user says they left comments, read them there.
 
 **Watching for revisits.** While the user reviews, keep one background Bash command (`run_in_background`)
@@ -457,7 +458,7 @@ reads; an **outlined amber** 💬 with a comment of yours not posted, a draft no
 your pending review, until you submit it); and a **grey ✎** with questions to Claude alone, which never
 leave this page. It counts the comments it holds, each of yours, each open question and each comment of a
 thread from elsewhere (none written for one), and its state shows on it: dashed (with …) while Claude has a
-question or a reply to draft, filled green while an answer or a draft is unread, GitHub's glyph and the
+question or a reply to draft, filled green while an answer, a draft or a comment on GitHub is unread, GitHub's glyph and the
 replies' count (`1↩`) with a comment of yours posted there, and a faint dot when all it holds is resolved.
 Clicking it opens your one comment in its editor, or else a card of all it holds, each under its own
 header, which starts with who sees it: **💬 On GitHub**, **💬 Draft · not posted** (**in your pending
@@ -474,14 +475,18 @@ without that block goes without the mark. When no view has its text any more (it
 the mark sits on its section's heading. A quote that does not read as it is is matched with spaces
 ignored, as a selection across paragraphs keeps no space between them. Marks never count as changes or
 take n/p. A mark on removed words sits after them, so a settled change shows it. The header's **💬** opens
-the Review panel, and beside it what was said is counted by who sees it, "2 drafts · 6 on GitHub · 5
-questions" (on GitHub: what has a place in the doc), then how many wait for Claude and are unread ("1
-pending · 4 unread", drafted replies to threads from elsewhere counted too); each count steps through its
-own marks in the doc's order ("2 of 6 on GitHub · authentication.html:88"). The Review panel: the comments and revisits in the order they
+the Review panel, and beside it what was said is counted by who sees it, with how many of each are unread:
+"2 drafts · 6 on GitHub (3 unread) · 5 questions (4 unread) · 1 pending". On GitHub counts what has a place
+in the doc, and unread there is a thread with a comment or a drafted reply you have not read ([GitHub PR](#github-pr),
+Unread); a question is unread while its answer is; pending is what waits for Claude, drafted replies to
+threads from elsewhere too. Each count, unread ones too, steps through its own marks in the doc's order, as
+the counts of reviewed changes with comments or open questions step through those ("2 of 4 unread questions
+· Monetization status"). The Review panel: the comments and revisits in the order they
 come in the doc, each a click from its place, comments with edit, copy and delete. Copy puts one comment
 on the clipboard as Markdown: its `path:line` (linked to the line on GitHub; without `--pr`, the file and
-section), the quote and the comment, to paste into GitHub. **Copy all as Markdown**, shown while you have
-comments not posted yet, does that for all of those, leaving out the posted ones ([GitHub PR](#github-pr),
+section), the quote and the comment, to paste into GitHub. **Copy drafts (N)**, shown while you have
+comments not posted yet (**Copy comments (N)** on your own docs), does that for all of those, whatever the
+panel's audience filter, to post by hand while ⇪ Push cannot (no token), leaving out the posted ones ([GitHub PR](#github-pr),
 Posted), which pasted again would be posted twice, and the ones that read much like a comment of yours
 there ("copied 2 · left out 2 already on GitHub in other words"); with a token, **⇪ Push** sends them to the PR as your
 pending review (Pushing). Saving a comment shows it in place, with no
@@ -606,8 +611,15 @@ its wording has the dotted amber underline. Its 💬 is solid, as every thread t
 the Review panel names you "(you)". A 💬 is posted only by a comment of yours, and the thread holding that
 comment then shows as that 💬 alone, not counted twice.
 
+**Unread** (your login known): a thread's comments by others newer than your last look at it are unread.
+Its 💬 fills green, as an unread answer's does, its panel entry says "1 new", and the header counts it in
+"(N unread)" after "on GitHub"; opening its card or its panel entry reads them, and the card marks each of
+them **new** while it stays open. `review.json` keeps, per thread, the time of the newest comment read,
+`threads: {"GitHub:<its first comment's id>": {seen}}`, from what the page has already read: no more asks
+of GitHub. A thread never opened here has all its comments by others unread.
+
 **Pushing** (`push()` in `github_pr.py`). Without `GITHUB_TOKEN` the page only reads GitHub: comments go
-there by hand, through Copy all as Markdown. With one, while some of your 💬 are not on GitHub, the Review panel has
+there by hand, through Copy drafts (N). With one, while some of your 💬 are not on GitHub, the Review panel has
 **⇪ Push N as a pending review** (N the ones new or edited since pushed; with none, **⇪ Pending
 review**). It sends them, in the doc's order, to the PR as your **pending review**, which GitHub shows to
 you alone until you submit it there: submitting stays your click on GitHub. Its panel first reads your

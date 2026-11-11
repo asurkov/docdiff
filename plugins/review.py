@@ -19,15 +19,17 @@ thread under one mark: pending while the last has no answer, new while an answer
 folded to a dot, while all of them are; asking again reopens it. On commits, accepting a change resolves the answered threads on it alone, and taking it
 back reopens those. review.json keeps that by revisit time, {revisits: {time: {resolved, resolved_by,
 seen}}}, resolved_by 'accept' for a thread its change's accept resolved, seen the number of its answers
-read.
+read. A thread from elsewhere (on GitHub, where your login is known) has its comments by others newer than
+your last look unread, until its card or panel entry is opened; review.json keeps the newest comment's time
+read, by the thread's source and first comment, {threads: {"GitHub:id": {seen}}}.
 
 An answer's blockquotes are its drafted comments, each a proposal: used (made into a comment), dismissed,
 or replaced (a revisit that revises it, its fields thread and revises, got a new draft). review.json keeps
 the first two by the time of the revisit that first proposed the draft and the draft's hash,
 {proposals: {"time#hash": {state, comment}}}; deleting the comment a proposal made frees it again. The two
 .jsonl files are logs, only ever appended to. The page polls GET /review for all of it, and posts /review
-to add (using proposals), edit or delete a comment, to resolve, reopen or read revisits, or to set the
-state of proposals, shown in place.
+to add (using proposals), edit or delete a comment, to resolve, reopen or read revisits or threads from
+elsewhere, or to set the state of proposals, shown in place.
 """
 # docdiff, the running docdiff.py, is set by its load_plugins().
 import collections, hashlib, html, json, pathlib, re, secrets, subprocess, threading, time
@@ -226,13 +228,13 @@ b.onmousedown=e=>e.preventDefault();b.onclick=e=>{e.preventDefault();e.stopPropa
 // only ever means reviewed), and a faint dot for resolved questions alone.
 function dress(b){const its=b._its,cs=its.filter(i=>i.kind==='c'&&!i.done),open=its.filter(i=>i.kind==='r'&&!i.done),gs=its.filter(i=>i.kind==='g'&&!i.done);
 const n=cs.length+open.length+gs.reduce((k,g)=>k+g.shown,0),posted=cs.find(c=>c.posted),r=posted?.thread?.shown||0,
-wait=open.some(t=>t.wait)||gs.some(g=>g.wait),unread=open.some(t=>t.unread)||gs.some(g=>!g.wait&&g.unread);
+ps=[...gs,...cs.map(c=>c.thread).filter(Boolean)],wait=open.some(t=>t.wait)||ps.some(g=>g.wait),unread=open.some(t=>t.unread)||ps.some(g=>!g.wait&&g.unread);
 b.className='rvb rvb-'+(gs.length||posted?'g':cs.length?'c':'r')+(n?'':' rvb-done')+(wait?' rvb-wait':unread?' rvb-new':'')+(posted?' rvb-posted':'')+
 (gs.length===its.length&&gs.every(g=>g.near)?' rvb-near':'');b.textContent=n>1?' '+n:'';if(posted&&r)b.dataset.r=' '+r+'↩';else delete b.dataset.r;
 b.title=its.map(it=>it.kind==='g'?'On '+it.src.source+': '+it.root.author+': '+short(it.root.body)+(it.yours?' (yours)':'')+(it.done?' (resolved)':'')+(it.near?' (its text has changed: here at the closest match)':''):
 it.kind==='c'?(it.posted?'On '+posting().source+', your comment'+(r?' · '+r+(r>1?' replies':' reply'):'')+(it.done?' (resolved)':''):tag(it).textContent)+': '+short(it.body):
 tag(it).textContent+': '+(it.done?'resolved: ':'')+short(it.members.map(m=>m.prompt).join(' / '))).join('\\n')+
-(wait?'\\n\\n(waiting for Claude)':unread?'\\n\\n(new answer: click to read)':n?'':'\\n\\n(resolved: click to reopen)');}
+(wait?'\\n\\n(waiting for Claude)':unread?'\\n\\n(new answer or reply: click to read)':n?'':'\\n\\n(resolved: click to reopen)');}
 // One comment of yours, not posted, opens in its editor; anything else in a card.
 const openIt=(its,b)=>its.length===1&&its[0].kind==='c'&&!its[0].thread?openCm(its[0]):showCard(its,b);
 // Marks every comment and revisit; it.at holds its mark per view, and it.on the keys of the changes it is
@@ -285,27 +287,34 @@ mine={};for(const it of items)if(said(it))for(const[w,ks]of Object.entries(it.on
 for(const g of groups.filter(g=>g.done)){const on=onChange(g.els[0].closest('.v'),g.k);
 if(on)on(mk('span',{className:'rvok',textContent:'✓',title:!W.reviewed?'Accepted':mine.diff?.has(g.k)?'Reviewed, with your comments':'Looks good'}));}
 status();
-// The header's 💬 opens the Review panel, and beside it what was said is counted by who sees it, each count
-// stepping through its own.
-const ts=tallies(order());rvt.title='Review: '+(ts.map(t=>t[2]).join(', ')||'nothing yet')+'; all of it in the order of the doc';
-sum.replaceChildren(...ts.flatMap(([k,l,w,t],i)=>{const b=mk('button',{className:'rvaud-'+k,textContent:w,title:t+': step through them'});b.onclick=()=>stepTo(k,l,w);return[...(i?[' · ']:[]),b];}));
-rvt.classList.toggle('rvt-new',ts.some(t=>t[0]==='new'));if(!lp.hidden)list();
+// The header's 💬 opens the Review panel, and beside it what was said is counted by who sees it, how many of
+// them are unread beside each count; each count steps through its own.
+const ts=tallies(order()),step=(k,l,text,w,title,cls)=>{const b=mk('button',{className:cls,textContent:text,title:title+': step through them'});b.onclick=()=>stepTo(k,l,w);return b;};
+// Unread, in brackets after its count: one item, so the header's gaps go around it.
+const unread=(k,u,uw)=>{const x=mk('span');x.append('(',step(k+'-new',u,u.length+' unread',uw,k==='g'?'With a comment or a drafted reply you have not read':'With an answer you have not read','rvaud-new'),')');return x;};
+rvt.title='Review: '+(ts.map(t=>t[2]+(t[4].length?' ('+t[4].length+' unread)':'')).join(', ')||'nothing yet')+'; all of it in the order of the doc';
+sum.replaceChildren(...ts.flatMap(([k,l,w,t,u,uw],i)=>[...(i?[' · ']:[]),step(k,l,w,w,t,'rvaud-'+k),
+...(u.length?[unread(k,u,uw)]:[])]));
+rvt.classList.toggle('rvt-new',ts.some(t=>t[4].length));if(!lp.hidden)list();
 refreshCard();tally();chips();}
-// What was said, by who sees it: your drafts, what is on GitHub, your open questions; then what Claude is on
-// (pending) and what has an answer or a drafted reply not read yet, drafted replies to threads from elsewhere
-// counted too. Each [who, its items with a mark, in the doc's order, words, title], none when there are none.
+// What was said, by who sees it: your drafts, what is on GitHub, your open questions, and what Claude is on
+// (pending). Each [who, its items with a mark, in the doc's order, words, title, those of them unread, words
+// for those], none when there are none: unread, a question with an answer not read yet, or a thread on GitHub
+// with a comment or a drafted reply not read yet.
 function tallies(all){const o=all.filter(i=>!i.done&&!i.hidden&&Object.keys(i.at).length),of=k=>o.filter(i=>audOf(i)===k),to=posting()?.source,
-g=of('g'),on='on '+[...new Set(g.map(i=>(i.src||posting()).source))].join(' and '),w=i=>i.kind==='c'?i.thread:i;
+g=of('g'),on='on '+[...new Set(g.map(i=>(i.src||posting()).source))].join(' and '),w=i=>i.kind==='c'?i.thread:i,one=W.revisits.replace(/s$/,'');
 return[['c',of('c'),to?'draft':'comment',to?'drafts':'comments',to?'Your comments not posted: nobody on '+to+' sees them yet':'Your comments'],
 ['g',g,on,on,'Threads '+on+', yours posted and others\\', which everyone there sees'],
-['r',of('r'),W.revisits.replace(/s$/,''),W.revisits,'Your open '+W.revisits+' to Claude, which nobody else sees'],
-['wait',o.filter(i=>w(i)?.wait),'pending','pending','Waiting for Claude'],
-['new',o.filter(i=>w(i)?.unread&&(i.kind==='r'||!w(i).wait)),'unread','unread','With an answer or a drafted reply not read yet']]
-.filter(t=>t[1].length).map(([k,l,one,many,title])=>[k,l,l.length+' '+(l.length>1?many:one),title]);}
-// A count steps through its own, from the one it went to last, and the status line says which.
-const stepped={};
+['r',of('r'),one,W.revisits,'Your open '+W.revisits+' to Claude, which nobody else sees'],
+['wait',o.filter(i=>w(i)?.wait),'pending','pending','Waiting for Claude']]
+.filter(t=>t[1].length).map(([k,l,s1,sn,title])=>{const u=k==='wait'?[]:l.filter(i=>w(i)?.unread&&(i.kind==='r'||!w(i).wait));
+return[k,l,l.length+' '+(l.length>1?sn:s1),title,u,u.length+' unread '+(k==='g'?on:u.length>1?sn:s1)];});}
+// A count steps through its own, from the one it went to last, and the status line says which; the page's
+// own scroll handler retells the status while no change is current, so those words are held while it scrolls.
+const stepped={};let held=null;
 function stepTo(k,l,w){const it=l[(l.findIndex(x=>idOf(x)===stepped[k])+1)%l.length];stepped[k]=idOf(it);jump(it);
-pos.textContent=(l.indexOf(it)+1)+' of '+w+' · '+(it.section||it.kind==='g'&&ghLabel(it.root)||it.file);}
+held={text:(l.indexOf(it)+1)+' of '+w+' · '+(it.section||it.kind==='g'&&ghLabel(it.root)||it.file),until:Date.now()+1000};pos.textContent=held.text;}
+addEventListener('scroll',()=>{if(held&&!c&&Date.now()<held.until){pos.textContent=held.text;held.until=Date.now()+400;}},{passive:true});
 // Each doc's bar counts the comments made elsewhere on it (on GitHub, in the Google Docs); a click opens the
 // Review panel on that doc's comments, where each entry goes to its place.
 function chips(){document.querySelectorAll('.rvfc').forEach(e=>e.remove());const all=order();
@@ -363,8 +372,17 @@ rts=threads(data.revisits.filter(x=>x.remote===rid)).map(t=>({...t,reply:true,re
 const t={kind:'g',id:'g'+k+'-'+id,rid,src,root:r,members:ms.sort((a,b)=>a.time<b.time?-1:a.time>b.time?1:0),time:r.time,file:r.file||null,key:r.key||null,
 quote:r.quote||'',before:r.before||'',side:r.side||'R',section:'',yours:left.some(isMe),shown:left.length,hidden:!left.length||ms.some(c=>told.has(c)),
 rts,wait:rts.some(t=>t.wait),unread:rts.some(t=>t.unread),done:!!r.resolved,by:r.resolved_by||null,settles:!!src.resolve&&r.kind==='line'};
+// Where your login there is known, comments by others newer than your last look at it (seen: the newest
+// comment's time read) are unread (fresh), until its card or panel entry is opened (looked()).
+t.seen=data.threads?.[rid]?.seen||'';t.fresh=src.me?ms.filter(c=>!isMe(c)&&(c.time||'')>t.seen).length:0;
+t.newest=ms.reduce((m,c)=>(c.time||'')>m?c.time:m,'');t.unread=t.unread||t.fresh>0;
 for(const c of data.comments)if(ms.includes(c.gh))c.thread=t;return t;}));}
 return out;}
+// Opening a thread from elsewhere reads it: the newest comment's time is kept as read. A card keeps marking
+// the comments that were new when it opened (fresh0, the thread's seen then) while it stays open.
+const fresh0=new Map();
+function looked(t){if(t?.fresh)post('review',{threads:{[t.rid]:t.newest}}).then(take).catch(()=>{});}
+const newer=(it,c)=>!!it.src?.me&&!isMe(c)&&(c.time||'')>(fresh0.has(it.rid)?fresh0.get(it.rid):it.seen||'');
 const ago=t=>{const s=(Date.now()-t)/1000;return s<90?'just now':s<5400?Math.round(s/60)+' min ago':s<129600?Math.round(s/3600)+' h ago':Math.round(s/86400)+' days ago';};
 const at=c=>c.path?c.path.split('/').pop()+(c.line?':'+c.line:'')+(c.side==='L'?' (old)':''):'';
 // Where a comment is, in its source's words: its line, or the PR or a review; a source's own note, such as
@@ -373,10 +391,11 @@ const ghLabel=c=>c.kind==='pr'?'on the PR':c.kind==='review'?'review'+(c.state?'
 [at(c),c.outdated&&'outdated',!c.file&&'not placed',c.note].filter(Boolean).join(' · ');
 // Your posted comment (own's), leading its thread under a header that names it, needs no line of its own.
 const ghBodies=(it,own)=>it.members.map(c=>{const d=mk('div',{className:'rvgc'+(c.reply_to?' rvgr':'')}),x=mk('div',{className:'rva rvgh'});x.innerHTML=c.html;
-d.append(...(own&&c===own.gh&&!c.reply_to?[]:[mk('div',{className:'rvm',textContent:c.author+(isMe(c)?' (you)':'')+' · '+ago(new Date(c.time))})]),x);return d;});
+const m=mk('div',{className:'rvm',textContent:c.author+(isMe(c)?' (you)':'')+' · '+ago(new Date(c.time))});if(newer(it,c))m.append(' · ',mk('b',{className:'rvaud-new',textContent:'new'}));
+d.append(...(own&&c===own.gh&&!c.reply_to?[]:[m]),x);return d;});
 // A posted comment's card or panel entry: its header words, and its copy kept here, which GitHub's does not
 // follow: edit and delete act on that alone.
-const postedAs=(own,t)=>line(tag(own),['your comment, posted '+ago(new Date(own.gh.time)),t.shown&&t.shown+(t.shown>1?' replies':' reply'),t.done&&ghSettled(t)]);
+const postedAs=(own,t)=>line(tag(own),['your comment, posted '+ago(new Date(own.gh.time)),t.shown&&t.shown+(t.shown>1?' replies':' reply'),t.fresh&&t.fresh+' new',t.done&&ghSettled(t)]);
 const ghSettled=t=>'resolved'+(t.by?' by '+t.by:'');
 // ✓ Resolve or ↺ Reopen a thread on its source (GitHub), as its own Resolve conversation does, on this click
 // alone; its state here is what the source answers. Until the server has read that (it takes a token) there
@@ -390,7 +409,7 @@ x=act('delete','Delete the copy kept here; the comment stays on GitHub',()=>{if(
 e.classList.add('rvsec');x.classList.add('rvsec');r.append(mk('span',{className:'rvm',textContent:'Local copy:'}),e,x);return r;}
 const ghOpen=it=>mk('a',{href:it.root.url,target:'_blank',rel:'noopener',textContent:it.src.open||'Open ↗'});
 const gq=it=>{if(window.Highlight&&CSS.highlights)CSS.highlights.set('rvgq-on',new Highlight(...(it?.gqs||[])));};
-new MutationObserver(()=>{if(card.hidden)gq(null);}).observe(card,{attributes:true,attributeFilter:['hidden']});
+new MutationObserver(()=>{if(card.hidden){gq(null);fresh0.clear();}}).observe(card,{attributes:true,attributeFilter:['hidden']});
 // A thread from elsewhere, as Claude reads it in a request for a reply: the text it is on, then each comment.
 const threadText=it=>(it.quote?'On “'+norm(it.quote)+'”:\\n':'')+it.members.map(c=>(c.reply_to?'↳ ':'')+c.author+': '+norm(c.body)).join('\\n');
 // ✎ Draft a reply opens a reply box inline, under the thread and its drafts, in its card or its panel entry
@@ -557,7 +576,7 @@ const rank=it=>it.done?3:it.kind==='c'?0:it.kind==='g'?1:2;
 function showCard(its,b,again){its=[...new Set(its.map(i=>i.kind==='c'&&i.thread||i))].sort((x,y)=>rank(x)-rank(y));const f=keepFocus(),y=card.scrollTop;
 cardIds=its.map(idOf);carded=its.find(i=>i.kind==='r')?.time||null;card.replaceChildren(...its.map(part));
 if(again)card.scrollTop=y;else place(b);f();gq({gqs:its.flatMap(i=>i.gqs||[])});
-for(const it of its)for(const t of it.kind==='r'?[it]:it.rts||[])if(t.unread)setThread(t,{seen:true});}
+for(const it of its){if(it.fresh&&!fresh0.has(it.rid))fresh0.set(it.rid,it.seen);looked(it);for(const t of it.kind==='r'?[it]:it.rts||[])if(t.unread)setThread(t,{seen:true});}}
 // The open card drawn again, with what its mark holds now.
 function refreshCard(){if(card.hidden||!cardIds)return;const it=items.find(i=>idOf(i)===cardIds[0]),b=it&&elOf(it);if(it)showCard(b?._its||[it],b,true);}
 // A card is placed and sized in the visual viewport, which a page wider than the screen does not stretch,
@@ -579,12 +598,12 @@ const g=it.key&&groups.find(x=>x.view===cur&&x.file===it.file&&x.k===it.key),b=i
 if(g)focus(g);else{focus(null,false);b.scrollIntoView({block:'center',behavior:'smooth'});}
 b.classList.add('rvb-hit');if(it.kind==='g')gq(it);setTimeout(()=>{b.classList.remove('rvb-hit');if(it.kind==='g'&&card.hidden)gq(null);},1500);}
 // A panel entry: its line (where, state, actions), then its body, folded to a few lines when long.
-function row(it,files){const r=it.kind==='r',d=mk('div',{className:'rvi'+(it.unread&&!it.done?' rvi-new':'')}),h=mk('div',{className:'rvih'}),m=mk('span',{className:'rvm'}),bd=mk('div',{className:'rvib'}),w=where(it);
+function row(it,files){const r=it.kind==='r',d=mk('div',{className:'rvi'+((it.kind==='c'?it.thread:it)?.unread&&!it.done?' rvi-new':'')}),h=mk('div',{className:'rvih'}),m=mk('span',{className:'rvm'}),bd=mk('div',{className:'rvib'}),w=where(it);
 d.dataset.id=r?'r'+it.time:it.kind==='g'?it.id:'c'+it.id;
-if(it.kind==='g'){m.append(...line(tag(it),[files>1&&it.file,ghLabel(it.root),it.done&&ghSettled(it),it.rts.length&&(it.wait?'reply being drafted':it.unread?'new drafted reply':'drafted replies')]));
+if(it.kind==='g'){m.append(...line(tag(it),[files>1&&it.file,ghLabel(it.root),it.fresh&&it.fresh+' new',it.done&&ghSettled(it),it.rts.length&&(it.wait?'reply being drafted':it.rts.some(x=>x.unread)?'new drafted reply':'drafted replies')]));
 h.append(m,...(it.file&&!it.done?[reply(it)]:[]),...ghSettle(it),ghOpen(it));
 bd.append(...ghBodies(it),...drafts(it),...(opened.has(it.rid)&&!it.done&&!inCard(it)?[box(it.rid,{it})]:[]));d.append(h,bd);
-d.onclick=e=>{if(e.target.closest('a,button'))return;jump(it);for(const t of it.rts)if(t.unread)setThread(t,{seen:true});};return d;}
+d.onclick=e=>{if(e.target.closest('a,button'))return;jump(it);looked(it);for(const t of it.rts)if(t.unread)setThread(t,{seen:true});};return d;}
 const t=it.kind==='c'&&it.thread;m.append(...(t?postedAs(it,t):[...line(tag(it),[files>1&&it.file,it.section,r&&state(it)]),Object.keys(it.at).length?'':' · not in the page now']));
 if(w)m.append(' · ',mk('a',{href:it.github.href,target:'_blank',rel:'noopener',textContent:w.split('/').pop()+' ↗'}));if(!r&&!t)m.append(...twinLink(it));
 if(it.quote)bd.append(mk('blockquote',{textContent:r?it.sent:it.quote}));
@@ -592,7 +611,7 @@ if(r)h.append(m,...actions(it)),bd.append(...asks(it));else{const e=act('edit','
 c=act('copy','Copy as Markdown: its file:line, the quoted text and the comment',async()=>{c.textContent=await copy(markdown([it]))?'copied':'copying failed';setTimeout(()=>c.textContent='copy',1500);});
 // Posted, it shows as its thread on GitHub does, with its local copy's edit and delete under it.
 if(t){h.append(m,...(t.file&&!t.done?[reply(t)]:[]),...ghSettle(t),ghOpen(t));bd.append(...ghBodies(t,it),...drafts(t),...(opened.has(t.rid)&&!t.done&&!inCard(t)?[box(t.rid,{it:t})]:[]));
-d.append(h,bd,local(it));d.onclick=e=>{if(e.target.closest('a,button'))return;jump(it);for(const x of t.rts)if(x.unread)setThread(x,{seen:true});};return d;}
+d.append(h,bd,local(it));d.onclick=e=>{if(e.target.closest('a,button'))return;jump(it);looked(t);for(const x of t.rts)if(x.unread)setThread(x,{seen:true});};return d;}
 h.append(m,e,c,x);bd.append(mk('div',{className:'rvt',textContent:it.body}));}
 d.append(h,bd);d.onclick=e=>{if(e.target.closest('a,button'))return;jump(it);if(it.unread)setThread(it,{seen:true});};return d;}
 // Folds an entry's body when it is longer than a few lines; Show more and Show less, kept across re-renders.
@@ -622,19 +641,21 @@ b.onclick=()=>{filter=v;keep();list();};f.append(b);}
 for(const[v,l,t]of auds()){const b=mk('button',{className:'rvaud-'+v,textContent:l,title:t});b.setAttribute('aria-pressed',v===aud);
 b.onclick=()=>{aud=aud===v?null:v;keep();list();};fa.append(b);}
 g.append(mk('summary',{textContent:'Resolved ('+done.length+')'}),...done.map(it=>row(it,files)));
-// Copying all of your 💬 comments not posted yet is offered only while there are some: a posted one is on
-// GitHub already, and pasted again would be posted twice; so is, in other words, one much like a comment of
-// yours there (twin()), which it leaves out too. Each one has its own copy too.
-const unsent=its.filter(i=>i.kind==='c'&&!i.posted&&!twin(i)),twins=its.filter(i=>i.kind==='c'&&!i.posted).length-unsent.length,
-h=mk('div',{className:'rvh'}),x=mk('button',{textContent:'×',title:'Close'}),cm=mk('button',{textContent:'Copy all as Markdown',
-title:'Your comments not posted yet, each with its file:line and quote, to paste into GitHub'+(twins?'; not the '+twins+' much like comments of yours there':'')});
+// Copy drafts (N) copies your 💬 comments not posted yet, whatever the audience filter, to post by hand where
+// ⇪ Push cannot (no token); it is offered only while there are some. A posted one is on GitHub already, and
+// pasted again would be posted twice; so is, in other words, one much like a comment of yours there (twin()),
+// which it leaves out too. Each one has its own copy too.
+const to=posting()?.source,unsent=mine.filter(i=>i.kind==='c'&&!i.posted&&!twin(i)),twins=mine.filter(i=>i.kind==='c'&&!i.posted).length-unsent.length,
+cl=(to?'Copy drafts (':'Copy comments (')+unsent.length+')',h=mk('div',{className:'rvh'}),x=mk('button',{textContent:'×',title:'Close'}),cm=mk('button',{textContent:cl,
+title:to?'Your comments not on '+to+' yet, as Markdown, each with its file:line and quote, to post there by hand'+((data.remotes||[]).some(r=>r.push)?'':' (⇪ Push needs a GITHUB_TOKEN on the server)')+
+(twins?'; not the '+twins+' much like comments of yours there':''):'Your comments as Markdown, each with its file, section and quote'});
 cm.onclick=async()=>{cm.textContent=await copy(markdown(unsent))?'copied '+unsent.length+(twins?' · left out '+twins+' already on GitHub in other words':''):'copying failed';
-setTimeout(()=>cm.textContent='Copy all as Markdown',twins?3000:1500);};
+setTimeout(()=>cm.textContent=cl,twins?3000:1500);};
 // ⇪ Push, while some of your comments are not on GitHub, with how many are new or edited since pushed.
 const ups=unposted(),fresh=ups.filter(c=>c.pushed?.body!==c.body).length,pb=ups.length&&(data.remotes||[]).some(r=>r.push)&&
 mk('button',{textContent:fresh?'⇪ Push '+fresh+' as a pending review':'⇪ Pending review',title:'Your comments not on GitHub yet, as your pending review on the PR, which you submit there'});
 if(pb)pb.onclick=openPush;
-x.onclick=()=>toggle(false);h.append(mk('b',{textContent:'Review'}),mk('span',{className:'n',textContent:[...tallies(mine).filter(t=>'cgr'.includes(t[0])).map(t=>t[2]),mine.filter(i=>i.done&&!i.hidden).length+' resolved'].join(' · ')}),...(unsent.length?[cm]:[]),...(pb?[pb]:[]),x);
+x.onclick=()=>toggle(false);h.append(mk('b',{textContent:'Review'}),mk('span',{className:'n',textContent:[...tallies(mine).filter(t=>'cgr'.includes(t[0])).map(t=>t[2]+(t[4].length?' ('+t[4].length+' unread)':'')),mine.filter(i=>i.done&&!i.hidden).length+' resolved'].join(' · ')}),...(unsent.length?[cm]:[]),...(pb?[pb]:[]),x);
 if(only){const o=mk('button',{className:'rvonly',textContent:'Only '+only+' · show all',title:'Show the entries on every doc'});o.onclick=()=>{only=null;list();};h.append(o);}
 const bySource=new Map();for(const it of loose)bySource.set(it.src.source,[...(bySource.get(it.src.source)||[]),it]);
 const ghs=[...bySource].map(([n,l])=>{const gh=mk('details',{className:'rvg',open:!ghFolded});gh.ontoggle=()=>{ghFolded=!gh.open;if(gh.open)gh.querySelectorAll('.rvib').forEach(fold);};
@@ -663,11 +684,11 @@ const groupsOf=[['add','Add'],['update','Update, edited here since pushed'],['te
 let pushing=null;
 // A comment of yours not posted that reads much like one of yours on GitHub (most of their words shared) is
 // most likely a copy reworded here after it was posted: no longer posted, it would go to GitHub again. Its row
-// and card headers say so, and its editor's, linking to the one there; Copy all leaves it out, and a push's list says so.
+// and card headers say so, and its editor's, linking to the one there; Copy drafts leaves it out, and a push's list says so.
 const wordset=t=>new Set(norm(t).toLowerCase().match(/[\\p{L}\\p{N}]+/gu)||[]),like=(a,b)=>{const x=wordset(a),y=wordset(b);let n=0;for(const w of x)if(y.has(w))n++;return n/Math.max(1,x.size+y.size-n);};
 const twin=c=>(data.remotes||[]).flatMap(r=>r.posting&&r.me?r.comments.filter(g=>g.author===r.me):[]).find(g=>like(g.body,c.body)>=.6);
 const twinLink=it=>{const g=it.kind==='c'&&!it.posted&&twin(it);return g?[' · ',mk('a',{className:'rvtwin',href:g.url,target:'_blank',rel:'noopener',
-textContent:'on GitHub in other words ↗',title:'Much like your comment on GitHub: “'+short(g.body)+'”. Copy all leaves it out; open it there to edit it'})]:[];};
+textContent:'on GitHub in other words ↗',title:'Much like your comment on GitHub: “'+short(g.body)+'”. Copy drafts leaves it out; open it there to edit it'})]:[];};
 function showPlan(got,sent){const by=new Map(data.comments.map(c=>[c.id,c])),sends=got.plan.filter(p=>['add','update','text'].includes(p.act));pl.replaceChildren();
 for(const[a,l]of groupsOf){const ps=got.plan.filter(p=>p.act===a&&by.has(p.id));if(!ps.length)continue;pl.append(mk('div',{className:'rvpg',textContent:l+' ('+ps.length+')'}));
 for(const p of ps){const c=by.get(p.id),r=mk('div',{className:'rvpi'}),miss=sent&&a!=='same'&&a!=='leave'&&!(p.id in got.pushed);
@@ -721,7 +742,8 @@ def get(run, path, query):
 def post(out, path, req):
     """Adds a comment, marking the proposals req['uses'] names as used by it, or edits or deletes the one
     req['id'] names; or resolves (resolve true), reopens (false) or reads (seen) the revisits
-    req['revisits'] names by time (by 'accept': as their change was accepted); or sets the state of the
+    req['revisits'] names by time (by 'accept': as their change was accepted); or reads the threads from
+    elsewhere req['threads'] names, {rid: the newest comment's time}; or sets the state of the
     proposals req['proposals'] names, dismissed or none; or brings the PR's comments on GitHub up to date
     (req['github']: 'auto' or 'now', as remarks() in github_pr.py takes it); or files a request for a reply
     to a thread from elsewhere (req['reply']); or pushes comments to the PR (req['push'], see push()); or
@@ -751,7 +773,10 @@ def post(out, path, req):
         doc = load(out)
         cs = doc['comments']
         was = next((c for c in cs if req.get('id') and c['id'] == req['id']), None)
-        if req.get('proposals'):
+        if isinstance(req.get('threads'), dict):
+            for rid, t in req['threads'].items():
+                doc['threads'][str(rid)] = {'seen': str(t)}
+        elif req.get('proposals'):
             for p in map(str, req['proposals']):
                 if req.get('state') == 'dismissed':
                     doc['proposals'][p] = {'state': 'dismissed', 'time': now()}
@@ -808,7 +833,7 @@ def state(run, refresh=None, source=None):
     for r in remotes:
         for c in r.get('comments', []):
             c['html'] = markdown(c['body'])
-    return {'comments': doc['comments'], 'proposals': doc['proposals'], 'remotes': remotes,
+    return {'comments': doc['comments'], 'proposals': doc['proposals'], 'threads': doc['threads'], 'remotes': remotes,
             'revisits': [{**{k: r.get(k) for k in ('time', 'file', 'section', 'quote', 'view', 'prompt', 'key',
                                                     'thread', 'revises', 'remote', 'mode', 'weigh')},
                           'answers': answers.get(r.get('time'), []), **doc['revisits'].get(r.get('time'), {})}
@@ -904,6 +929,7 @@ def load(out):
     f = out / 'review.json'
     doc = json.loads(f.read_text()) if f.exists() else {}
     return {'comments': doc.get('comments', []), 'revisits': doc.get('revisits', {}), 'proposals': doc.get('proposals', {}),
+            'threads': doc.get('threads', {}),
             **({'push': doc['push']} if doc.get('push') else {})}
 
 
