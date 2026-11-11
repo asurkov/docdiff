@@ -47,11 +47,11 @@ known, a comment you wrote on GitHub counts as your 💬 does, here and in Revie
 answered threads on that change alone; ↺ not reviewed reopens those ([Review comments](#review-comments)).
 
 Reviewed shows reviewed changes **settled**: the new text only, no strike-through or highlight, with a
-thin neutral bar beside a block that changed; your commented wording has a dotted amber underline (the
-comment's quote, or the change's text when the comment is on the whole change) and its 💬 beside it, and
-a commented change its amber ✓ 💬 N. A removed block stays its one-line "removed: …" stub with its marks.
+thin neutral bar beside a block that changed (blue for one new since last review); your commented wording
+has a dotted amber underline (the comment's quote, or the change's text when the comment is on the whole
+change) and its 💬 beside it. A removed block stays its one-line "removed: …" stub with its marks.
 Clicking a change shows its diff again; **± diffs** in the header, remembered per viewer, shows them all,
-green ✓ chips included. The header counts the reviewed changes that carry comments or open questions
+with each change's green ✓. The header counts the reviewed changes that carry comments or open questions
 ("· 3 with comments · 1 open question"), each count stepping through them there. To review and Diff
 always show diffs.
 
@@ -254,7 +254,7 @@ push compares: inline styles and link targets do not show, since a push sets the
 
 The Google Docs' open comments (`plugins/gdoc_comments.py`) show as GitHub's do on a PR
 ([GitHub PR](#github-pr), "The PR's comments on GitHub"), named On Google Docs: each thread a
-speech-bubble mark where its quote reads in the old text, its card the comment and its replies, what a
+💬 where its quote reads in the old text, its card the comment and its replies, what a
 push does to its text ("a push deletes its text", "a push edits its text") and Open in Google Docs ↗;
 in the Review panel, in document order, and one whose quote no longer reads there (the Google Doc was
 edited after it was made) in its On Google Docs group. They are as fresh as the export. With
@@ -426,7 +426,19 @@ line). It is kept in
 the text of its block around it, section, body and time; with `--pr`, also `github`: its file and line in
 the PR, found as its change's GitHub ↗ button finds them, and found again when the run's head moves.
 
-Each comment is a 💬 mark on its change in every view that has the change, and elsewhere where its quote
+The page has three signs: ✓ reviewed, the blue edge of a change new since last review ([Review
+rounds](#review-rounds)), and 💬. Everything said at one place is one 💬 mark there: your comments, your
+questions to Claude (revisit threads, below) and threads from elsewhere ([GitHub PR](#github-pr), [Google
+Doc vs Markdown](#google-doc-vs-markdown)). It counts the comments it holds, each of yours, each open
+question and each comment of a thread from elsewhere (none written for one), and its state shows on it:
+dashed while Claude has a question or a reply to draft, filled while an answer or a draft is unread, amber
+with a thread of yours from elsewhere, GitHub's glyph and the replies' count (`1↩`) with a comment of
+yours posted there, and a faint dot when all it holds is resolved questions. Clicking it opens your one
+comment in its editor, or else a card of all it holds, each under its own header with its state and
+actions: your comments (edit, copy, delete), threads from elsewhere, then questions, the resolved ones
+last.
+
+Each comment goes on its change in every view that has the change, and elsewhere where its quote
 reads, the text before it picking among repeats: so it stays on a change once that is accepted, and shows
 on the same text in Old or New. Where a view has neither (an accepted change, removed words), the mark
 ends the paragraph or list item holding the text before it in its block (or else after it); only a view
@@ -434,30 +446,30 @@ without that block goes without the mark. When no view has its text any more (it
 the mark sits on its section's heading. A quote that does not read as it is is matched with spaces
 ignored, as a selection across paragraphs keeps no space between them. In To review, a mark on text already accepted (on a change in
 Accepted, on none in To review) is muted, still a click from its comment; marks never count as changes or
-take n/p. A mark on removed words sits after them, so settled Reviewed shows it. Clicking the mark edits
-or deletes it, unless it was posted ([GitHub PR](#github-pr)). The header's **💬 N** opens the Review panel: the comments and revisits in the order they
+take n/p. A mark on removed words sits after them, so settled Reviewed shows it. The header's **💬 N**
+(your comments and open questions, with how many wait for Claude and are unread) opens the Review panel: the comments and revisits in the order they
 come in the doc, each a click from its place, comments with edit, copy and delete. Copy puts one comment
 on the clipboard as Markdown: its `path:line` (linked to the line on GitHub; without `--pr`, the file and
 section), the quote and the comment, to paste into GitHub. **Copy all as Markdown**, shown while you have
 comments, does that for all of them. Saving a comment shows it in place, with no
 rebuild; comments outlast rebuilds, accepts and server restarts.
 
-Revisits show the same way, as ✎ marks, one per thread: the revisits of one change, or of one quote, each
-request with Claude's answers from `answers.jsonl` under it. Asking again on the same change or quote
+Revisits show the same way, one thread per 💬 (✎ in its card): the revisits of one change, or of one quote,
+each request with Claude's answers from `answers.jsonl` under it. Asking again on the same change or quote
 adds to its thread. One on selected text keeps only its quote, so a view without it takes the text around
 it from a view that has it. A thread is **pending** (dashed) while its last request has no answer,
-**new** (filled and bold, counted in the header) while an answer is unread, until its card is opened, and
+**new** (filled and bold, counted unread in the header) while an answer is unread, until its card is opened, and
 **resolved** once the user says so: ✓ Resolve on its card or in the Review panel, or, on commits, by
 accepting (✓ looks good or ✓ reviewed) the change it is on, which resolves its answered threads; a thread
 whose last question has no answer yet stays open, and so does one on text outside a change or across
 several. ↺ not reviewed reopens the threads its accept resolved, not ones resolved by hand. On your own
-docs accepting resolves nothing. Asking again reopens a thread. A resolved thread folds to a faint dot in
-the text, which opens its card to ↺ Reopen, and in the panel into a folded Resolved group under the open
+docs accepting resolves nothing. Asking again reopens a thread. A resolved thread counts no more in its 💬,
+and alone it folds to a faint dot in the text, which opens its card to ↺ Reopen, and in the panel into a folded Resolved group under the open
 ones (Open / Resolved / All filter; the panel opens on Open). A thread's card keeps its header, the state with ✎ Ask more and ✓
 Resolve (↺ Reopen), at its top while a long thread scrolls under it; in the Review panel each entry has
 them on its first line, and a long entry folds to a few lines with Show more. On commits, a card whose
 thread is on one change still in To review leads with that change's accept, worded as the toolbar's (✓
-looks good, or ✓ reviewed on a commented change; `a` while the card is open) and doing the same: the
+looks good, or ✓ reviewed on a commented change; `a` while the card is open, and `r` asks more there) and doing the same: the
 change is reviewed and its answered threads resolve, this one with them unless its last question has no
 answer yet, as the button's title then says. ✓ Resolve is the smaller choice there, done asking but not
 done reviewing: it resolves this thread alone and leaves the change in To review. A card on unchanged
@@ -526,25 +538,25 @@ in `github.json`). With neither, every GitHub comment is someone else's.
 A line comment is placed on the diff by its `path`, `side` and `line`, the inverse of a change's GitHub
 button: the words of that source line, with the words around it, are matched against the diff's blocks,
 and the block whose matching run passes through the line holds it, on the change there or in unchanged
-text. Each thread (a comment and its replies) is a neutral speech-bubble mark with its count, next to
-✎ and 💬, in every view where its text reads, or else its block, as a 💬 is; clicking it opens it read only: author, time, the body as
+text. Each thread (a comment and its replies) goes in the 💬 at its place, counting each of its comments,
+in every view where its text reads, or else its block, as your comment does; in the card it is read only: author, time, the body as
 Markdown (rendered as answers are), the replies, and Open on GitHub ↗. Outdated comments, ones that
 could not be placed, the PR's own comments and review bodies are listed in the Review panel under
 On GitHub.
 
 **Posted.** A 💬 of yours whose text a GitHub comment has (spacing aside, or one holding the other) was
-posted: GitHub holds the real copy. Its mark has GitHub's glyph (a ✓ on a mark only ever means reviewed)
-and, when the thread there has replies, their count (`1↩`). Clicking it, or the amber ✓ 💬 chip of its
-reviewed change, opens it as GitHub's threads open, read only: "Your comment · posted 7 days ago · 1
+posted: GitHub holds the real copy. Its 💬 has GitHub's glyph (a ✓ on a mark only ever means reviewed)
+and, when the thread there has replies, their count (`1↩`). Its part of the card shows it as GitHub's
+threads show, read only: "Your comment · posted 7 days ago · 1
 reply", the text it is on, GitHub's copy of it, the replies, ✎ Draft a reply and Open on GitHub ↗; its
 Review panel entry is the same. Under them, **Local copy: edit · delete** act on the copy kept here alone:
 GitHub's stays as it is, and a copy edited past matching is no longer posted.
 
 **Yours** (your login known): a thread you wrote in, first or as a reply, is your comment on its change,
 as a 💬 is: accept there reads ✓ reviewed, the change counts in "with comments", and in settled Reviewed
-its wording has the dotted amber underline. Its mark is amber, still read only with Open on GitHub ↗, and
+its wording has the dotted amber underline. Its 💬 is amber, still read only with Open on GitHub ↗, and
 the Review panel names you "(you)". A 💬 is posted only by a comment of yours, and the thread holding that
-comment then shows as the 💬 alone, with no mark of its own.
+comment then shows as that 💬 alone, not counted twice.
 
 **Pushing, later** (not built). `review.json` as a pending review through `gh api`
 (`POST /repos/<owner>/<repo>/pulls/<N>/reviews` with `commit_id` the head and `comments: [{path, line,
