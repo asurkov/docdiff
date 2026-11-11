@@ -18,8 +18,9 @@ a sticky header with per-file change counts, "N of M to review · file", ↑ pre
 view, each either still **to review** or accepted (✓), and **Old** / **New**, each version clean, for
 rewrites too large to read inline; switching keeps the reader at the same place in the doc. In Diff, a
 **filter** picks which changes `n`/`p` step through and the status counts: **All**, **To review** (the
-default: the changes not accepted yet), **Accepted** (what the user has signed off) or **● N new since
-<rev>** ([Review rounds](#review-rounds)); it hides nothing, and a reload keeps it. `n`/`p` step from the
+default: the changes not accepted yet) or **Accepted** (what the user has signed off); beside it, **● N new
+since <rev>** ([Review rounds](#review-rounds)), pressed, narrows the filter to its changes new since the
+last review. It hides nothing, and a reload keeps both. `n`/`p` step from the
 current change; with none, from where the reader last clicked
 or selected, while that is on screen, and otherwise from the top of the screen. The header's first line says what is compared
 (Uncommitted edits, Commits, GitHub PR or Google Docs vs Markdown, with the repo) and names both sides:
@@ -100,7 +101,7 @@ Read them from the invocation, in any order:
    from the `127.0.0.1` page.
 4. Tell the user the files and change counts in one or two lines, and that `n`/`p` step through changes,
    `a` accepts one, `r` revisits a selection and `c` comments on it; with changes new since last review,
-   how many, and that `s` shows what changed in one since then.
+   how many, and how many of them are to review, and that `s` shows what changed in one since then.
 
 ## Accepts and revisits
 
@@ -180,8 +181,10 @@ review.
 
 **New since last review.** Each round also keeps **last**, the version last reviewed. A change that changed
 since then is new: a blue edge on it (its block's bar, or a bar beside the paragraph or item that holds an
-inline change), reviewed again or not. The filter's **● 11 new since 04041c3**, pressed, has `n`/`p` step
-through the new changes alone ("2 of 11 new"). A new change's popup has **Δ since 04041c3** (`s`): a
+inline change), reviewed again or not. Each filter's count has its new ones beside it in blue ("To review
+9 ●6", "Reviewed 45 ●3"), and **● 6 new since 04041c3** counts the ones in the filter on: pressed, it has
+`n`/`p` step through those alone ("2 of 6 new to review"), and it stays pressed across filters (All: every
+new change). A new change's popup has **Δ since 04041c3** (`s`): a
 card under it with the blocks of last-to-now that it holds, what changed in it since you reviewed it.
 
 **When a round starts.** last moves up to seen when the head moves on, if by then every change that was
@@ -242,7 +245,7 @@ below, with a link to its Google Doc, where it stands (committed or not, and aga
 links to its uncommitted edits on a second docdiff page and to what a push would change, and its open
 comments (`plugins/gdoc_docs.py`). A link to a docdiff page ending `#file=<name>` opens it at that doc, and `&view=<view>` (`old`, `new`)
 in that view, or `review`, `acc` or `diff` (the views before the filter) in Diff with the filter To
-review, Accepted or All; the docs list's "uncommitted edits ↗" opens it with All (`diff`), so `n`/`p`
+review, Accepted or All, and ● new off; the docs list's "uncommitted edits ↗" opens it with All (`diff`), so `n`/`p`
 step through every uncommitted change whatever has been accepted.
 For one doc, by hand:
 

@@ -611,7 +611,9 @@ del{background:var(--del);color:var(--delb);text-decoration:line-through}
 .blk[data-kind=add]{border-color:var(--insb)} .blk[data-kind=del]{border-color:var(--delb)} .blk[data-kind=rw]{border-color:var(--rw)}
 .blk[data-kind=del] .was .old{border-left:0;padding-left:0}
 .blk.fresh{border-left-color:var(--new)} .fresh-b{box-shadow:-10px 0 0 var(--bg),-13px 0 0 var(--new)} li.fresh-b,td.fresh-b,th.fresh-b{box-shadow:inset 3px 0 var(--new);padding-left:9px}
-#fresh::before{content:'';display:inline-block;width:8px;height:8px;margin-right:6px;border-radius:50%;background:var(--new)}
+#fresh::before,.nw::before{content:'';display:inline-block;width:8px;height:8px;margin-right:6px;border-radius:50%;background:var(--new)}
+.nw{margin-left:7px;font-size:12px;font-weight:400;opacity:.8} .nw::before{width:6px;height:6px;margin-right:3px;vertical-align:1px}
+.seg button[aria-pressed=true] .nw::before{background:color-mix(in srgb,var(--new) 60%,var(--bg))}
 #fresh[aria-pressed=true]{background:color-mix(in srgb,var(--new) 14%,var(--bg));border-color:var(--new);color:var(--new)}
 #since{position:absolute;z-index:3;overflow:auto;overscroll-behavior:contain;box-sizing:border-box;background:var(--bg);border:1px solid var(--line);border-left:3px solid var(--new);border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12);font-size:15px}
 #since[hidden]{display:none} #since .sch{position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--bg);border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}
@@ -666,17 +668,22 @@ const rounds=new Map([...document.querySelectorAll('script.round')].map(j=>[j.cl
 const blocks='p,li,dt,dd,td,th,h1,h2,h3,h4,h5,h6,pre,blockquote,figcaption';
 for(const x of groups){x.since=rounds.get(x.sec)?.fresh[x.k]||null;
 if(x.since)x.els.forEach(e=>{e.classList.add('fresh');if(!e.classList.contains('blk'))e.closest(blocks)?.classList.add('fresh-b');});}
-// The filter: which changes n and p step through and the status counts, all of them, the ones to review, the
-// reviewed ones, or the ones new since the last review. It hides nothing.
-const fb=$('fresh'),fresh=groups.some(x=>x.since),lasts=[...new Set([...rounds.values()].map(r=>r.last))];
-const fbs=[...document.querySelectorAll('#filt button')],inF={all:x=>true,todo:x=>!x.done,done:x=>x.done,new:x=>!!x.since},
-named={all:'changes',todo:'to review',done:W.accepted,new:'new'};
-if(!fresh)fb.remove();
-for(const b of fbs){const n=groups.filter(inF[b.dataset.f]).length;b.textContent=b===fb?n+' new since '+(lasts.length===1?lasts[0]:'last review'):b.textContent+' '+n;
-b.onclick=()=>filter(b.dataset.f);}
-let cur=body.dataset.view,c=null,anchor=null,mark=null,req=null,filt='todo';
-const gi=x=>groups.indexOf(x),L=()=>groups.filter(x=>x.view===cur&&inF[filt](x));
-function filter(f){filt=f;fbs.forEach(b=>b.setAttribute('aria-pressed',b.dataset.f===f));status();}
+// The filter: which changes n and p step through and the status counts, all of them, the ones to review or
+// the reviewed ones; ● new (onlyNew), pressed, narrows it to the ones in it new since the last review. It
+// hides nothing. Each filter's count has its new ones beside it, and ● new counts the ones in the filter on.
+const fb=$('fresh'),fresh=groups.some(x=>x.since),lasts=[...new Set([...rounds.values()].map(r=>r.last))],since=lasts.length===1?lasts[0]:'last review';
+const fbs=[...document.querySelectorAll('#filt button')],inF={all:x=>true,todo:x=>!x.done,done:x=>x.done},
+named={all:'changes',todo:'to review',done:W.accepted},count=(f,n)=>groups.filter(x=>inF[f](x)&&(!n||x.since)).length;
+if(fresh)fb.onclick=()=>filter(filt,!onlyNew);else fb.remove();
+for(const b of fbs){const f=b.dataset.f,n=count(f),m=fresh&&count(f,true);b.append(' '+n);
+if(m){b.append(Object.assign(document.createElement('span'),{className:'nw',textContent:m}));b.title=n+' '+named[f]+', '+m+' of them new since '+since;}
+b.onclick=()=>filter(f);}
+let cur=body.dataset.view,c=null,anchor=null,mark=null,req=null,filt='todo',onlyNew=false;
+const gi=x=>groups.indexOf(x),L=()=>groups.filter(x=>x.view===cur&&inF[filt](x)&&(!onlyNew||x.since)),said=()=>(onlyNew?'new ':'')+named[filt];
+function filter(f,o=onlyNew){filt=f;onlyNew=fresh&&o;fbs.forEach(b=>b.setAttribute('aria-pressed',b.dataset.f===f));
+if(fresh){const n=count(f),m=count(f,true);fb.textContent=m+' new since '+since;fb.setAttribute('aria-pressed',onlyNew);fb.disabled=!m&&!onlyNew;
+fb.title=onlyNew?'Stepping through the '+m+' of the '+n+' '+named[f]+' that are new since '+since+'; click for all '+n:'Step through only the '+m+' of the '+n+' '+named[f]+' that are new since '+since;}
+status();}
 // A change's removed (-) or added (+) text: an inline <del>/<ins>, or a whole block's old/new part.
 const part=(e,s)=>e.classList.contains('blk')?e.querySelector(s==='-'?'.old':'.now')?.textContent||'':e.tagName===(s==='-'?'DEL':'INS')?e.textContent:'';
 const txt=(x,s)=>x.els.map(e=>part(e,s)).join(' ').replace(/\\s+/g,' ').trim();
@@ -692,8 +699,8 @@ return (d>0?l.find(x=>r(x)?.bottom>y):l.findLast(x=>r(x)?.top<y))||null;}
 function status(){const l=L(),i=l.indexOf(c);prev.disabled=!step(-1);next.disabled=!step(1);
 const w=wordsOf(c),un=!!c?.done;acc.disabled=!c||cur!=='diff';acc.textContent=un?w.unaccept:w.accept;acc.classList.toggle('primary',!un);
 acc.title=un?w.unaccept_title:w.accept_title;
-pos.textContent=cur!=='diff'?W.select:i>=0?(i+1)+' of '+l.length+' '+named[filt]+' · '+c.file:
-c?'change '+(gi(c)+1)+' of '+groups.length+' · '+(c.done?W.accepted:'to review')+' · '+c.file:(l.length||'nothing')+' '+named[filt];}
+pos.textContent=cur!=='diff'?W.select:i>=0?(i+1)+' of '+l.length+' '+said()+' · '+c.file:
+c?'change '+(gi(c)+1)+' of '+groups.length+' · '+(c.done?W.accepted:'to review')+(c.since?' · new':'')+' · '+c.file:(l.length||'nothing')+' '+said();}
 function focus(x,scroll=true){hidePop();if(c)c.els.forEach(e=>e.classList.remove('cur'));c=x;if(x){anchor=x;mark=null;}
 if(c){c.els.forEach(e=>e.classList.add('cur'));if(scroll)c.els.find(e=>e.offsetParent)?.scrollIntoView({block:'center',behavior:'smooth'});}status();}
 function go(d){const x=step(d);if(x)focus(x);}
@@ -838,13 +845,14 @@ const a=actsOf(c).find(a=>a[1]===e.key);if(a)open(a[2],'_blank','noopener');});
 history.scrollRestoration='manual';
 function place(){const secs=[...document.querySelectorAll('section')];
 for(const x of secs){const b=x.getBoundingClientRect();if(b.bottom>80)return{file:x.dataset.file,r:Math.max(0,80-b.top)/Math.max(1,b.height)};}return null;}
-addEventListener('pagehide',()=>{try{sessionStorage.setItem(sk('docdiff'),JSON.stringify({view:cur,filter:filt,at:place(),c:c&&[c.file,c.k],ci:c?L().indexOf(c):-1,a:anchor&&[anchor.file,anchor.k]}));}catch(e){}});
-// The views before the filter, To review, Reviewed and Diff, are its filters now.
-const was={review:'todo',acc:'done',diff:'all'},filterOk=f=>!!inF[f]&&(f!=='new'||fresh);
+addEventListener('pagehide',()=>{try{sessionStorage.setItem(sk('docdiff'),JSON.stringify({view:cur,filter:filt,fresh:onlyNew,at:place(),c:c&&[c.file,c.k],ci:c?L().indexOf(c):-1,a:anchor&&[anchor.file,anchor.k]}));}catch(e){}});
+// The views before the filter, To review, Reviewed and Diff, are its filters now; the filter new before ● new
+// was the filter All with ● new.
+const was={review:'todo',acc:'done',diff:'all'};
 function restore(){let st=null;try{st=JSON.parse(sessionStorage.getItem(sk('docdiff')));}catch(e){}if(!st)return;
 const find=p=>p&&groups.find(x=>x.view===cur&&x.file===p[0]&&x.k===p[1])||null;
 if(views.includes(st.view)&&st.view!==cur){body.classList.replace('show-'+cur,'show-'+st.view);cur=st.view;vb.forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===cur));}
-const f=st.filter||(st.fresh?'new':was[st.view]);if(filterOk(f))filt=f;
+const f=st.filter==='new'?'all':st.filter||was[st.view];if(inF[f])filt=f;onlyNew=fresh&&(!!st.fresh||st.filter==='new');
 anchor=find(st.a);const x=find(st.c)||(st.c&&L()[Math.min(st.ci,L().length-1)]);if(x)focus(x,false);
 const back=()=>{const s=st.at&&[...document.querySelectorAll('section')].find(z=>z.dataset.file===st.at.file);
 if(s){const b=s.getBoundingClientRect();scrollTo(0,scrollY+b.top+st.at.r*b.height-80);}};
@@ -855,7 +863,7 @@ restore();filter(filt);
 // and &view=<view> in that view, or with the filter that view was before (review, acc, diff).
 {const at=()=>{const q=new URLSearchParams(location.hash.slice(1)),want=q.get('file')||'',s=want&&[...document.querySelectorAll('section')].find(s=>s.dataset.file===want);
 if(!want)return;history.replaceState(null,'',location.pathname);const v=q.get('view');
-if(was[v]){view('diff');filter(was[v]);}else if(views.includes(v))view(v);
+if(was[v]){view('diff');filter(was[v],false);}else if(views.includes(v))view(v);
 const go=()=>scrollTo(0,s.getBoundingClientRect().top+scrollY-document.querySelector('header').offsetHeight-8);
 if(s)document.readyState==='complete'?go():addEventListener('load',go);};at();addEventListener('hashchange',at);}
 '''
@@ -1164,15 +1172,15 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
            if commits else '')
     buttons = [('diff', 'Diff'), ('old', 'Old'), ('new', 'New')]
     seg = ''.join(f'<button data-v="{v}" aria-pressed="{str(v == "diff").lower()}">{label}</button>' for v, label in buttons)
-    # The filter: which changes n and p step through, and the status counts.
-    filters = [('all', 'All'), ('todo', 'To review'), ('done', words['Accepted']), ('new', '')]
-    filt = ''.join(f'<button data-f="{f}"{" id=fresh" if f == "new" else ""} aria-pressed="false">{label}</button>' for f, label in filters)
+    # The filter: which changes n and p step through, and the status counts; ● new narrows it to the new ones.
+    filters = [('all', 'All'), ('todo', 'To review'), ('done', words['Accepted'])]
+    filt = ''.join(f'<button data-f="{f}" aria-pressed="false">{label}</button>' for f, label in filters)
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{html.escape(title)}</title><style>{STYLE}{"".join(getattr(m, 'STYLE', '') for m in PLUGINS)}</style></head><body class="show-diff" data-view="diff" data-repo="{html.escape(str(repo))}" data-build="{build_id}">
 <header><span class="what"><b>{shown}</b><span class="n"> · Old: {html.escape(side(repo, base))} — New: {html.escape(new_label or side(repo, head))}</span></span>
 {" · ".join(nav)}<span style="flex:1"></span>
 <span class="seg" data-key="v" title="v cycles the views: the diff, and the old and new versions clean">{seg}</span>
-<div class="bar"><span id="pos" class="n"></span><span class="tools"><span id="filt" class="seg step">{filt}</span><span class="pair step"><button id="prev" class="step" data-key="p" title="Previous change (p or k)">↑ prev</button><button id="next" class="step" data-key="n" title="Next change (n or j)">next change ↓</button></span>
+<div class="bar"><span id="pos" class="n"></span><span class="tools"><span id="filt" class="seg step">{filt}</span><button id="fresh" class="step" aria-pressed="false"></button><span class="pair step"><button id="prev" class="step" data-key="p" title="Previous change (p or k)">↑ prev</button><button id="next" class="step" data-key="n" title="Next change (n or j)">next change ↓</button></span>
 <button id="acc" class="step primary" data-key="a">{words['accept']}</button><button id="rev" data-key="r" title="{words['revisit_title']}">{words['revisit']}</button>{pub}{cmt}</span></div></header>
 <main>{page_top(run)}{"".join(sections)}</main>
 <div id="rp" class="panel" hidden><div id="rx" class="n" hidden></div><blockquote id="rq"></blockquote><textarea id="rt" placeholder="{words['question']}"></textarea>
