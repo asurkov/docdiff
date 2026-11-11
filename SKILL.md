@@ -278,7 +278,9 @@ python3 -I ~/.claude/skills/docdiff/docdiff.py --restart
 ```
 
 `--stop` stops it, and `--port N` (with `--serve`, `--restart` or `--stop`) works with another server on
-port N instead, a test's say, which serves the same reviews.
+port N instead, a test's say, which serves the same reviews. `DOCDIFF_HOME=<dir>` keeps the reviews, the
+clones and the server's log in `<dir>` instead of `~/.docdiff`, so a test server on another port neither
+sees nor writes the reviews in use.
 
 **Keeping it running.** `--install-agent` prints a LaunchAgent, `com.asurkov.docdiff`, which starts the
 server at login and again whenever it stops, its PATH set to find pandoc and git, its output in the same

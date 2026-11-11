@@ -34,8 +34,9 @@ links changes to a GitHub PR (--pr), review.py keeps review comments and shows r
 import argparse, base64, difflib, hashlib, html, http.server, importlib.util, json, mimetypes, os, pathlib, plistlib
 import re, shlex, shutil, signal, subprocess, sys, threading, time, traceback, urllib.parse, urllib.request, webbrowser
 
-# Every review's dir, <name>, and the clones of PRs' repos (clones/); the umbrella server's log.
-HOME = pathlib.Path.home() / '.docdiff'
+# Every review's dir, <name>, and the clones of PRs' repos (clones/); the umbrella server's log. DOCDIFF_HOME
+# puts them elsewhere, for a test server that must not see the reviews in use.
+HOME = pathlib.Path(os.environ.get('DOCDIFF_HOME') or pathlib.Path.home() / '.docdiff').expanduser()
 # The umbrella server's port, so a review's address outlives restarts.
 PORT = 7878
 NAME = re.compile(r'[A-Za-z0-9_][A-Za-z0-9_.-]*')
