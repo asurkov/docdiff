@@ -15,7 +15,7 @@ section are one change, all its old text first, then all its new, each in one bo
 paragraphs and list items together; only a change of one-to-one rewrites keeps each old paragraph above its new one. The page has
 a sticky header with per-file change counts, "change N of M · file", ↑ prev / next change ↓ buttons and
 `n`/`p` (or `j`/`k`) keys, and a view switch (`v` cycles): **To review** (the default: the working tree
-against the accepted copy, so only what changed since the last accepts), **Accepted** (base against the
+against the accepted copy, so only the changes not accepted yet), **Accepted** (base against the
 accepted copy: what the user has signed off), **Diff vs base** (everything, read-only), and **Old** /
 **New**, each version clean, for rewrites too large to read inline; switching keeps the reader at the
 same place in the doc. `n`/`p` step from the current change; with none, from where the reader last clicked
@@ -29,6 +29,8 @@ is the files at that revision instead of the working tree (a PR, say). A changed
 
 **Accept** (`a`, or the ✓ button; "accept file" on each file's bar) moves the current change into the
 accepted copy, and the page reloads without it; in Accepted, the same key (↺) takes a change back out.
+When the head or the base moves, accepted changes the move left alone stay accepted, and the ones it
+touched come back with a blue edge, **new since last review** ([Review rounds](#review-rounds)).
 Clicking a change makes it current and opens a small popup under it: ✓ (or ↺), ✎ revisit and the buttons
 plugins add, such as 💬 comment ([Review comments](#review-comments)) and GitHub ↗ for a PR
 ([Plugins](#plugins)); selecting text pops up ✎ and 💬. **Revisit** (`r`, or the
@@ -91,7 +93,8 @@ Read them from the invocation, in any order:
    `localhost`, where the server gives out a spec's sources and nothing else, and it takes posts only
    from the `127.0.0.1` page.
 4. Tell the user the files and change counts in one or two lines, and that `n`/`p` step through changes,
-   `a` accepts one, `r` revisits a selection and `c` comments on it.
+   `a` accepts one, `r` revisits a selection and `c` comments on it; with changes new since last review,
+   how many, and that `s` shows what changed in one since then.
 
 ## Accepts and revisits
 
@@ -99,11 +102,16 @@ The server writes both into the review's dir, `<out>`:
 
 - `accepted/<file>.html` — the accepted copy: the file as the user has accepted it, rendered. It starts as
   the base; each accept moves one change in, each unaccept takes one out, and the server rebuilds the page.
-  An edit to accepted text then shows in To review as just that edit. When the base moves (a commit, a
-  new export), the accepted changes that still read the same carry over onto it and the others come back
-  to review, so the copy never keeps text the new base dropped (`<file>.base` records the base commit).
-  (`accepted.json`, the older store of accepted change keys, seeds the copy once with the changes that
-  still match.)
+  `<file>.base` records the base commit. When the head or the base moves (an edit, a push, a commit, a
+  new export), the copy is carried over by position ([Review rounds](#review-rounds)): accepted changes
+  the move left alone stay, the ones it touched come back to review whole, and the copy never keeps text
+  the new base dropped. Beside it, its round: `<file>.round.json` (`seen`, the head the copy goes with,
+  and `last`, the version last reviewed, each `{id, time}`, `id` a commit or `tree:<hash>` for the working
+  tree) and those versions rendered, `<file>.seen.html` and `<file>.last.html`. Before a new round rewrites
+  them, they go to `<out>/backup/<time>/accepted/` (the last 20 kept). A copy from before rounds, with no
+  `seen` yet, gets one on the next build, unchanged; on a base move it carries over by its changes' words
+  around them once more. (`accepted.json`, the older store of accepted change keys, seeds the copy once
+  with the changes that still match.)
 - `revisit.jsonl` — one request per line: `time`, `file`, `section`, `quote`, `view`, `prompt`, `key` (the
   change's, for a revisit of a change) and `text` (the prompt as copied to the clipboard). One asked from a
   thread ([Review comments](#review-comments)) also has `thread`, its thread's first revisit's time: a
@@ -152,6 +160,37 @@ append the answer to `answers.jsonl`, then start the next wait at once.
 ```bash
 sh -c 'd=$HOME/.docdiff/<name>; f=$d/revisit.jsonl; touch "$f"; n=$(($(wc -l < "$f"))); while [ $(($(wc -l < "$f"))) -le $n ]; do touch "$d/watcher"; sleep 1; done; tail -n +$((n+1)) "$f"'
 ```
+
+## Review rounds
+
+GitHub's "changes since your last review", for every file of a review. The accepted copy goes with the
+head it was made for, its round's **seen** (the head commit, or for the working tree a hash of its render).
+When the head moves (a push, an edit) or the base does (main merged in), the server diffs seen against the
+new head and lays that over the new base-to-head diff, both having the head as their new side: each
+change the move left alone keeps its ✓ if it had one, found by where it is (its text traced back through
+the text the move did not touch), not by the words around it, which an edit nearby or a moved base
+changes; a change the move touched comes back to To review whole, and so does one that was still to
+review.
+
+**New since last review.** Each round also keeps **last**, the version last reviewed. A change that changed
+since then is new: a blue edge on it (its block's bar, or a bar beside the paragraph or item that holds an
+inline change), in every view that has it, so in Reviewed too once it is reviewed again. The header's
+**● 11 new since 04041c3** (this view's count) is a filter: pressed, `n`/`p` step through the new changes
+alone ("new change 2 of 11"), and a reload keeps it. A new change's popup has **Δ since 04041c3** (`s`): a
+card under it with the blocks of last-to-now that it holds, what changed in it since you reviewed it.
+
+**When a round starts.** last moves up to seen when the head moves on, if by then every change that was
+new had been reviewed (or there was no last yet); if one was still to review, last stays, and what the next
+update changes adds to what is new. So "last reviewed" is the last version you had finished, before the
+author pushed again, as on GitHub, where it is the commit your review was on; no button to remember, no
+blue edge that vanishes the moment the last new change is reviewed, while you may still want to reread it,
+and no update can hide one you have not reviewed yet.
+
+**From a review done before.** `--reviewed-at <rev>` (on that run only; reruns do not repeat it) makes rev
+the version each changed file was last reviewed at, for a review from before rounds, or one done on GitHub:
+what changed since rev is new, and what is reviewed stays as it is; a round there was goes to
+`<out>/backup` first. A spec's rev renders in the page first ("rendering 04041c3, last reviewed, with
+ReSpec…"), and so does any version a round names that is not rendered yet.
 
 ## ReSpec specs
 

@@ -2,7 +2,7 @@
 """Render a repo's uncommitted Markdown changes against a base revision as one inline-diff page.
 
 Usage: docdiff.py [--repo PATH] [--base REV] [--head REV] [--name NAME] [--out DIR] [--new-label TEXT]
-                  [--publish CMD] [--serve] [--port N] [plugins' options] [paths...]
+                  [--publish CMD] [--reviewed-at REV] [--serve] [--port N] [plugins' options] [paths...]
        docdiff.py --umbrella | --restart | --stop | --install-agent [--port N]
 
 paths are pathspecs relative to the repo root (default: every *.md, and the files plugins make docs of).
@@ -14,9 +14,11 @@ the repo's name and the PR's number) and keeps its page and state in ~/.docdiff/
 /<name>/ on 127.0.0.1:7878 (--port), with an index of them at /. With --serve, the review is built,
 the umbrella server started if it is not running, and "URL: ..." printed. The server stores what the page
 sends in the review's dir: accepted/<file>.html, the file as accepted so far, which To review is diffed
-against; revisit requests in revisit.jsonl. It runs docdiff's code as it is on disk at each request;
---restart restarts it (needed only after a change to the server itself), --stop stops it, and
---install-agent prints a LaunchAgent that keeps it running.
+against; revisit requests in revisit.jsonl. When the head or the base moves, the accepted copy is carried
+over by where its changes are, and what changed since the last review is new, with a blue edge (see
+accepted_html(), next_round()); --reviewed-at REV makes REV the version last reviewed. It runs docdiff's
+code as it is on disk at each request; --restart restarts it (needed only after a change to the server
+itself), --stop stops it, and --install-agent prints a LaunchAgent that keeps it running.
 
 The page's header says what is compared (a plugin's title(), or else commits or the uncommitted edits)
 and names both sides: a revision with its commit, or the working tree; --new-label TEXT names the new
@@ -415,6 +417,89 @@ def apply(pieces, side, flip):
     return wrap_lists(items)
 
 
+def news(last, new_html, k, diffed, reviewing, reviewed):
+    """What changed since the last review (last, rendered): per view, each change it touches, with the
+    changes of last to now that touch it, {view: {key: [since keys]}}, a change in Reviewed found on the
+    head through To review; and the blocks of last to now that changed, for the page to show what changed
+    in a change since its last review."""
+    since = block_diff(last, new_html, f's{k}')
+    hit, todo = [(c, s, e) for c, _, _, s, e in places(since) if c], places(reviewing)
+    fresh = {}
+    for v, ps, onto in (('diff', places(diffed), None), ('review', todo, None), ('acc', places(reviewed), todo)):
+        fresh[v] = {}
+        for c, ss in by_key(ps).items():
+            if onto:
+                ss = [(across(onto, s, False), across(onto, e, False)) for s, e in ss]
+                if any(None in x for x in ss):
+                    continue
+            got = list(dict.fromkeys(h for h, s, e in hit if meets(ss, [(s, e)])))
+            if got:
+                fresh[v][c] = got
+    return fresh, wrap_lists([b for b in split_blocks(since[0]) if 'data-k="' in b[1]])
+
+
+def places(diffed):
+    """Where the parts of a block_diff() are: [(change key or None, old start, old end, new start, new end)],
+    in tokens of each side's blocks put together, so two diffs with the same new side (a review round's and
+    the PR's) can be laid over each other. A change with nothing to show (a link target) counts as none."""
+    page, _, pieces = diffed
+    shown, out, o, n = set(re.findall(r'data-k="(\w+)"', page)), [], 0, 0
+    for _, _, parts in pieces:
+        for k, a, b in parts:
+            da, db = len(TOKEN.findall(a)), len(TOKEN.findall(b))
+            out.append((k if k in shown else None, o, o + da, n, n + db))
+            o, n = o + da, n + db
+    return out
+
+
+def meets(xs, ys):
+    """Whether any stretch [start, end) of xs meets one of ys: they overlap, or an empty one (where text was
+    removed) is inside the other or at its ends."""
+    def one(a, b):
+        if a[0] == a[1]:
+            return b[0] <= a[0] <= b[1]
+        if b[0] == b[1]:
+            return a[0] <= b[0] <= a[1]
+        return a[0] < b[1] and b[0] < a[1]
+    return any(one(x, y) for x in xs for y in ys)
+
+
+def across(ps, x, back=True):
+    """Where position x of a diff's new side is on its old side (back), or the other way round, through
+    the text the diff left alone; None inside a change."""
+    for k, o0, o1, n0, n1 in ps:
+        a0, a1, b0, b1 = (n0, n1, o0, o1) if back else (o0, o1, n0, n1)
+        if not k and a0 <= x <= a1:
+            return min(b0 + x - a0, b1)
+    return None
+
+
+def by_key(ps, side=3):
+    """The stretches of each change of a diff on one side (3 new, 1 old): {key: [(start, end)]}."""
+    out = {}
+    for p in ps:
+        if p[0]:
+            out.setdefault(p[0], []).append((p[side], p[side + 1]))
+    return out
+
+
+def carry(copy, seen, old_html, new_html):
+    """The accepted copy once the head (or the base) has moved from seen: each change of base to head that
+    the move left alone, and that was reviewed at seen, stays reviewed, found by where it is (its text
+    traced back through what the move left alone) rather than by its words; one the move touched comes
+    back to review, whole, and so does one that was still to review."""
+    moved = places(block_diff(seen, new_html, 'x'))
+    hit = [(s, e) for k, _, _, s, e in moved if k]
+    todo = [(s, e) for k, _, _, s, e in places(block_diff(copy, seen, 'x')) if k]
+    diffed = block_diff(old_html, new_html, 'x')
+    keep = set()
+    for k, ss in by_key(places(diffed)).items():
+        then = [(across(moved, s), across(moved, e)) for s, e in ss]
+        if not meets(ss, hit) and all(None not in t for t in then) and not meets(then, todo):
+            keep.add(k)
+    return apply(diffed[2], 'old', keep)
+
+
 # The actions' words. On your own docs (the working tree, or a Google Doc's export) an accept takes a change
 # into the accepted copy and a revisit asks for an edit; on commits (--head: a PR, say) there is nothing to
 # edit, so an accept only records that the change was reviewed, and a revisit is a question about it.
@@ -438,8 +523,8 @@ WORDS = {
 }
 
 STYLE = '''
-:root{--bg:#fff;--fg:#1f2328;--muted:#59636e;--line:#d1d9e0;--ins:#dafbe1;--insb:#1a7f37;--del:#ffebe9;--delb:#cf222e;--rw:#bf8700;--code:#f6f8fa;--link:#0969da;--btn:#f6f8fa;--btnh:#eff2f5}
-@media (prefers-color-scheme: dark){:root{--bg:#0d1117;--fg:#e6edf3;--muted:#9198a1;--line:#3d444d;--ins:#033a16;--insb:#3fb950;--del:#4b1113;--delb:#f85149;--rw:#d29922;--code:#161b22;--link:#4493f8;--btn:#212830;--btnh:#262c36}}
+:root{--bg:#fff;--fg:#1f2328;--muted:#59636e;--line:#d1d9e0;--ins:#dafbe1;--insb:#1a7f37;--del:#ffebe9;--delb:#cf222e;--rw:#bf8700;--code:#f6f8fa;--link:#0969da;--btn:#f6f8fa;--btnh:#eff2f5;--new:#0969da}
+@media (prefers-color-scheme: dark){:root{--bg:#0d1117;--fg:#e6edf3;--muted:#9198a1;--line:#3d444d;--ins:#033a16;--insb:#3fb950;--del:#4b1113;--delb:#f85149;--rw:#d29922;--code:#161b22;--link:#4493f8;--btn:#212830;--btnh:#262c36;--new:#4493f8}}
 body{background:var(--bg);color:var(--fg);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0}
 main{max-width:920px;margin:0 auto;padding:16px 16px 40vh;overflow-wrap:anywhere}
 header{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 16px;z-index:1;display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;font-size:14px}
@@ -457,6 +542,12 @@ del{background:var(--del);color:var(--delb);text-decoration:line-through}
 .blk{border-left:3px solid var(--line);padding-left:10px;margin-left:-13px} li.blk{margin-left:0;padding-left:6px}
 .blk[data-kind=add]{border-color:var(--insb)} .blk[data-kind=del]{border-color:var(--delb)} .blk[data-kind=rw]{border-color:var(--rw)}
 .blk[data-kind=del] .was .old{border-left:0;padding-left:0}
+.blk.fresh{border-left-color:var(--new)} .fresh-b{box-shadow:-10px 0 0 var(--bg),-13px 0 0 var(--new)} li.fresh-b,td.fresh-b,th.fresh-b{box-shadow:inset 3px 0 var(--new);padding-left:9px}
+#fresh::before{content:'';display:inline-block;width:8px;height:8px;margin-right:6px;border-radius:50%;background:var(--new)}
+#fresh[aria-pressed=true]{background:color-mix(in srgb,var(--new) 14%,var(--bg));border-color:var(--new);color:var(--new)}
+#since{position:absolute;z-index:3;overflow:auto;overscroll-behavior:contain;box-sizing:border-box;background:var(--bg);border:1px solid var(--line);border-left:3px solid var(--new);border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12);font-size:15px}
+#since[hidden]{display:none} #since .sch{position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--bg);border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}
+#since .sch button{margin-left:auto;padding:0 8px;font-size:13px} #since .scb{padding:2px 12px 8px 16px} #since .chg{cursor:default}
 .was summary{color:var(--muted);font-size:13px;cursor:pointer} .was summary~*{margin-top:4px}
 .was .old{color:var(--muted);border-left:2px solid var(--delb);padding-left:8px} .old>:first-child,.now>:first-child{margin-top:0}
 code{background:var(--code);padding:1px 4px;border-radius:4px;font-size:90%}
@@ -502,8 +593,16 @@ const groups=[],byG=new Map();
 for(const e of document.querySelectorAll('.v-review .chg,.v-acc .chg,.v-diff .chg')){const v=e.closest('.v').dataset.view;
 let x=byG.get(v+e.dataset.g);if(!x){const s=e.closest('section');x={k:e.dataset.k,file:s.dataset.file,sec:s,view:v,els:[]};
 byG.set(v+e.dataset.g,x);groups.push(x);}x.els.push(e);}
+// What changed since the last review (see news()): per doc and view, the changes it touched, each with the
+// changes of last review to now in it (x.since). Each is new: a blue edge on it, or on the block it is in.
+const rounds=new Map([...document.querySelectorAll('script.round')].map(j=>[j.closest('section'),JSON.parse(j.textContent)]));
+const blocks='p,li,dt,dd,td,th,h1,h2,h3,h4,h5,h6,pre,blockquote,figcaption';
+for(const x of groups){x.since=rounds.get(x.sec)?.fresh[x.view]?.[x.k]||null;
+if(x.since)x.els.forEach(e=>{e.classList.add('fresh');if(!e.classList.contains('blk'))e.closest(blocks)?.classList.add('fresh-b');});}
+// The header's New since last review: on, n and p step through the new changes alone.
+const fb=$('fresh'),fresh=groups.some(x=>x.since),lasts=[...new Set([...rounds.values()].map(r=>r.last))];let onlyNew=false;
 let cur=body.dataset.view,c=null,anchor=null,mark=null,req=null;
-const gi=x=>groups.indexOf(x),L=()=>groups.filter(x=>x.view===cur),verb={review:'accept',acc:'unaccept'};
+const gi=x=>groups.indexOf(x),L=()=>groups.filter(x=>x.view===cur&&(!onlyNew||x.since)),verb={review:'accept',acc:'unaccept'};
 // A change's removed (-) or added (+) text: an inline <del>/<ins>, or a whole block's old/new part.
 const part=(e,s)=>e.classList.contains('blk')?e.querySelector(s==='-'?'.old':'.now')?.textContent||'':e.tagName===(s==='-'?'DEL':'INS')?e.textContent:'';
 const txt=(x,s)=>x.els.map(e=>part(e,s)).join(' ').replace(/\\s+/g,' ').trim();
@@ -518,8 +617,9 @@ return (d>0?l.find(x=>r(x)?.bottom>y):l.findLast(x=>r(x)?.top<y))||null;}
 function status(){const l=L(),i=l.indexOf(c);prev.disabled=!step(-1);next.disabled=!step(1);
 const w=wordsOf(c);acc.disabled=!c||!verb[cur];acc.textContent=cur==='acc'?w.unaccept:w.accept;acc.classList.toggle('primary',cur!=='acc');
 acc.title=cur==='acc'?w.unaccept_title:w.accept_title;
-pos.textContent=cur==='old'||cur==='new'?W.select:i>=0?'change '+(i+1)+' of '+l.length+' · '+c.file:
-(l.length||'nothing')+({review:' to review',acc:' '+W.accepted}[cur]||' changes');}
+fb.hidden=!fresh;fb.textContent=groups.filter(x=>x.view===cur&&x.since).length+' new since '+(lasts.length===1?lasts[0]:'last review');
+pos.textContent=cur==='old'||cur==='new'?W.select:i>=0?(onlyNew?'new change ':'change ')+(i+1)+' of '+l.length+' · '+c.file:
+(l.length||'nothing')+(onlyNew?' new':'')+({review:' to review',acc:' '+W.accepted}[cur]||' changes');}
 function focus(x,scroll=true){hidePop();if(c)c.els.forEach(e=>e.classList.remove('cur'));c=x;if(x){anchor=x;mark=null;}
 if(c){c.els.forEach(e=>e.classList.add('cur'));if(scroll)c.els.find(e=>e.offsetParent)?.scrollIntoView({block:'center',behavior:'smooth'});}status();}
 function go(d){const x=step(d);if(x)focus(x);}
@@ -559,11 +659,29 @@ try{const r=await fetch('commit',{method:'POST',headers:{'Content-Type':'applica
 catch(e){t='✗ '+e.message;}cx.textContent=t;cs.textContent='Done';cs.disabled=false;cs.dataset.done=1;cc.hidden=true;cs.focus();};
 cm.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter'){e.preventDefault();cs.click();}if(e.key==='Escape')cc.click();});}
 function hidePop(){pop.hidden=true;popX=null;}
+fb.title='Changed since your last review, at '+lasts.join(', ')+': n and p step through these alone while this is on. '+
+'Once every new change is reviewed, the next update counts from the version you have now.';
+fb.onclick=()=>{onlyNew=!onlyNew;fb.setAttribute('aria-pressed',onlyNew);if(c&&onlyNew&&!c.since)focus(null,false);else status();};
+// A new change's diff since its last review: the blocks of last review to now that it holds, in a card under it.
+const sc=$('since'),psn=$('psn');
+function showSince(x){if(!x?.since)return;const t=x.sec.querySelector('template.since'),bs=[];hidePop();
+for(const k of x.since)for(const e of t.content.querySelectorAll('.chg[data-k="'+k+'"]')){let b=e;
+while(b.parentNode!==t.content&&!(b.tagName==='LI'&&b.parentNode.parentNode===t.content))b=b.parentNode;if(!bs.includes(b))bs.push(b);}
+const h=document.createElement('div'),bd=document.createElement('div'),close=document.createElement('button');let list=null;
+h.className='sch';h.textContent='What changed here since your review at '+rounds.get(x.sec).last;close.textContent='×';close.title='Close (esc)';
+close.onclick=()=>{sc.hidden=true;};h.append(close);bd.className='scb';
+for(const b of bs){if(b.tagName!=='LI'){list=null;bd.append(b.cloneNode(true));continue;}
+if(!list||list.from!==b.parentNode){list=b.parentNode.cloneNode(false);list.from=b.parentNode;bd.append(list);}list.append(b.cloneNode(true));}
+sc.replaceChildren(h,bd);sc.hidden=false;const r=(x.els.find(e=>e.offsetParent)||x.els[0]).getBoundingClientRect(),w=Math.min(760,innerWidth-16);
+sc.style.width=w+'px';sc.style.maxHeight=Math.max(160,innerHeight*.6)+'px';sc.style.left=Math.max(8,Math.min(r.left,innerWidth-w-8))+scrollX+'px';
+sc.style.top=r.bottom+scrollY+6+'px';sc.scrollTop=0;sc.scrollIntoView({block:'nearest',behavior:'smooth'});}
+document.addEventListener('click',e=>{if(!e.target.closest('#since,#pop'))sc.hidden=true;});
 // Plugins' buttons per change (see load_plugins): [label, key, href], href opened in a new tab.
 const acts=new Map([...document.querySelectorAll('script.acts')].map(j=>[j.closest('section'),JSON.parse(j.textContent)]));
 const actsOf=x=>x&&acts.get(x.sec)?.[x.k]||[];let popX=null;
 // Under a clicked change x: accept, revisit and the plugins' buttons. Under the end of a text selection: revisit only.
-function showPop(r,withAccept,x){pa.hidden=!withAccept;pa.textContent=cur==='acc'?'↺':'✓';pa.title=cur==='acc'?wordsOf(x).unaccept_key:wordsOf(x).accept_key;popX=x||null;
+function showPop(r,withAccept,x){pa.hidden=!withAccept;psn.hidden=!x?.since;if(x?.since){const l=rounds.get(x.sec).last;
+psn.textContent='Δ since '+l;psn.title='What changed in it since your review at '+l+' (s)';}pa.textContent=cur==='acc'?'↺':'✓';pa.title=cur==='acc'?wordsOf(x).unaccept_key:wordsOf(x).accept_key;popX=x||null;
 pop.querySelectorAll('.act').forEach(b=>b.remove());
 for(const[label,key,href]of actsOf(x)){const b=document.createElement('a');b.className='act';b.textContent=label;b.title=label+' ('+key+')';
 b.href=href;b.target='_blank';b.rel='noopener';b.onmousedown=e=>e.preventDefault();b.onclick=hidePop;pop.append(b);}
@@ -594,10 +712,10 @@ if(s.isCollapsed||!s.rangeCount){if(!popX)hidePop();return;}
 if(!s.anchorNode.parentElement?.closest('main .v'))return;
 mark=e.clientY+scrollY;if(!c)status();
 const rs=s.getRangeAt(0).getClientRects();if(rs.length)showPop(rs[rs.length-1],false);});});
-[pa,pr].forEach(b=>b.onmousedown=e=>e.preventDefault());
-pa.onclick=()=>{hidePop();accept();};pr.onclick=()=>{hidePop();openRev(grab());};
+[pa,pr,psn].forEach(b=>b.onmousedown=e=>e.preventDefault());
+pa.onclick=()=>{hidePop();accept();};pr.onclick=()=>{hidePop();openRev(grab());};psn.onclick=()=>showSince(popX);
 const vb=[...document.querySelectorAll('.seg button')],views=vb.map(b=>b.dataset.v);
-function view(v){if(v===cur)return;hidePop();
+function view(v){if(v===cur)return;hidePop();sc.hidden=true;
 const secs=[...document.querySelectorAll('section')];let s=secs[0],r=0;
 for(const x of secs){const b=x.getBoundingClientRect();if(b.bottom>80){s=x;r=Math.max(0,80-b.top)/Math.max(1,b.height);break;}}
 body.classList.replace('show-'+cur,'show-'+v);cur=v;vb.forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===v));
@@ -636,21 +754,22 @@ $('rs').onclick=send;$('rc').onclick=closeRev;
 rt.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();send();}if(e.key==='Escape')closeRev();});
 next.onclick=()=>go(1);prev.onclick=()=>go(-1);acc.onclick=accept;vb.forEach(b=>b.onclick=()=>view(b.dataset.v));
 document.addEventListener('keydown',e=>{if(e.target.closest('input,textarea')||e.metaKey||e.ctrlKey||e.altKey)return;
-if(e.key==='Escape')hidePop();
+if(e.key==='Escape'){hidePop();sc.hidden=true;}
 if(e.key==='v')view(views[(views.indexOf(cur)+1)%views.length]);
 if(e.key==='r'){e.preventDefault();openRev(grab());}
 if(cur==='old'||cur==='new')return;
-if(e.key==='n'||e.key==='j')go(1);if(e.key==='p'||e.key==='k')go(-1);if(e.key==='a')accept();
+if(e.key==='n'||e.key==='j')go(1);if(e.key==='p'||e.key==='k')go(-1);if(e.key==='a')accept();if(e.key==='s')showSince(c);
 const a=actsOf(c).find(a=>a[1]===e.key);if(a)open(a[2],'_blank','noopener');});
 // Every reload keeps the view, the current change and the place in the doc; a rebuild reloads the page,
 // unless a panel is open (a revisit, or a plugin's, being typed).
 history.scrollRestoration='manual';
 function place(){const secs=[...document.querySelectorAll('section')];
 for(const x of secs){const b=x.getBoundingClientRect();if(b.bottom>80)return{file:x.dataset.file,r:Math.max(0,80-b.top)/Math.max(1,b.height)};}return null;}
-addEventListener('pagehide',()=>{try{sessionStorage.setItem(sk('docdiff'),JSON.stringify({view:cur,at:place(),c:c&&[c.file,c.k],ci:c?L().indexOf(c):-1,a:anchor&&[anchor.file,anchor.k]}));}catch(e){}});
+addEventListener('pagehide',()=>{try{sessionStorage.setItem(sk('docdiff'),JSON.stringify({view:cur,at:place(),c:c&&[c.file,c.k],ci:c?L().indexOf(c):-1,a:anchor&&[anchor.file,anchor.k],fresh:onlyNew}));}catch(e){}});
 function restore(){let st=null;try{st=JSON.parse(sessionStorage.getItem(sk('docdiff')));}catch(e){}if(!st)return;
 const find=p=>p&&groups.find(x=>x.view===cur&&x.file===p[0]&&x.k===p[1])||null;
 if(views.includes(st.view)&&st.view!==cur){body.classList.replace('show-'+cur,'show-'+st.view);cur=st.view;vb.forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===cur));}
+if(st.fresh&&fresh){onlyNew=true;fb.setAttribute('aria-pressed',true);}
 anchor=find(st.a);const x=find(st.c)||(st.c&&L()[Math.min(st.ci,L().length-1)]);if(x)focus(x,false);
 const back=()=>{const s=st.at&&[...document.querySelectorAll('section')].find(z=>z.dataset.file===st.at.file);
 if(s){const b=s.getBoundingClientRect();scrollTo(0,scrollY+b.top+st.at.r*b.height-80);}};
@@ -682,19 +801,34 @@ def htmls(repo, base, head, old, new, out):
 
 
 def accepted_html(repo, base, head, out, old, new, old_html, new_html):
-    """The file as accepted so far: the base until an accept moves a change in. When the base has moved
-    since (a commit, a new export), the accepted changes that still read the same move onto the new base,
-    and the others come back to review: the copy never keeps text the new base dropped. Accepts kept as
-    keys in accepted.json, from before the copy existed, move in the first time it is needed."""
+    """The file as accepted so far, and None; or, while a version it needs is not rendered yet, the copy as
+    it is and what the file's section shows meanwhile (state, html). The copy is the base until an accept
+    moves a change in, and it goes with the head it was last made for, its round's seen (see round_of()).
+    When the head or the base has moved since, carry() keeps the accepted changes the move left alone and
+    brings back the others, and the round moves on (see next_round()); the copy never keeps text the new
+    base dropped. A copy from before rounds were kept moves onto a new base by its changes' keys: those
+    that still read the same carry over. Accepts kept as keys in accepted.json, from before the copy
+    existed, move in the first time it is needed."""
     name = new or old
     copy, was = out / 'accepted' / f'{name}.html', out / 'accepted' / f'{name}.base'
     if copy.exists():
-        then = was.read_text() if was.exists() else None
-        if then in (None, commit(repo, base)) or git(repo, 'cat-file', '-e', f'{then}^{{commit}}', check=False).returncode:
-            return copy.read_text()
+        then, rnd = was.read_text() if was.exists() else None, round_of(out, name)
+        moved = then not in (None, commit(repo, base))
+        if 'seen' in rnd:
+            seen, wait = version(repo, head, out, name, old, new, rnd['seen'], 'seen')
+            if wait or seen == new_html and not moved:
+                return copy.read_text(), wait
+            if seen is not None:
+                return next_round(repo, base, head, out, name, old, new, rnd, seen, old_html, new_html)
+            # The working tree it went with was not kept: it goes with this one from now on.
+            rnd.pop('seen')
+            save_round(out, name, rnd)
+        if not moved or git(repo, 'cat-file', '-e', f'{then}^{{commit}}', check=False).returncode:
+            see(repo, head, out, name, new_html)
+            return copy.read_text(), None
         then_html, _, wait = htmls(repo, then, head, old, new, out)
         if wait:
-            return copy.read_text()
+            return copy.read_text(), None
         keys = {k for _, _, ps in block_diff(then_html, copy.read_text(), 'x')[2] for k, _, _ in ps}
     else:
         legacy = out / 'accepted.json'
@@ -704,7 +838,105 @@ def accepted_html(repo, base, head, out, old, new, old_html, new_html):
     text = apply(pieces, 'old', found) if found else old_html
     if found or copy.exists():
         save_copy(repo, base, out, name, text)
-    return text
+        see(repo, head, out, name, new_html)
+    return text, None
+
+
+def next_round(repo, base, head, out, name, old, new, rnd, seen, old_html, new_html):
+    """The accepted copy carried over from the head it went with (seen, rendered) to this one, and None;
+    the copy and its round as they were go to <out>/backup first. The round's last reviewed version, which
+    the page's "new since last review" counts from, moves up to seen once every change that was new there
+    had been reviewed (or when there was none yet); otherwise it stays, and what is new adds up."""
+    acc, copy = out / 'accepted', (out / 'accepted' / f'{name}.html').read_text()
+    if 'last' in rnd:
+        last, wait = version(repo, head, out, name, old, new, rnd['last'], 'last')
+        if wait:
+            return copy, wait
+        if last is None or not meets([(s, e) for k, _, _, s, e in places(block_diff(last, seen, 'x')) if k],
+                                     [(s, e) for k, _, _, s, e in places(block_diff(copy, seen, 'x')) if k]):
+            rnd.pop('last')
+    backup(out, name)
+    if 'last' not in rnd:
+        rnd['last'] = rnd['seen']
+        (acc / f'{name}.last.html').write_text(seen)
+    text = carry(copy, seen, old_html, new_html)
+    save_copy(repo, base, out, name, text)
+    rnd['seen'] = {'id': head_id(repo, head, new_html), 'time': now()}
+    (acc / f'{name}.seen.html').write_text(new_html)
+    save_round(out, name, rnd)
+    return text, None
+
+
+def round_of(out, name):
+    """A file's review round, beside its accepted copy in accepted/<file>.round.json: seen, the head the copy
+    was last made for, and last, the version last reviewed, which what is new since last review counts
+    from; each {id, time}, id a commit or, for the working tree, tree:<hash of its render>. Each version is
+    kept rendered beside it too, <file>.seen.html and <file>.last.html."""
+    f = out / 'accepted' / f'{name}.round.json'
+    return json.loads(f.read_text()) if f.exists() else {}
+
+
+def save_round(out, name, rnd):
+    f = out / 'accepted' / f'{name}.round.json'
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps(rnd))
+
+
+def head_id(repo, head, new_html):
+    return commit(repo, head) if head else 'tree:' + hashlib.sha1(new_html.encode()).hexdigest()[:12]
+
+
+def version_name(rec):
+    """A version of a round in words: its commit, short, or for the working tree when it was seen."""
+    if rec['id'].startswith('tree:'):
+        return time.strftime('%b %-d, %H:%M', time.strptime(rec['time'], '%Y-%m-%dT%H:%M:%S'))
+    return rec['id'][:7]
+
+
+def version(repo, head, out, name, old, new, rec, which):
+    """A version of the file that its round names (rec, which is 'seen' or 'last'), rendered: as kept beside
+    the accepted copy, or else rendered from its commit and kept; None for the working tree's when it was
+    not kept, or a commit the repo no longer has. While it is not rendered yet (a spec renders in the page),
+    also what the file's section shows meanwhile, (state, html)."""
+    f, rev = out / 'accepted' / f'{name}.{which}.html', rec['id']
+    if f.exists():
+        return f.read_text(), None
+    if rev.startswith('tree:') or git(repo, 'cat-file', '-e', f'{rev}^{{commit}}', check=False).returncode:
+        return None, None
+    got, _, wait = htmls(repo, rev, head, new if new and read(repo, rev, new) is not None else old, new, out)
+    if wait:
+        return None, (f'rendering {version_name(rec)}, {"last reviewed" if which == "last" else "reviewed"}, with ReSpec…', wait[1])
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(got)
+    return got, None
+
+
+def see(repo, head, out, name, new_html):
+    """Notes the head the accepted copy goes with, where none was noted yet (see round_of())."""
+    rnd = round_of(out, name)
+    if 'seen' not in rnd:
+        rnd['seen'] = {'id': head_id(repo, head, new_html), 'time': now()}
+        (out / 'accepted' / f'{name}.seen.html').write_text(new_html)
+        save_round(out, name, rnd)
+
+
+# What a file's accepted copy and round are kept in, beside each other in accepted/.
+COPY_FILES = ('.html', '.base', '.round.json', '.seen.html', '.last.html')
+# Rounds' backups kept, the last ones.
+BACKUPS = 20
+
+
+def backup(out, name):
+    """The file's accepted copy and round as they are, kept in <out>/backup/<time>/accepted/ before a new
+    round rewrites them; the BACKUPS last are kept."""
+    to = out / 'backup' / time.strftime('%Y%m%d-%H%M%S')
+    for s in COPY_FILES:
+        f = out / 'accepted' / f'{name}{s}'
+        if f.exists():
+            (to / 'accepted' / f'{name}{s}').parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(f, to / 'accepted' / f'{name}{s}')
+    for d in sorted((out / 'backup').iterdir() if (out / 'backup').is_dir() else [])[:-BACKUPS]:
+        shutil.rmtree(d, ignore_errors=True)
 
 
 def save_copy(repo, base, out, name, text):
@@ -716,6 +948,10 @@ def save_copy(repo, base, out, name, text):
 
 def commit(repo, rev):
     return git(repo, 'rev-parse', f'{rev}^{{commit}}').stdout.decode().strip()
+
+
+def now():
+    return time.strftime('%Y-%m-%dT%H:%M:%S')
 
 
 def load_plugins():
@@ -783,20 +1019,28 @@ def plugin_actions(actors, old, new, *diffs):
 def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=None, publish=False, actors=()):
     sections, nav, words, pubs, commits, waiting, counts = [], [], WORDS[bool(head)], [], [], [], [0, 0]
     none_yet = f'<p class=n>(nothing {words["accepted"]} yet)</p>'
+    waiting_for = lambda k, name, wait: (f'<section id="f{k}" data-file="{html.escape(name)}"><div class="file">{html.escape(name)}'
+                                         f' <span class=state>· {html.escape(wait[0])}</span></div>{wait[1]}</section>')
     for k, (old, new) in enumerate(files):
         name = new or old
         old_html, new_html, wait = htmls(repo, base, head, old, new, out)
         if wait:
-            sections.append(f'<section id="f{k}" data-file="{html.escape(name)}"><div class="file">{html.escape(name)}'
-                            f' <span class=state>· {html.escape(wait[0])}</span></div>{wait[1]}</section>')
+            sections.append(waiting_for(k, name, wait))
             continue
-        body, n, pieces = block_diff(old_html, new_html, f'f{k}')
+        diffed = block_diff(old_html, new_html, f'f{k}')
+        body, n, pieces = diffed
         if not n and name not in keep:
             continue
-        copy = accepted_html(repo, base, head, out, old, new, old_html, new_html)
-        review, todo, review_pieces = block_diff(copy, new_html, f'r{k}')
-        done, accepted, done_pieces = block_diff(old_html, copy, f'a{k}')
+        copy, wait = accepted_html(repo, base, head, out, old, new, old_html, new_html)
+        rnd = round_of(out, name)
+        last, wait = version(repo, head, out, name, old, new, rnd['last'], 'last') if 'last' in rnd and not wait else (None, wait)
+        if wait:
+            sections.append(waiting_for(k, name, wait))
+            continue
+        reviewing, reviewed = block_diff(copy, new_html, f'r{k}'), block_diff(old_html, copy, f'a{k}')
+        (review, todo, review_pieces), (done, accepted, done_pieces) = reviewing, reviewed
         acts = plugin_actions(actors, old, new, review_pieces, done_pieces, pieces)
+        fresh, since = news(last, new_html, k, diffed, reviewing, reviewed) if last is not None else ({}, '')
         counts[0] += todo
         counts[1] += accepted
         state = 'new file' if not old else 'deleted' if not new else f'renamed from {old}' if old != new else ''
@@ -819,6 +1063,11 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
         state = ' · '.join(filter(None, [state, *(s for s, _ in extra)]))
         data = ''.join(h for _, h in extra) + (('<script type="application/json" class="acts">' +
                                                 json.dumps(acts, ensure_ascii=False).replace('</', '<\\/') + '</script>') if acts else '')
+        # What changed since the last review, for its blue edges and the changes' own diffs since then.
+        if any(fresh.values()):
+            data += ('<script type="application/json" class="round">' + json.dumps(
+                {'last': version_name(rnd['last']), 'time': rnd['last']['time'], 'fresh': fresh}).replace('</', '<\\/') +
+                '</script>' + f'<template class="since">{since}</template>')
         sections.append(f'<section id="{sid}" data-file="{label}">{data}<div class="file">{label}'
                         f'{f" <span class=state>· {html.escape(state)}</span>" if state else ""}'
                         f'{f"<span class=fbar>{bar}</span>" if bar else ""}</div>'
@@ -844,14 +1093,15 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
 <header><span class="what"><b>{shown}</b><span class="n"> · Old: {html.escape(side(repo, base))} — New: {html.escape(new_label or side(repo, head))}</span></span>
 {" · ".join(nav)}<span style="flex:1"></span>
 <span class="seg" data-key="v" title="v cycles the views">{seg}</span>
-<div class="bar"><span id="pos" class="n"></span><span class="tools"><span class="pair step"><button id="prev" class="step" data-key="p" title="Previous change (p or k)">↑ prev</button><button id="next" class="step" data-key="n" title="Next change (n or j)">next change ↓</button></span>
+<div class="bar"><span id="pos" class="n"></span><span class="tools"><button id="fresh" class="step" aria-pressed="false" hidden></button><span class="pair step"><button id="prev" class="step" data-key="p" title="Previous change (p or k)">↑ prev</button><button id="next" class="step" data-key="n" title="Next change (n or j)">next change ↓</button></span>
 <button id="acc" class="step primary" data-key="a">{words['accept']}</button><button id="rev" data-key="r" title="{words['revisit_title']}">{words['revisit']}</button>{pub}{cmt}</span></div></header>
 <main>{page_top(run)}{"".join(sections)}</main>
 <div id="rp" class="panel" hidden><div id="rx" class="n" hidden></div><blockquote id="rq"></blockquote><textarea id="rt" placeholder="{words['question']}"></textarea>
 <span class="hint n">⇧↵ adds a line</span><button id="rc" data-key="esc">Cancel</button><button id="rs" class="primary" data-key="↵">Send</button></div>
 {'<div id="pp" class="panel" hidden><div id="pt"></div><button id="pc">Cancel</button><button id="ps" class="primary">Publish</button></div>' if pub else ''}
 {'<div id="cmp" class="panel" hidden><div id="cmx"></div><input id="cmm" placeholder="Commit message"><button id="cmc">Cancel</button><button id="cms" class="primary">Commit</button></div>' if cmt else ''}
-<div id="pop" hidden><button id="pa">✓</button><button id="pr" title="{words['revisit_key']}">✎</button></div>
+<div id="pop" hidden><button id="pa">✓</button><button id="pr" title="{words['revisit_key']}">✎</button><button id="psn" hidden></button></div>
+<div id="since" class="ui" hidden></div>
 <script type="application/json" id="words">{json.dumps(words, ensure_ascii=False)}</script>
 <script>{SCRIPT}{"".join(getattr(m, 'SCRIPT', '') for m in PLUGINS)}</script></body></html>''', len(sections), counts
 
@@ -922,7 +1172,9 @@ def move(out, req, accept):
     old_html, new_html, wait = htmls(repo, base, head, old, new, out)
     if wait:
         raise LookupError('that file is not rendered yet; reload the page')
-    copy = accepted_html(repo, base, head, out, old, new, old_html, new_html)
+    copy, wait = accepted_html(repo, base, head, out, old, new, old_html, new_html)
+    if wait:
+        raise LookupError('that file is not rendered yet; reload the page')
     if req.get('all'):
         text = new_html if accept else old_html
     else:
@@ -931,12 +1183,29 @@ def move(out, req, accept):
             raise LookupError('that change is gone; reload the page')
         text = apply(pieces, 'old' if accept else 'new', {req['key']})
     save_copy(repo, base, out, name, text)
+    see(repo, head, out, name, new_html)
     rebuild(out)
+
+
+def reviewed_at(repo, base, head, out, paths, rev):
+    """Makes rev the version each changed file was last reviewed at, as if you had reviewed it there (on
+    GitHub, say): what changed since then is new since your last review. What is reviewed stays as it is;
+    a round there was goes to <out>/backup first."""
+    if git(repo, 'rev-parse', '--verify', '--quiet', f'{rev}^{{commit}}', check=False).returncode:
+        sys.exit(f'unknown revision: {rev}')
+    for old, new in files_for(repo, base, head, paths)[0]:
+        name, rnd = new or old, round_of(out, new or old)
+        if rnd:
+            backup(out, name)
+        rnd['last'] = {'id': commit(repo, rev), 'time': now()}
+        (out / 'accepted' / f'{name}.last.html').unlink(missing_ok=True)
+        save_round(out, name, rnd)
 
 
 def publish(out, name):
     """Runs the --publish command on the file's accepted copy, written as Markdown, and returns what it
-    printed; once it succeeds, the accepted copy starts over from the base, which the command updated."""
+    printed; once it succeeds, the accepted copy and its round start over from the base, which the command
+    updated."""
     run = json.loads((out / '.run.json').read_text())
     copy, target = out / 'accepted' / f'{name}.html', out / 'accepted' / f'{name}.md'
     if name not in {new or old for old, new in files_for(pathlib.Path(run['repo']), run['base'], run.get('head'), run['paths'])[0]}:
@@ -954,7 +1223,7 @@ def publish(out, name):
     printed = (r.stdout + r.stderr).strip()
     if r.returncode:
         raise RuntimeError(printed or f'{cmd}: exit {r.returncode}')
-    for f in (copy, target, out / 'accepted' / f'{name}.base'):
+    for f in (target, *(out / 'accepted' / f'{name}{s}' for s in COPY_FILES)):
         f.unlink(missing_ok=True)
     rebuild(out)
     return printed
@@ -977,7 +1246,7 @@ def commit_accepted(out, req):
             raise LookupError(f'{n}: not in this diff')
         old, new = files[n]
         old_html, new_html, wait = htmls(repo, base, head, old, new, out)
-        copy = None if wait else accepted_html(repo, base, head, out, old, new, old_html, new_html)
+        copy, wait = (None, wait) if wait else accepted_html(repo, base, head, out, old, new, old_html, new_html)
         if wait or block_diff(copy, new_html, 'c')[1] or not block_diff(old_html, copy, 'c')[1]:
             raise LookupError(f'{n}: not every change in it is accepted')
     if not names:
@@ -1315,6 +1584,8 @@ def main():
     p.add_argument('--commit', action='store_true')
     p.add_argument('--after-commit')
     p.add_argument('--commit-into')
+    p.add_argument('--reviewed-at', metavar='REV',
+                   help='count what changed since REV as new since your last review (once: it is not kept for reruns)')
     p.add_argument('--serve', action='store_true')
     p.add_argument('--port', type=int, default=PORT, help="the umbrella server's port")
     p.add_argument('--umbrella', action='store_true', help='run the umbrella server here (what --serve starts)')
@@ -1369,8 +1640,10 @@ def main():
         HOME.mkdir(parents=True, exist_ok=True)
         link.symlink_to(out.resolve())
     # The server rebuilds from this after an accept; plugins read their arguments from it.
-    run = {**vars(a), 'name': name, 'repo': str(repo), 'out': str(out.resolve())}
+    run = {**{k: v for k, v in vars(a).items() if k != 'reviewed_at'}, 'name': name, 'repo': str(repo), 'out': str(out.resolve())}
     (out / '.run.json').write_text(json.dumps(run))
+    if a.reviewed_at:
+        reviewed_at(repo, a.base, a.head, out, a.paths, a.reviewed_at)
     _, _, shown = rebuild(out)
     print(f'{shown} changed doc(s) in {repo} vs {a.base}{f"..{a.head}" if a.head else ""} → {out / "index.html"}',
           flush=True)

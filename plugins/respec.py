@@ -1,8 +1,9 @@
 """ReSpec specs: a changed .html file under an index.html that holds a respecConfig stands for that
 spec, which shows as one doc. The page renders it: each side loads in a hidden frame, and SCRIPT posts
 the renders to the server, which keeps them in <out>/rendered/<sources id>.html, so an unchanged side
-never renders twice. The frame gets the spec's sources from either side, /src/old/<path> and
-/src/new/<path>; with ?render=1 the entry file also gets RENDER, which posts the rendered spec up.
+never renders twice. The frame gets the spec's sources at a commit, /src/<commit>/<path>, or in the working
+tree, /src/new/<path> (/src/old/ is the base); with ?render=1 the entry file also gets RENDER, which posts
+the rendered spec up. A commit other than the base and the head is a version a review round names.
 """
 # docdiff, the running docdiff.py, is set by its load_plugins().
 import hashlib, html, mimetypes, os, pathlib, re
@@ -82,22 +83,23 @@ def htmls(repo, base, head, old, new, out):
     """A spec at base and at head, as rendered; until both sides are, the frames that render them."""
     if not (new or old).endswith('.html'):
         return None
-    sides = [(s, p, spec_id(repo, rev, p)) for s, rev, p in (('old', base, old), ('new', head, new)) if p]
-    got = {s: out / 'rendered' / f'{i}.html' for s, _, i in sides}
+    sides = [(s, rev, p, spec_id(repo, rev, p)) for s, rev, p in (('old', base, old), ('new', head, new)) if p]
+    got = {s: out / 'rendered' / f'{i}.html' for s, _, _, i in sides}
     pending = [x for x in sides if not got[x[0]].exists()]
     text = lambda s: got[s].read_text() if s in got and got[s].exists() else ''
     frames = ''.join(f'<iframe class="render" sandbox="allow-scripts allow-same-origin" data-id="{i}" '
-                     f'data-src="src/{s}/{html.escape(p)}?render=1"></iframe>' for s, p, i in pending)
+                     f'data-src="src/{docdiff.commit(repo, rev) if rev else "new"}/{html.escape(p)}?render=1"></iframe>'
+                     for s, rev, p, i in pending)
     return text('old'), text('new'), ('rendering with ReSpec…', frames) if pending else None
 
 
 def get(run, path, query):
-    """A spec's sources from either side, for its render frame."""
-    m = re.fullmatch(r'/src/(old|new)/(.+)', path)
+    """A spec's sources at a commit of its repo, or on either side, for its render frame."""
+    m = re.fullmatch(r'/src/(old|new|[0-9a-f]{40})/(.+)', path)
     if not m:
         return None
     path = os.path.normpath(m.group(2))
-    rev = run['base'] if m.group(1) == 'old' else run.get('head')
+    rev = run['base'] if m.group(1) == 'old' else run.get('head') if m.group(1) == 'new' else m.group(1)
     data = None if os.path.isabs(path) or path.startswith('..') else docdiff.read(pathlib.Path(run['repo']), rev, path)
     if data is not None and query == 'render=1':
         data += f'<script>{RENDER}</script>'.encode()
