@@ -51,7 +51,7 @@ STYLE = '''
 #rvp{position:fixed;right:0;bottom:0;width:min(420px,100vw);box-sizing:border-box;overflow:auto;overscroll-behavior:contain;background:var(--bg);border-left:1px solid var(--line);padding:8px 14px 24px;z-index:2;font-size:14px}
 .rvh{display:flex;gap:8px;align-items:center;margin-bottom:6px} .rvh .n{flex:1} .rvh button,.rvx{font-size:12px;padding:1px 8px}
 .rvi{padding:8px 4px;border-top:1px solid var(--line);cursor:pointer} .rvi:hover{background:var(--code)}
-.rvm{font-size:12px;color:var(--muted)} .rvt{white-space:pre-wrap;margin:2px 0} .rvx{margin:4px 6px 0 0}
+.rvm{font-size:12px;color:var(--muted)} .rvt{white-space:pre-wrap;margin:2px 0} .rvt,.rva{overflow-wrap:anywhere} .rvx{margin:4px 6px 0 0}
 .rvch,.rvih{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px} .rvch .rvm,.rvih .rvm{flex:1 1 12em} .rvch .rvx,.rvih .rvx{margin:0}
 .rvx.rvsec{font-size:11px;padding:0 6px;color:var(--muted)}
 .rvch{position:sticky;top:0;z-index:1;padding:6px 12px;background:var(--bg);border-bottom:1px solid var(--line)} .rvcb{padding:4px 12px 10px}
@@ -59,7 +59,7 @@ STYLE = '''
 #rvp .rvmore,#rvp .rvmore:hover{border:0;background:none;color:var(--link);padding:0;height:auto;font-size:12px;cursor:pointer}
 .rvpr{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:2px 0 10px} .rvpr .rvx{margin:0} .rvpr .rvm{margin-right:2px}
 .rvgone{display:none} .rvstub{opacity:.65} .rvdup{opacity:.6} .rvrep>summary{font-size:12px;color:var(--muted);cursor:pointer} .rvrep[open]>blockquote{opacity:.7}
-.rvused{color:var(--insb)} #rvp .rvtwin,#rvc .rvtwin{color:var(--rw)}
+.rvused{color:var(--insb)} #rvp .rvtwin,#rvc .rvtwin,#cp .rvtwin{color:var(--rw)}
 .rvok{display:inline-block;margin:0 3px;padding:0 5px;border-radius:9px;font:600 11px/15px -apple-system,BlinkMacSystemFont,sans-serif;vertical-align:2px;color:var(--insb);background:var(--ins);cursor:default;user-select:none;-webkit-user-select:none}
 .rvbox{margin:8px 0;padding:8px;border:1px solid var(--line);border-radius:6px;display:flex;flex-direction:column;gap:6px;background:var(--bg)}
 .rvbox textarea{width:100%;box-sizing:border-box;min-height:4.5em;font:inherit;padding:6px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--fg)}
@@ -431,7 +431,7 @@ async function load(){try{const r=await fetch('review');if(!r.ok)throw new Error
 // Served again after it was not: drawn again, which titles the header's 💬 anew.
 if(rvt.disabled){rvt.disabled=false;seen=null;}if(JSON.stringify(d)!==seen)take(d);}catch(e){rvt.disabled=true;rvt.title='review: not served (restart the docdiff server)';}}
 function openCm(it){if(!it){pos.textContent='select text, or step to a change, then press c';return;}
-hidePop();card.hidden=true;draft=it;ch.textContent='💬 '+(it.id?'Your comment':'New comment')+' · '+(it.section||it.file);
+hidePop();card.hidden=true;draft=it;ch.textContent='💬 '+(it.id?'Your comment':'New comment')+' · '+(it.section||it.file);ch.append(...twinLink(it));
 cq.textContent=it.quote;ct.value=it.body||'';cd.hidden=!it.id;cp.hidden=false;ct.focus();}
 function closeCm(){cp.hidden=true;ct.value='';draft=null;}
 async function save(req){try{take(await post('review',req));closeCm();}catch(e){pos.textContent='comment not saved: '+e.message+' (is the docdiff server running?)';}}
@@ -623,7 +623,7 @@ const groupsOf=[['add','Add'],['update','Update, edited here since pushed'],['te
 let pushing=null;
 // A comment of yours not posted that reads much like one of yours on GitHub (most of their words shared) is
 // most likely a copy reworded here after it was posted: no longer posted, it would go to GitHub again. Its row
-// and card headers say so, linking to the one there; Copy all leaves it out, and a push's list says so.
+// and card headers say so, and its editor's, linking to the one there; Copy all leaves it out, and a push's list says so.
 const wordset=t=>new Set(norm(t).toLowerCase().match(/[\\p{L}\\p{N}]+/gu)||[]),like=(a,b)=>{const x=wordset(a),y=wordset(b);let n=0;for(const w of x)if(y.has(w))n++;return n/Math.max(1,x.size+y.size-n);};
 const twin=c=>(data.remotes||[]).flatMap(r=>r.posting&&r.me?r.comments.filter(g=>g.author===r.me):[]).find(g=>like(g.body,c.body)>=.6);
 const twinLink=it=>{const g=it.kind==='c'&&!it.posted&&twin(it);return g?[' · ',mk('a',{className:'rvtwin',href:g.url,target:'_blank',rel:'noopener',

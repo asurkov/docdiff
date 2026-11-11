@@ -588,7 +588,7 @@ reply", the text it is on, GitHub's copy of it, the replies, ✎ Draft a reply, 
 and Open on GitHub ↗; its Review panel entry is the same, with no copy, which is for pasting a comment not posted yet. Under them, **Local copy: edit · delete** act on the copy kept here alone:
 GitHub's stays as it is, and a copy edited past matching is no longer posted. Such a copy, one that still
 shares most of its words (60%) with a comment of yours on GitHub, says **on GitHub in other words ↗** in
-its row and card, linking to that comment, where you edit it if the new wording matters.
+its row, card and editor, linking to that comment, where you edit it if the new wording matters.
 
 **Yours** (your login known): a thread you wrote in, first or as a reply, is your comment on its change,
 as a 💬 is: accept there reads ✓ reviewed, the change counts in "with comments", and once it is settled
