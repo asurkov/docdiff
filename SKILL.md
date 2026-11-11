@@ -449,16 +449,22 @@ the text of its block around it, section, body and time; with `--pr`, also `gith
 the PR, found as its change's GitHub ↗ button finds them, and found again when the run's head moves.
 
 The page has three signs: ✓ reviewed, the blue edge of a change new since last review ([Review
-rounds](#review-rounds)), and 💬. Everything said at one place is one 💬 mark there: your comments, your
+rounds](#review-rounds)), and 💬. Everything said at one place is one mark there: your comments, your
 questions to Claude (revisit threads, below) and threads from elsewhere ([GitHub PR](#github-pr), [Google
-Doc vs Markdown](#google-doc-vs-markdown)). It counts the comments it holds, each of yours, each open
-question and each comment of a thread from elsewhere (none written for one), and its state shows on it:
-dashed while Claude has a question or a reply to draft, filled while an answer or a draft is unread, amber
-with a thread of yours from elsewhere, GitHub's glyph and the replies' count (`1↩`) with a comment of
-yours posted there, and a faint dot when all it holds is resolved questions. Clicking it opens your one
-comment in its editor, or else a card of all it holds, each under its own header with its state and
-actions: your comments (edit, copy, delete), threads from elsewhere, then questions, the resolved ones
-last.
+Doc vs Markdown](#google-doc-vs-markdown)). Its look says who sees the most public thing open in it: a
+**solid** grey 💬 with a thread from elsewhere or a comment of yours posted there, which everyone there
+reads; an **outlined amber** 💬 with a comment of yours not posted, a draft nobody there sees yet (nor in
+your pending review, until you submit it); and a **grey ✎** with questions to Claude alone, which never
+leave this page. It counts the comments it holds, each of yours, each open question and each comment of a
+thread from elsewhere (none written for one), and its state shows on it: dashed (with …) while Claude has a
+question or a reply to draft, filled green while an answer or a draft is unread, GitHub's glyph and the
+replies' count (`1↩`) with a comment of yours posted there, and a faint dot when all it holds is resolved.
+Clicking it opens your one comment in its editor, or else a card of all it holds, each under its own
+header, which starts with who sees it: **💬 On GitHub**, **💬 Draft · not posted** (**in your pending
+review** once pushed, **edited since pushed** after that), or **✎ Asked Claude · private** (on your own
+docs, where nothing is posted, **💬 Your comment**); then its state and actions: your comments (edit, copy,
+delete), threads from elsewhere, then questions, the resolved ones last. The editor and the Review panel's
+entries start the same way.
 
 Each comment goes on its change in every view that has the change, and elsewhere where its quote
 reads, the text before it picking among repeats: so it shows on the same text in Old or New. Where a view
@@ -467,8 +473,11 @@ ends the paragraph or list item holding the text before it in its block (or else
 without that block goes without the mark. When no view has its text any more (it was rewritten since),
 the mark sits on its section's heading. A quote that does not read as it is is matched with spaces
 ignored, as a selection across paragraphs keeps no space between them. Marks never count as changes or
-take n/p. A mark on removed words sits after them, so a settled change shows it. The header's **💬 N**
-(your comments and open questions, with how many wait for Claude and are unread) opens the Review panel: the comments and revisits in the order they
+take n/p. A mark on removed words sits after them, so a settled change shows it. The header's **💬** opens
+the Review panel, and beside it what was said is counted by who sees it, "2 drafts · 6 on GitHub · 5
+questions" (on GitHub: what has a place in the doc), then how many wait for Claude and are unread ("1
+pending · 4 unread", drafted replies to threads from elsewhere counted too); each count steps through its
+own marks in the doc's order ("2 of 6 on GitHub · authentication.html:88"). The Review panel: the comments and revisits in the order they
 come in the doc, each a click from its place, comments with edit, copy and delete. Copy puts one comment
 on the clipboard as Markdown: its `path:line` (linked to the line on GitHub; without `--pr`, the file and
 section), the quote and the comment, to paste into GitHub. **Copy all as Markdown**, shown while you have
@@ -489,7 +498,8 @@ whose last question has no answer yet stays open, and so does one on text outsid
 several. ↺ not reviewed reopens the threads its accept resolved, not ones resolved by hand. On your own
 docs accepting resolves nothing. Asking again reopens a thread. A resolved thread counts no more in its 💬,
 and alone it folds to a faint dot in the text, which opens its card to ↺ Reopen, and in the panel into a folded Resolved group under the open
-ones (Open / Resolved / All filter; the panel opens on Open). A thread's card keeps its header, the state with ✎ Ask more and ✓
+ones (Open / Resolved / All filter, and beside it who sees them, **GitHub · Drafts · Claude**, one at a
+time, pressed again for all; the header's 💬 opens the panel on Open and all, and a reload keeps both). A thread's card keeps its header, the state with ✎ Ask more and ✓
 Resolve (↺ Reopen), at its top while a long thread scrolls under it; in the Review panel each entry has
 them on its first line, and a long entry folds to a few lines with Show more. On commits, a card whose
 thread is on one change still in To review leads with that change's accept, worded as the toolbar's (✓
@@ -517,7 +527,7 @@ the draft's hash, `proposals: {"<time>#<hash>": {state: used | dismissed, commen
 frees the draft again. `revisit.jsonl` and `answers.jsonl` are only ever appended to.
 
 The page asks the server every 2 seconds, so a request or an answer shows without a reload. A
-per-review server started before `review.py` existed has no route for any of this (💬 N greys out): stop
+per-review server started before `review.py` existed has no route for any of this (💬 greys out): stop
 it and rerun docdiff with `--serve`.
 
 **Comments made elsewhere**, on GitHub or in the Google Docs, are counted on each doc's bar: "💬 N
@@ -539,7 +549,7 @@ takes it as your reply, to fix and tighten, and waits for text. ↵ presses the 
 Weigh in has Claude also say whether it would answer differently, with a reply of its own if so. The
 request names the thread (`remote`) and its mode and weigh, and goes to Claude as revisits do; the card
 says for a few seconds whether Claude is watching (or that it was copied to paste), and lists each
-request as Notes, Your reply or No notes. Claude's answer shows in the card under **Drafted replies**,
+request as Notes, Your reply or No notes. Claude's answer shows in the card under **✎ Drafted replies · private**,
 each draft with **Copy** (to paste as the reply there; Open in Google Docs ↗ or on GitHub ↗ goes to
 it), **✎ Revise** (a box under that draft) and **Dismiss**, as a draft for a comment of yours has Use. A
 polished reply shows its edits against your text, struck and inserted; Copy takes it clean. While a
@@ -583,8 +593,8 @@ alone: the state is always GitHub's.
 **Posted.** A 💬 of yours whose text a GitHub comment has (spacing aside, or one holding the other) was
 posted: GitHub holds the real copy. Its 💬 has GitHub's glyph (a ✓ on a mark only ever means reviewed)
 and, when the thread there has replies, their count (`1↩`). Its part of the card shows it as GitHub's
-threads show, read only: "Your comment · posted 7 days ago · 1
-reply", the text it is on, GitHub's copy of it, the replies, ✎ Draft a reply, ✓ Resolve (with a token)
+threads show, read only: "On GitHub · your comment, posted 7 days
+ago · 1 reply", the text it is on, GitHub's copy of it, the replies, ✎ Draft a reply, ✓ Resolve (with a token)
 and Open on GitHub ↗; its Review panel entry is the same, with no copy, which is for pasting a comment not posted yet. Under them, **Local copy: edit · delete** act on the copy kept here alone:
 GitHub's stays as it is, and a copy edited past matching is no longer posted. Such a copy, one that still
 shares most of its words (60%) with a comment of yours on GitHub, says **on GitHub in other words ↗** in
@@ -592,7 +602,7 @@ its row, card and editor, linking to that comment, where you edit it if the new 
 
 **Yours** (your login known): a thread you wrote in, first or as a reply, is your comment on its change,
 as a 💬 is: accept there reads ✓ reviewed, the change counts in "with comments", and once it is settled
-its wording has the dotted amber underline. Its 💬 is amber, still read only with Open on GitHub ↗, and
+its wording has the dotted amber underline. Its 💬 is solid, as every thread there is (amber is a draft's), still read only with Open on GitHub ↗, and
 the Review panel names you "(you)". A 💬 is posted only by a comment of yours, and the thread holding that
 comment then shows as that 💬 alone, not counted twice.
 
@@ -616,7 +626,8 @@ body, url, time}`, so pushing again updates instead of duplicating. Left out: a 
 text of (posted); one edited on GitHub since it was pushed, or the review's text edited there (left as
 they read there); one in a review you submitted (edit it there); and new ones while your pending review
 is on another commit than the page's head (submit or discard it first). Deleting a comment here leaves it
-in the pending review. Your pending review and its comments never count as posted. The token is the
+in the pending review. Your pending review and its comments never count as posted: nobody else sees them until you submit it,
+so their 💬 stays a draft's, in your pending review. The token is the
 server's `GITHUB_TOKEN`, one that may write the PR's comments (classic
 `public_repo`, or fine-grained Pull requests: read and write); the launchd server has none unless its
 plist gives it one ([The umbrella server](#the-umbrella-server)).
