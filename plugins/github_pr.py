@@ -12,9 +12,9 @@ finds other text of a block the same way, for other plugins: review comments.
 
 remarks() reads the PR's own comments from GitHub, for other plugins too, and puts each line comment
 back on the diff the other way round: the words of its line against the blocks of the diff, with me, your
-login (--me, or GITHUB_TOKEN's user), so yours count as your review. push() sends your comments, for
-other plugins, as your pending review on the PR, which stays pending until you submit it on GitHub;
-nothing else is ever posted.
+login (--me, or GITHUB_TOKEN's user), so yours count as your review, and whether each thread is resolved.
+push() sends your comments, for other plugins, as your pending review on the PR, which stays pending until
+you submit it on GitHub, and resolve() resolves or reopens a thread; nothing else is ever posted.
 """
 # docdiff, the running docdiff.py, is set by its load_plugins().
 import difflib, hashlib, html, json, os, pathlib, re, subprocess, sys, threading, time, urllib.error, urllib.request
@@ -163,9 +163,11 @@ def pr_of(repo, pr):
 
 def remarks(run, out, refresh=None):
     """For other plugins (review.py): the PR's comments on GitHub, read only, {fetched, checked, error, me,
-    comments, source, open, refresh, posting, push} (the last five: GitHub's name, its link's words, that ↻
-    can ask GitHub again, that your 💬 may be posted there, and that push() sends them), me the user's login (--me, or GITHUB_TOKEN's user): its line comments, each placed on the diff where it can be (see place_lines()), its own
-    comments and its reviews' bodies. Kept in <out>/github.json, which refresh 'auto' (a page load) asks
+    comments, source, open, refresh, posting, push, resolve} (the last six: GitHub's name, its link's words,
+    that ↻ can ask GitHub again, that your 💬 may be posted there, that push() sends them, and that
+    resolve() resolves threads), me the user's login (--me, or GITHUB_TOKEN's user): its line comments, each placed on the diff where it can be (see place_lines()), its own
+    comments and its reviews' bodies. A thread's first comment has its thread, {thread (its id), resolved,
+    resolved_by}, where GitHub said, which takes a token. Kept in <out>/github.json, which refresh 'auto' (a page load) asks
     GitHub to bring up to date when it is older than FRESH, and 'now' (a button) always; each page is
     asked for with its last ETag, so a list that did not change comes back empty (304), though without a
     token GitHub still counts it against its 60 requests an hour. A token only from GITHUB_TOKEN, never
@@ -191,10 +193,13 @@ def remarks(run, out, refresh=None):
         if json.dumps(cache, sort_keys=True) != was:
             f.with_suffix('.tmp').write_text(json.dumps(cache, ensure_ascii=False))
             f.with_suffix('.tmp').replace(f)
-    return {k: cache.get(k) for k in ('fetched', 'checked', 'error')} | {'me': run.get('me') or cache.get('me'),
-                                                                         'comments': cache.get('comments', []),
-                                                                         'source': SOURCE, 'open': 'Open on GitHub ↗',
-                                                                         'refresh': True, 'posting': True, 'push': True}
+    # Threads, resolved or not, are kept apart from the comments, so a resolve places nothing again.
+    threads = {t['root']: t for t in cache.get('threads') or []}
+    cs = [{**c, 'thread': t['id'], 'resolved': t['resolved'], 'resolved_by': t['by']} if c['kind'] == 'line' and (t := threads.get(c['id']))
+          else c for c in cache.get('comments', [])]
+    return {k: cache.get(k) for k in ('fetched', 'checked', 'error')} | {'me': run.get('me') or cache.get('me'), 'comments': cs,
+                                                                         'source': SOURCE, 'open': 'Open on GitHub ↗', 'refresh': True,
+                                                                         'posting': True, 'push': True, 'resolve': True}
 
 
 def whoami():
@@ -209,7 +214,8 @@ def whoami():
 
 def fetch(run, cache):
     """Asks GitHub for the PR's review comments, comments and reviews, page by page, each with its last
-    ETag; offline or rate limited, keeps what it had and says why."""
+    ETag; offline or rate limited, keeps what it had and says why. With a token, also its review threads
+    (threads()), whose resolved state the REST API does not give; without one, none."""
     slug, n = pr_of(run['repo'], run['pr'])
     token, pages, data, now = os.environ.get('GITHUB_TOKEN'), dict(cache.get('pages', {})), {}, time.time()
     try:
@@ -237,7 +243,13 @@ def fetch(run, cache):
         return {**cache, 'checked': now, 'error': why}
     except (urllib.error.URLError, OSError, ValueError):
         return {**cache, 'checked': now, 'error': 'GitHub not reached (offline?)'}
-    return {**cache, 'pages': pages, 'data': data, 'fetched': now, 'checked': now, 'error': None}
+    ts, why = None, None
+    if token:
+        try:
+            ts = threads(slug, n)
+        except Refused as e:
+            ts, why = cache.get('threads'), f'resolved threads not read: {e}'
+    return {**cache, 'pages': pages, 'data': data, 'threads': ts, 'fetched': now, 'checked': now, 'error': why}
 
 
 def comments(run, out, data):
@@ -455,6 +467,50 @@ def push(run, cs, last, dry=False):
     except Refused as e:
         out['error'] = str(e)
     return out
+
+
+# The PR's review threads, page by page, and resolving or reopening one: GraphQL alone has threads.
+THREADS = ('query($o:String!,$r:String!,$n:Int!,$c:String){repository(owner:$o,name:$r){pullRequest(number:$n){'
+           'reviewThreads(first:100,after:$c){pageInfo{hasNextPage endCursor}nodes{id isResolved resolvedBy{login}'
+           'comments(first:1){nodes{fullDatabaseId}}}}}}}')
+SETTLE = 'mutation($t:ID!){%s(input:{threadId:$t}){thread{isResolved resolvedBy{login}}}}'
+
+
+def threads(slug, n):
+    """The PR's review threads, [{id, root, resolved, by}]: root the id of its first comment, as the REST
+    API gives it, and by who resolved it."""
+    o, r = slug.split('/')
+    out, after = [], None
+    while True:
+        got = ask('POST', '/graphql', {'query': THREADS, 'variables': {'o': o, 'r': r, 'n': int(n), 'c': after}})
+        page = got['data']['repository']['pullRequest']['reviewThreads']
+        out += [{'id': t['id'], 'root': int(t['comments']['nodes'][0]['fullDatabaseId']), 'resolved': t['isResolved'],
+                 'by': (t.get('resolvedBy') or {}).get('login')} for t in page['nodes'] if t['comments']['nodes']]
+        if not page['pageInfo']['hasNextPage']:
+            return out
+        after = page['pageInfo']['endCursor']
+
+
+def resolve(run, out, thread, resolved):
+    """For other plugins (review.py): resolves the PR's review thread on GitHub, as its Resolve conversation
+    does, or with resolved false reopens it, on the user's click alone; the copy in github.json then says
+    what GitHub answered. None, or what went wrong."""
+    if not os.environ.get('GITHUB_TOKEN'):
+        return 'the docdiff server has no GITHUB_TOKEN, which resolving needs'
+    verb = 'resolveReviewThread' if resolved else 'unresolveReviewThread'
+    try:
+        t = ask('POST', '/graphql', {'query': SETTLE % verb, 'variables': {'t': thread}})['data'][verb]['thread']
+    except Refused as e:
+        return str(e)
+    f = pathlib.Path(out) / 'github.json'
+    with lock:
+        cache = json.loads(f.read_text()) if f.exists() else {}
+        for x in cache.get('threads') or []:
+            if x['id'] == thread:
+                x.update(resolved=t['isResolved'], by=(t.get('resolvedBy') or {}).get('login'))
+        f.with_suffix('.tmp').write_text(json.dumps(cache, ensure_ascii=False))
+        f.with_suffix('.tmp').replace(f)
+    return None
 
 
 def short(q):

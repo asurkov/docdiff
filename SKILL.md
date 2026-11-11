@@ -341,7 +341,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.asurkov.docdiff.plis
 Under it, `--restart` has launchd restart the server, and `--stop` amounts to a restart, as launchd
 starts it again. To remove it: `launchctl bootout gui/$(id -u)/com.asurkov.docdiff`, then delete the
 plist. launchd starts the server with none of the shell's environment, so a `GITHUB_TOKEN` set there does
-not reach it: to push comments to a PR from it, the plist needs `GITHUB_TOKEN` under
+not reach it: to push comments to a PR or resolve its threads from it, the plist needs `GITHUB_TOKEN` under
 `EnvironmentVariables`, where the token then sits in plain text.
 
 Servers from before the umbrella server, one per review on a port of its own, run their old code until
@@ -391,12 +391,15 @@ below; `load_plugins()` in `docdiff.py` has their exact shapes. `run` is the run
 - `place(run, old, new, side, before, after)`: for other plugins, where text of a file's block is in its
   source; `github_pr.py`'s gives review comments their file and line.
 - `remarks(run, out, refresh)`: for other plugins, comments made on the docs elsewhere, which review
-  comments show, one source per plugin: `{source, open, refresh, posting, push, fetched, error, me,
-  comments}` (its name, its link's words, whether ↻ can ask it again, whether your 💬 may be posted
-  there, whether `push()` sends them there). `github_pr.py`'s reads the PR's on GitHub, `gdoc_comments.py`'s
-  the Google Docs' from the export.
+  comments show, one source per plugin: `{source, open, refresh, posting, push, resolve, fetched, error,
+  me, comments}` (its name, its link's words, whether ↻ can ask it again, whether your 💬 may be posted
+  there, whether `push()` sends them there, whether `resolve()` resolves its threads); a thread's first
+  comment has `thread`, `resolved` and `resolved_by` where the source said. `github_pr.py`'s reads the PR's
+  on GitHub, `gdoc_comments.py`'s the Google Docs' from the export.
 - `push(run, cs, last, dry)`: for other plugins, sends your comments to the source as your pending review,
   or with `dry` only says what it would do; `github_pr.py`'s ([GitHub PR](#github-pr), Pushing).
+- `resolve(run, out, thread, resolved)`: for other plugins, resolves or reopens a thread on the source, on
+  the user's click; `github_pr.py`'s ([GitHub PR](#github-pr), Resolved).
 - `STYLE`, `SCRIPT`: CSS and JavaScript for the page, after docdiff's own. An element of class `panel`
   holds off the reload after a rebuild while it shows, and clicks in it leave the doc alone; so do clicks
   in an element of class `ui` (a card or side panel), which does not hold off the reload. Every review's
@@ -536,7 +539,7 @@ comments they are kept in one store beside the export, so the Google Docs page a
 show the same ones (whether one was read, or a draft dismissed, stays per page). Nothing is posted:
 replying stays yours.
 
-**The PR's comments on GitHub** (`github_pr.py`, with `--pr`; read only: only ⇪ Push posts, below). The page
+**The PR's comments on GitHub** (`github_pr.py`, with `--pr`; read only: only ⇪ Push and ✓ Resolve write there, below). The page
 reads the PR's review comments, its own comments and its reviews' bodies from GitHub's API on load and
 from ↻ GitHub in the Review panel, which says when they were read and, offline or rate limited, that it
 shows the last copy. They are kept in `<out>/github.json` with each page's ETag; a page load asks again
@@ -551,16 +554,26 @@ button: the words of that source line, with the words around it, are matched aga
 and the block whose matching run passes through the line holds it, on the change there or in unchanged
 text. Each thread (a comment and its replies) goes in the 💬 at its place, counting each of its comments,
 in every view where its text reads, or else its block, as your comment does; in the card it is read only: author, time, the body as
-Markdown (rendered as answers are), the replies, and Open on GitHub ↗. Outdated comments, ones that
+Markdown (rendered as answers are), the replies, ✓ Resolve (below) and Open on GitHub ↗. Outdated comments, ones that
 could not be placed, the PR's own comments and review bodies are listed in the Review panel under
 On GitHub.
+
+**Resolved.** Whether a thread is resolved on GitHub comes from GitHub's GraphQL API (`reviewThreads`),
+read with the comments when `GITHUB_TOKEN` is set, as the REST API does not give it; GraphQL has no
+ETags, so it is read as often as the comments are. A thread's card and its panel entry have **✓ Resolve**,
+or **↺ Reopen** on a resolved one, which resolve or reopen it on GitHub (`resolveReviewThread`,
+`unresolveReviewThread`), on that click alone, and show what GitHub answers. A thread resolved there,
+whoever resolved it ("resolved by MichaelKohler"), goes as a resolved question does: its mark folds to the
+faint dot, and the Review panel lists it under Resolved, not Open, nor under On GitHub; the doc bar's
+count leaves it out. Without a token its state is not known, and ✓ Resolve is off. Nothing resolves
+here alone: the state is always GitHub's.
 
 **Posted.** A 💬 of yours whose text a GitHub comment has (spacing aside, or one holding the other) was
 posted: GitHub holds the real copy. Its 💬 has GitHub's glyph (a ✓ on a mark only ever means reviewed)
 and, when the thread there has replies, their count (`1↩`). Its part of the card shows it as GitHub's
 threads show, read only: "Your comment · posted 7 days ago · 1
-reply", the text it is on, GitHub's copy of it, the replies, ✎ Draft a reply and Open on GitHub ↗; its
-Review panel entry is the same. Under them, **Local copy: edit · delete** act on the copy kept here alone:
+reply", the text it is on, GitHub's copy of it, the replies, ✎ Draft a reply, ✓ Resolve and Open on
+GitHub ↗; its Review panel entry is the same, with no copy, which is for pasting a comment not posted yet. Under them, **Local copy: edit · delete** act on the copy kept here alone:
 GitHub's stays as it is, and a copy edited past matching is no longer posted.
 
 **Yours** (your login known): a thread you wrote in, first or as a reply, is your comment on its change,
