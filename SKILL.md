@@ -13,12 +13,14 @@ a green bar; removed ones sit under a one-line summary with a red bar, open up t
 past that; a lightly edited one is word-diffed inline; consecutive added and removed paragraphs within a
 section are one change, all its old text first, then all its new, each in one box with one bar,
 paragraphs and list items together; only a change of one-to-one rewrites keeps each old paragraph above its new one. The page has
-a sticky header with per-file change counts, "change N of M · file", ↑ prev / next change ↓ buttons and
-`n`/`p` (or `j`/`k`) keys, and a view switch (`v` cycles): **To review** (the default: the working tree
-against the accepted copy, so only the changes not accepted yet), **Accepted** (base against the
-accepted copy: what the user has signed off), **Diff vs base** (everything, read-only), and **Old** /
-**New**, each version clean, for rewrites too large to read inline; switching keeps the reader at the
-same place in the doc. `n`/`p` step from the current change; with none, from where the reader last clicked
+a sticky header with per-file change counts, "N of M to review · file", ↑ prev / next change ↓ buttons and
+`n`/`p` (or `j`/`k`) keys, and a view switch (`v` cycles): **Diff**, every change from base to new in one
+view, each either still **to review** or accepted (✓), and **Old** / **New**, each version clean, for
+rewrites too large to read inline; switching keeps the reader at the same place in the doc. In Diff, a
+**filter** picks which changes `n`/`p` step through and the status counts: **All**, **To review** (the
+default: the changes not accepted yet), **Accepted** (what the user has signed off) or **● N new since
+<rev>** ([Review rounds](#review-rounds)); it hides nothing, and a reload keeps it. `n`/`p` step from the
+current change; with none, from where the reader last clicked
 or selected, while that is on screen, and otherwise from the top of the screen. The header's first line says what is compared
 (Uncommitted edits, Commits, GitHub PR or Google Docs vs Markdown, with the repo) and names both sides:
 the base revision with its commit, and `--head`'s or the working tree (`--new-label` names it otherwise).
@@ -28,7 +30,11 @@ is the files at that revision instead of the working tree (a PR, say). A changed
 ([ReSpec specs](#respec-specs)).
 
 **Accept** (`a`, or the ✓ button; "accept file" on each file's bar) moves the current change into the
-accepted copy, and the page reloads without it; in Accepted, the same key (↺) takes a change back out.
+accepted copy, and the page reloads with it accepted, in place; on an accepted change, the same key (↺
+unaccept; "unaccept file") takes it back out. Which changes are accepted is read off the accepted copy:
+the changes of the copy to new are laid over the changes of base to new by position, new being their
+common side, and a change with none of them on it is accepted; an accept moves the copy's changes at its
+place, so a change keeps its key, and stays current, through accepts.
 When the head or the base moves, accepted changes the move left alone stay accepted, and the ones it
 touched come back with a blue edge, **new since last review** ([Review rounds](#review-rounds)).
 Clicking a change makes it current and opens a small popup under it: ✓ (or ↺), ✎ revisit and the buttons
@@ -38,22 +44,22 @@ button) takes the selected text, or the current change, and a request typed unde
 ready prompt to the clipboard and queues the request ([Accepts and revisits](#accepts-and-revisits)).
 
 **Reviewing commits** (`--head`: a PR, say), where there is nothing to edit or publish, the same actions
-read as a review: accept is **✓ looks good** (`a`) and ↺ **not reviewed**, the Accepted view is
-**Reviewed** ("22 to review · 28 reviewed"), and revisit is **✎ ask** (`r`), a question to Claude about
-the change; 💬 comment (`c`) is the remark for the PR's author. On a change you commented on, accept is
-**✓ reviewed** instead: it leaves To review without saying it looks good. With `--pr` and your login
-known, a comment you wrote on GitHub counts as your 💬 does, here and in Reviewed below
+read as a review: accept is **✓ looks good** (`a`) and ↺ **not reviewed**, accepted is **reviewed**
+("22 to review · 28 reviewed", the filter's **Reviewed**), and revisit is **✎ ask** (`r`), a question to
+Claude about the change; 💬 comment (`c`) is the remark for the PR's author. On a change you commented on,
+accept is **✓ reviewed** instead: it leaves To review without saying it looks good. With `--pr` and your
+login known, a comment you wrote on GitHub counts as your 💬 does, here and in settled changes below
 ([GitHub PR](#github-pr)); other people's comments do not. Either one resolves the
 answered threads on that change alone; ↺ not reviewed reopens those ([Review comments](#review-comments)).
 
-Reviewed shows reviewed changes **settled**: the new text only, no strike-through or highlight, with a
-thin neutral bar beside a block that changed (blue for one new since last review); your commented wording
-has a dotted amber underline (the comment's quote, or the change's text when the comment is on the whole
-change) and its 💬 beside it. A removed block stays its one-line "removed: …" stub with its marks.
-Clicking a change shows its diff again; **± diffs** in the header, remembered per viewer, shows them all,
-with each change's green ✓. The header counts the reviewed changes that carry comments or open questions
-("· 3 with comments · 1 open question"), each count stepping through them there. To review and Diff
-always show diffs.
+Accepted (reviewed) changes show **settled**, each with its green ✓: the new text only, no strike-through
+or highlight, with a thin neutral bar beside a block that changed (blue for one new since last review);
+your commented wording on one has a dotted amber underline (the comment's quote, or the change's text when
+the comment is on the whole change) and its 💬 beside it. A removed block stays its one-line "removed: …"
+stub with its marks. Clicking one shows its diff again; **± diffs** in the header, remembered per viewer,
+shows them all. Changes to review always show their diffs. The header counts the accepted changes that
+carry comments or open questions ("· 3 with comments · 1 open question"), each count stepping through
+them.
 
 ## Arguments
 
@@ -174,9 +180,8 @@ review.
 
 **New since last review.** Each round also keeps **last**, the version last reviewed. A change that changed
 since then is new: a blue edge on it (its block's bar, or a bar beside the paragraph or item that holds an
-inline change), in every view that has it, so in Reviewed too once it is reviewed again. The header's
-**● 11 new since 04041c3** (this view's count) is a filter: pressed, `n`/`p` step through the new changes
-alone ("new change 2 of 11"), and a reload keeps it. A new change's popup has **Δ since 04041c3** (`s`): a
+inline change), reviewed again or not. The filter's **● 11 new since 04041c3**, pressed, has `n`/`p` step
+through the new changes alone ("2 of 11 new"). A new change's popup has **Δ since 04041c3** (`s`): a
 card under it with the blocks of last-to-now that it holds, what changed in it since you reviewed it.
 
 **When a round starts.** last moves up to seen when the head moves on, if by then every change that was
@@ -235,9 +240,10 @@ below, with `--docs` and every mapped doc named, so one in step shows too (with 
 of the header's list): a table above the diff lists every Markdown file, its name a link to the doc
 below, with a link to its Google Doc, where it stands (committed or not, and against its Google Doc) with
 links to its uncommitted edits on a second docdiff page and to what a push would change, and its open
-comments (`plugins/gdoc_docs.py`). A link to a docdiff page ending `#file=<name>` opens it at that doc, and `&view=<view>` (`review`,
-`acc`, `diff`, `old`, `new`) in that view; the docs list's "uncommitted edits ↗" opens Diff vs HEAD, so
-it shows every uncommitted change whatever has been accepted.
+comments (`plugins/gdoc_docs.py`). A link to a docdiff page ending `#file=<name>` opens it at that doc, and `&view=<view>` (`old`, `new`)
+in that view, or `review`, `acc` or `diff` (the views before the filter) in Diff with the filter To
+review, Accepted or All; the docs list's "uncommitted edits ↗" opens it with All (`diff`), so `n`/`p`
+step through every uncommitted change whatever has been accepted.
 For one doc, by hand:
 
 What a `/gdocsync` push would change in a Google Doc, with the doc's open comments on it:
@@ -439,14 +445,13 @@ actions: your comments (edit, copy, delete), threads from elsewhere, then questi
 last.
 
 Each comment goes on its change in every view that has the change, and elsewhere where its quote
-reads, the text before it picking among repeats: so it stays on a change once that is accepted, and shows
-on the same text in Old or New. Where a view has neither (an accepted change, removed words), the mark
+reads, the text before it picking among repeats: so it shows on the same text in Old or New. Where a view
+has neither (removed words in New, added ones in Old), the mark
 ends the paragraph or list item holding the text before it in its block (or else after it); only a view
 without that block goes without the mark. When no view has its text any more (it was rewritten since),
 the mark sits on its section's heading. A quote that does not read as it is is matched with spaces
-ignored, as a selection across paragraphs keeps no space between them. In To review, a mark on text already accepted (on a change in
-Accepted, on none in To review) is muted, still a click from its comment; marks never count as changes or
-take n/p. A mark on removed words sits after them, so settled Reviewed shows it. The header's **💬 N**
+ignored, as a selection across paragraphs keeps no space between them. Marks never count as changes or
+take n/p. A mark on removed words sits after them, so a settled change shows it. The header's **💬 N**
 (your comments and open questions, with how many wait for Claude and are unread) opens the Review panel: the comments and revisits in the order they
 come in the doc, each a click from its place, comments with edit, copy and delete. Copy puts one comment
 on the clipboard as Markdown: its `path:line` (linked to the line on GitHub; without `--pr`, the file and
@@ -553,7 +558,7 @@ Review panel entry is the same. Under them, **Local copy: edit · delete** act o
 GitHub's stays as it is, and a copy edited past matching is no longer posted.
 
 **Yours** (your login known): a thread you wrote in, first or as a reply, is your comment on its change,
-as a 💬 is: accept there reads ✓ reviewed, the change counts in "with comments", and in settled Reviewed
+as a 💬 is: accept there reads ✓ reviewed, the change counts in "with comments", and once it is settled
 its wording has the dotted amber underline. Its 💬 is amber, still read only with Open on GitHub ↗, and
 the Review panel names you "(you)". A 💬 is posted only by a comment of yours, and the thread holding that
 comment then shows as that 💬 alone, not counted twice.

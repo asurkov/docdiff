@@ -66,15 +66,15 @@ STYLE = '''
 .rvpol del{color:var(--delb);text-decoration:line-through;background:none} .rvpol ins{color:var(--insb);text-decoration:none;background:var(--ins)}
 ::highlight(rvgq){background-color:rgba(212,167,44,.22)} ::highlight(rvgq-on){background-color:rgba(212,167,44,.6)}
 .rvfc{font:12px -apple-system,BlinkMacSystemFont,sans-serif;color:var(--link);text-decoration:none} .rvfc:hover{text-decoration:underline}
-.rvb-gme{color:var(--rw);border-color:var(--rw)} .rvb-past{filter:grayscale(1) opacity(.5)} .rvb-past:hover{filter:none}
+.rvb-gme{color:var(--rw);border-color:var(--rw)}
 .rvb-posted::after{content:" " url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 16 16'%3E%3Cpath fill='%23848d97' d='M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z'/%3E%3C/svg%3E") attr(data-r)}
 .panel>.rvcmh{flex:1 0 100%;font-size:12px} #cp .rvdel{color:var(--delb)} #cp .rvdel:not(:disabled):hover{background:var(--del)} .rvloc{margin:8px 0 0}
 .rvgc{margin:6px 0} .rvgr{margin-left:16px} .rva.rvgh{border-color:var(--line)} .rvgs{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;margin:0 0 6px}
-.rv-settled .v-acc del.chg:not(.rvshow){display:none} .rv-settled .v-acc ins.chg:not(.rvshow){background:none;box-shadow:none}
-.rv-settled .v-acc .blk:not(.rvshow):not(.fresh){border-left-color:color-mix(in srgb,var(--muted) 45%,transparent)} .rv-settled .v-acc .blk[data-kind=rw]:not(.rvshow)>.was{display:none} .rv-settled .v-acc .blk[data-kind=del]:not(.rvshow)>.was>.old{display:none}
-.rv-settled .v-acc .rvbar:not(.fresh-b){box-shadow:-8px 0 0 -6px color-mix(in srgb,var(--muted) 55%,transparent)} .rv-settled .v-acc .rvok{display:none}
+.rv-settled del.chg.done:not(.rvshow){display:none} .rv-settled ins.chg.done:not(.rvshow){background:none;box-shadow:none}
+.rv-settled .blk.done:not(.rvshow):not(.fresh){border-left-color:color-mix(in srgb,var(--muted) 45%,transparent)} .rv-settled .blk.done[data-kind=rw]:not(.rvshow)>.was{display:none} .rv-settled .blk.done[data-kind=del]:not(.rvshow)>.was>.old{display:none}
+.rv-settled .rvbar:not(.fresh-b){box-shadow:-8px 0 0 -6px color-mix(in srgb,var(--muted) 55%,transparent)}
 ::highlight(rvcm){text-decoration:underline dotted;text-decoration-color:var(--rw);text-decoration-thickness:2px;text-underline-offset:3px}
-body:not(.show-acc) #rvsd{display:none}
+body:not(.show-diff) #rvsd{display:none}
 header .rvn button,header .rvn button:hover{border:0;background:none;padding:0;height:auto;line-height:inherit;font:inherit;color:var(--link);cursor:pointer}
 #rvp blockquote,#rvc blockquote{margin:4px 0;padding:0 8px;border-left:3px solid var(--line);color:var(--muted);max-height:4.8em;overflow:hidden}
 .rva{border-left:3px solid var(--insb);padding-left:8px;margin-top:6px} .rva>:first-child{margin-top:0} .rva>:last-child{margin-bottom:0}
@@ -97,7 +97,9 @@ const cs=mk('button',{className:'primary',textContent:'Save'}),cd=mk('button',{c
 cs.dataset.key='↵';cc.dataset.key='esc';cp.append(ch,cq,ct,cd,mk('span',{className:'hint n',textContent:'⇧↵ adds a line'}),cc,cs);
 const lp=mk('aside',{id:'rvp',className:'ui',hidden:true}),card=mk('div',{id:'rvc',className:'ui',hidden:true}),rvt=mk('button',{id:'rvt',textContent:'💬'});
 const pc=mk('button',{id:'pc',textContent:'💬',title:'Comment (c)'});body.append(cp,lp,card);pr.after(pc);rev.after(rvt);
-const vorder=['diff','review','acc','new','old'];
+const vorder=['diff','new','old'];
+// Whether change k of a doc is reviewed (accepted).
+const isDone=(file,k)=>groups.some(g=>g.done&&g.file===file&&g.k===k);
 // A range's text as it reads on one side: L the base's (removed words and folded old blocks), R the new.
 const drop=(f,side)=>{f.querySelectorAll(side==='L'?'ins,.now,summary':'del,.was').forEach(e=>e.remove());return f.textContent;};
 // The block of the diff that node n is in, as the server pairs them: a child of the view, or an item of
@@ -223,7 +225,7 @@ end=x&&findEnd(x,it.quote,it.before,it.section,it.chg||(it.key?it.side==='L'?'de
 if(on){on(b);it.on[w]=new Set([it.key]);}
 else if(end){put.push([end[0],end[1],b]);it.on[w]=new Set(x.ns.slice(end[2],end[3]).map(n=>n.parentElement.closest('.chg')?.dataset.k).filter(Boolean));if(!cx(it))it.ctx=around(x,end);}
 else if(!near1(it,v,b)){if(!it.before&&!it.after)late.push([it,v,b]);continue;}
-it.at[w]=b;if(said(it)&&w==='acc'&&it.on[w].size)it.ranges=on?spans(v,it.key):[range(x,end)];
+it.at[w]=b;if(said(it)&&w==='diff'&&[...it.on[w]].some(k=>isDone(it.file,k)))it.ranges=on?spans(v,it.key):[range(x,end)];
 // A comment from elsewhere highlights the text it is on (gqs), where that text reads.
 if(it.kind==='g')(it.gqs=it.gqs||[]).push(...(on?spans(v,it.key):end?[range(x,end)]:[]));}}
 for(const[it,v,b]of late)if(near1(it,v,b))it.at[v.dataset.view]=b;
@@ -242,26 +244,23 @@ for(const p of v.querySelectorAll('p,li,td,th,dt,dd,h1,h2,h3,h4')){if(p.querySel
 const ws=words(k.textContent);let n=0;for(const w of q)if(ws.has(w))n++;if(n>most){most=n;best=p;}}
 if(best&&most>=Math.max(2,q.size/2)){it.near=true;const b=badge(it);best.append(b);it.at[v.dataset.view]=b;it.on[v.dataset.view]=new Set();}}}
 // From the end of the doc back, so splitting a text node leaves the places before it where they were;
-// in a removed block's folded text, on its summary; after removed words, which settled Reviewed hides.
+// in a removed block's folded text, on its summary; after removed words, which a settled change hides.
 put.sort((x,y)=>x[0]===y[0]?y[1]-x[1]:x[0].compareDocumentPosition(y[0])&Node.DOCUMENT_POSITION_FOLLOWING?1:-1);
 for(const[t,o,b]of put){const f=t.parentElement.closest('.was'),d=t.parentElement.closest('del.chg');if(f)f.querySelector('summary').append(b);else if(d)d.after(b);else{t.splitText(o);t.after(b);}}
 // Marks at one place, side by side, are one.
 for(const b of document.querySelectorAll('main .rvb')){let p=b.previousSibling;while(p&&p.nodeType===3&&!p.data.trim())p=p.previousSibling;
 if(!p?.classList?.contains('rvb'))continue;p._its.push(...b._its);for(const it of b._its)for(const w in it.at)if(it.at[w]===b)it.at[w]=p;b.remove();}
 document.querySelectorAll('main .rvb').forEach(dress);
-// In To review, a mark on text already reviewed (on changes in the Accepted view, on none here) is muted.
-for(const b of document.querySelectorAll('main .v-review .rvb'))if(b._its.every(it=>!it.on.review?.size&&it.on.acc?.size)){b.classList.add('rvb-past');b.title+='\\n\\n(on '+W.accepted+' text)';}
-// Your comments' wording on reviewed changes, underlined in Reviewed: the change's new text, or the quote.
+// Your comments' wording on reviewed changes, underlined: the change's new text, or the quote.
 if(window.Highlight&&CSS.highlights)CSS.highlights.set('rvcm',new Highlight(...items.flatMap(i=>i.ranges||[])));
 // The text the comments from elsewhere are on, highlighted as Google Docs does: pale, and darker for the one
 // whose card is open or that was just gone to (gq()).
 if(window.Highlight&&CSS.highlights)CSS.highlights.set('rvgq',new Highlight(...items.flatMap(i=>i.gqs||[])));
 // Which changes your comments are on, per view, and how many: on commits, accepting one of them says
-// ✓ reviewed, not looks good. In Reviewed each accepted change has its ✓ (shown with ± diffs), and its 💬
-// says what was said on it.
+// ✓ reviewed, not looks good. Each reviewed change has its ✓, and its 💬 says what was said on it.
 mine={};for(const it of items)if(said(it))for(const[w,ks]of Object.entries(it.on))for(const k of ks)(mine[w]=mine[w]||new Map()).set(k,(mine[w].get(k)||0)+1);
-if(W.reviewed)for(const g of groups.filter(g=>g.view==='acc')){const on=onChange(g.els[0].closest('.v'),g.k);
-if(on)on(mk('span',{className:'rvok',textContent:'✓',title:mine.acc?.has(g.k)?'Reviewed, with your comments':'Looks good'}));}
+for(const g of groups.filter(g=>g.done)){const on=onChange(g.els[0].closest('.v'),g.k);
+if(on)on(mk('span',{className:'rvok',textContent:'✓',title:!W.reviewed?'Accepted':mine.diff?.has(g.k)?'Reviewed, with your comments':'Looks good'}));}
 status();
 // Pending and new count drafted replies to threads from elsewhere too.
 const ts=items.filter(i=>i.kind==='r'&&!i.done),gs=items.filter(i=>i.kind==='g'&&i.rts?.length),
@@ -279,13 +278,13 @@ title:'Comments on this doc, from '+[...new Set(ts.map(t=>t.src.source))].join('
 a.onclick=e=>{e.preventDefault();only=s.dataset.file;filter='open';toggle(true);lp.scrollTop=0;};
 const bar=s.querySelector('.file');bar.insertBefore(a,bar.querySelector('.fbar'));}}
 // Accepted (reviewed) changes that carry comments or open questions, counted on each file's line in the
-// header, so they are not lost once they leave To review; a count steps through them in the Accepted view.
+// header, so they are not lost once they leave To review; a count steps through them.
 function tally(){document.querySelectorAll('.rvn').forEach(e=>e.remove());
 for(const s of document.querySelectorAll('section')){const n=document.querySelector('header a[href="#'+s.id+'"]')?.nextElementSibling;if(!n)continue;
-const on=f=>new Set(items.filter(it=>f(it)&&it.at.acc?.closest('section')===s).flatMap(it=>[...it.on.acc]));
+const on=f=>new Set(items.filter(it=>f(it)&&it.at.diff?.closest('section')===s).flatMap(it=>[...it.on.diff].filter(k=>isDone(s.dataset.file,k))));
 for(const[ks,w]of[[on(said),k=>k>1?' with comments':' with a comment'],[on(it=>it.kind==='r'&&!it.done),k=>' open question'+(k>1?'s':'')]]){if(!ks.size)continue;
-const b=mk('button',{textContent:ks.size+w(ks.size),title:'Step through them in the '+W.Accepted+' view'}),x=mk('span',{className:'rvn'});
-b.onclick=()=>{if(cur!=='acc')view('acc');const l=groups.filter(g=>g.view==='acc'&&g.sec===s&&ks.has(g.k));if(l.length)focus(l[(l.indexOf(c)+1)%l.length]);};x.append(' · ',b);n.append(x);}}}
+const b=mk('button',{textContent:ks.size+w(ks.size),title:'Step through these '+W.accepted+' changes'}),x=mk('span',{className:'rvn'});
+b.onclick=()=>{if(cur!=='diff')view('diff');const l=groups.filter(g=>g.done&&g.sec===s&&ks.has(g.k));if(l.length)focus(l[(l.indexOf(c)+1)%l.length]);};x.append(' · ',b);n.append(x);}}}
 function take(d){data=d;seen=JSON.stringify(d);paint();}
 wordsOf=x=>x&&W.reviewed&&mine[x.view]?.has(x.k)?{...W,accept:W.reviewed,accept_key:W.reviewed_key,accept_title:W.reviewed_title}:W;
 // On commits, accepting a change resolves the answered threads on it alone (not pending ones, nor ones on
@@ -294,17 +293,17 @@ onAccept=async(xs,accepting)=>{if(!W.reviewed)return;const ts=[];
 for(const x of xs)for(const it of items)if(it.kind==='r'&&!ts.includes(it)&&it.on[x.view]?.size===1&&it.on[x.view].has(x.k)&&
 (accepting?!it.done&&!it.wait:it.done&&it.members.every(m=>m.resolved_by==='accept')))ts.push(it);
 if(ts.length)await post('review',{revisits:ts.flatMap(t=>t.members.map(m=>m.time)),resolve:accepting,by:'accept'});};
-// On commits, Reviewed shows reviewed changes settled: the new text only, a thin bar beside a block with a
-// change in it, and only the commented ones' chips. Clicking a change shows its diff again; ± diffs, kept
-// per viewer, shows them all.
+// Reviewed (accepted) changes show settled: the new text only, a thin bar beside a block with a change in
+// it, and their ✓. Clicking one shows its diff again; ± diffs, kept per viewer, shows them all. Changes to
+// review always show their diffs.
 let diffs=false;try{diffs=localStorage.getItem(sk('docdiff-diffs'))==='1';}catch(e){}
-const sd=mk('button',{id:'rvsd',textContent:'± diffs',title:'Show the diffs of reviewed changes'});
-function settle(){body.classList.toggle('rv-settled',!!W.reviewed&&!diffs);sd.setAttribute('aria-pressed',diffs);}
+const sd=mk('button',{id:'rvsd',textContent:'± diffs',title:'Show the diffs of '+W.accepted+' changes'});
+function settle(){body.classList.toggle('rv-settled',!diffs);sd.setAttribute('aria-pressed',diffs);}
 sd.onclick=()=>{diffs=!diffs;try{localStorage.setItem(sk('docdiff-diffs'),diffs?'1':'');}catch(e){}settle();};
-if(W.reviewed){rvt.before(sd);for(const g of groups)if(g.view==='acc'&&!g.els[0].classList.contains('blk'))
-g.els[0].closest('p,li,dt,dd,td,th,h1,h2,h3,h4,h5,h6,pre,blockquote,figcaption')?.classList.add('rvbar');}
+rvt.before(sd);for(const g of groups)if(g.done&&!g.els[0].classList.contains('blk'))
+g.els[0].closest('p,li,dt,dd,td,th,h1,h2,h3,h4,h5,h6,pre,blockquote,figcaption')?.classList.add('rvbar');
 document.addEventListener('click',e=>{if(!body.classList.contains('rv-settled')||!getSelection().isCollapsed||e.target.closest('.rvb,.rvok,a,summary,.ui'))return;
-const t=e.target.closest('.v-acc .chg'),g=t&&groups.find(x=>x.view==='acc'&&x.els.includes(t));if(g)g.els.forEach(el=>el.classList.toggle('rvshow'));});
+const t=e.target.closest('.v-diff .chg.done'),g=t&&groups.find(x=>x.els.includes(t));if(g)g.els.forEach(el=>el.classList.toggle('rvshow'));});
 settle();
 // Comments made elsewhere, read only, one source per plugin that has them (remarks(): github_pr.py's on
 // the PR, gdoc_comments.py's in the Google Docs), each named by its source: a thread is a comment with its
@@ -472,8 +471,8 @@ const w=g&&wordsOf(g),ok=g&&act(w.accept,w.accept_title.replace('the current cha
 (it.done?'':it.wait?'. This thread has no answer yet, so it stays open':'. Its answered threads resolve with it, this one too')+' (a)',()=>acceptFor(g));
 if(ok)ok.classList.add('primary');
 return[...(ok?[ok]:[]),act('✎ '+W.sent[0].toUpperCase()+W.sent.slice(1)+' more','Go on in this thread (r): it gets the new '+(W.sent==='ask'?'question':'request')+', and reopens if resolved',()=>more(it)),b];};
-// The change a thread's card accepts for it: its one change, while that is in To review, on commits.
-const toAccept=it=>W.reviewed&&cur==='review'&&it.on.review?.size===1&&groups.find(x=>x.view==='review'&&x.file===it.file&&it.on.review.has(x.k))||null;
+// The change a thread's card accepts for it: its one change, while that is still to review, on commits.
+const toAccept=it=>W.reviewed&&cur==='diff'&&it.on.diff?.size===1&&groups.find(x=>!x.done&&x.file===it.file&&it.on.diff.has(x.k))||null;
 function acceptFor(g){card.hidden=true;focus(g,false);accept();}
 async function setThread(it,req){try{take(await post('review',{revisits:it.members.map(m=>m.time),...req}));}catch(e){pos.textContent='not saved: '+e.message+' (is the docdiff server running?)';}}
 const setProposal=(p,state)=>post('review',{proposals:[p.id],state}).then(take).catch(e=>{pos.textContent='not saved: '+e.message+' (is the docdiff server running?)';});

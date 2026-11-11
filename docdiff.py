@@ -13,8 +13,8 @@ the repo's name and the PR's number) and keeps its page and state in ~/.docdiff/
 ~/.docdiff/<name> then links to. One server, the umbrella server, serves every review in ~/.docdiff under
 /<name>/ on 127.0.0.1:7878 (--port), with an index of them at /. With --serve, the review is built,
 the umbrella server started if it is not running, and "URL: ..." printed. The server stores what the page
-sends in the review's dir: accepted/<file>.html, the file as accepted so far, which To review is diffed
-against; revisit requests in revisit.jsonl. When the head or the base moves, the accepted copy is carried
+sends in the review's dir: accepted/<file>.html, the file as accepted so far, which tells which changes
+are still to review; revisit requests in revisit.jsonl. When the head or the base moves, the accepted copy is carried
 over by where its changes are, and what changed since the last review is new, with a blue edge (see
 accepted_html(), next_round()); --reviewed-at REV makes REV the version last reviewed. It runs docdiff's
 code as it is on disk at each request; --restart restarts it (needed only after a change to the server
@@ -443,25 +443,36 @@ def apply(pieces, side, flip):
     return wrap_lists(items)
 
 
-def news(last, new_html, k, diffed, reviewing, reviewed):
-    """What changed since the last review (last, rendered): per view, each change it touches, with the
-    changes of last to now that touch it, {view: {key: [since keys]}}, a change in Reviewed found on the
-    head through To review; and the blocks of last to now that changed, for the page to show what changed
-    in a change since its last review."""
+def news(last, new_html, k, diffed):
+    """What changed since the last review (last, rendered): each change of base to head it touches, with the
+    changes of last to now that touch it, {key: [since keys]}; and the blocks of last to now that changed,
+    for the page to show what changed in a change since its last review."""
     since = block_diff(last, new_html, f's{k}')
-    hit, todo = [(c, s, e) for c, _, _, s, e in places(since) if c], places(reviewing)
-    fresh = {}
-    for v, ps, onto in (('diff', places(diffed), None), ('review', todo, None), ('acc', places(reviewed), todo)):
-        fresh[v] = {}
-        for c, ss in by_key(ps).items():
-            if onto:
-                ss = [(across(onto, s, False), across(onto, e, False)) for s, e in ss]
-                if any(None in x for x in ss):
-                    continue
-            got = list(dict.fromkeys(h for h, s, e in hit if meets(ss, [(s, e)])))
-            if got:
-                fresh[v][c] = got
+    hit, fresh = [(c, s, e) for c, _, _, s, e in places(since) if c], {}
+    for c, ss in by_key(places(diffed)).items():
+        got = list(dict.fromkeys(h for h, s, e in hit if meets(ss, [(s, e)])))
+        if got:
+            fresh[c] = got
     return fresh, wrap_lists([b for b in split_blocks(since[0]) if 'data-k="' in b[1]])
+
+
+def states(diffed, reviewing, reviewed):
+    """Where each change of base to head stands: {key: (to review, reviewed)}, the keys of the changes of the
+    accepted copy to head at its place (what is still to review there; none once it is reviewed) and of base
+    to the copy (what is reviewed). Copy to head is laid over it on head, the side they share; base to copy
+    in the copy, the change's text traced there through what copy to head left alone, or else, for removed
+    text between two changes still to review, on base, the side those two share."""
+    rv, rd, spans, out = places(reviewing), places(reviewed), {}, {}
+    for k, o0, o1, n0, n1 in places(diffed):
+        if k:
+            spans.setdefault(k, []).append(((o0, o1), (n0, n1)))
+    for k, ss in spans.items():
+        base, head = [b for b, _ in ss], [h for _, h in ss]
+        copy = [(across(rv, s), across(rv, e)) for s, e in head]
+        on_base = any(None in x for x in copy)
+        out[k] = (sorted({r for r, _, _, s, e in rv if r and overlaps(head, [(s, e)])}),
+                  sorted({r for r, b0, b1, c0, c1 in rd if r and overlaps(base if on_base else copy, [(b0, b1) if on_base else (c0, c1)])}))
+    return out
 
 
 def places(diffed):
@@ -490,13 +501,23 @@ def meets(xs, ys):
     return any(one(x, y) for x in xs for y in ys)
 
 
-def across(ps, x, back=True):
-    """Where position x of a diff's new side is on its old side (back), or the other way round, through
-    the text the diff left alone; None inside a change."""
+def overlaps(xs, ys):
+    """Whether a stretch of xs and one of ys share text, or an empty one is strictly inside the other, or two
+    empty ones are at one place: unlike meets(), stretches that only touch at an end do not."""
+    def one(a, b):
+        e, f = (a, b) if a[0] == a[1] else (b, a)
+        if e[0] != e[1]:
+            return a[0] < b[1] and b[0] < a[1]
+        return e == f if f[0] == f[1] else f[0] < e[0] < f[1]
+    return any(one(x, y) for x in xs for y in ys)
+
+
+def across(ps, x):
+    """Where position x of a diff's new side is on its old side, through the text the diff left alone; None
+    inside a change."""
     for k, o0, o1, n0, n1 in ps:
-        a0, a1, b0, b1 = (n0, n1, o0, o1) if back else (o0, o1, n0, n1)
-        if not k and a0 <= x <= a1:
-            return min(b0 + x - a0, b1)
+        if not k and n0 <= x <= n1:
+            return min(o0 + x - n0, o1)
     return None
 
 
@@ -581,12 +602,11 @@ pre{background:var(--code);padding:12px;overflow-x:auto}
 img{max-width:100%}
 table{border-collapse:collapse;display:block;overflow-x:auto;font-size:14px} td,th{border:1px solid var(--line);padding:4px 8px;vertical-align:top}
 a{color:var(--link)} .cur{outline:2px solid #bf8700;outline-offset:2px}
-body:not(.show-review) .v-review,body:not(.show-acc) .v-acc,body:not(.show-diff) .v-diff,body:not(.show-old) .v-old,body:not(.show-new) .v-new{display:none}
-.show-old .step,.show-new .step{display:none}
-body:not(.show-review) .accf[data-a=accept],body:not(.show-acc) .accf[data-a=unaccept]{display:none}
+body:not(.show-diff) .v-diff,body:not(.show-old) .v-old,body:not(.show-new) .v-new{display:none}
+.show-old .step,.show-new .step,body:not(.show-diff) .accf{display:none}
 .seg,.pair{display:inline-flex;max-width:100%} .seg button,.pair button{border-radius:0;margin-left:-1px;white-space:nowrap}
 .seg button:first-child,.pair button:first-child{border-radius:6px 0 0 6px;margin-left:0} .seg button:last-child,.pair button:last-child{border-radius:0 6px 6px 0}
-.seg button[aria-pressed=true]{background:var(--fg);color:var(--bg);border-color:var(--fg)} .seg button[data-v=diff]{min-width:0;max-width:11em;overflow:hidden;text-overflow:ellipsis}
+.seg button[aria-pressed=true]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 .bar{flex:1 1 100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px} #pos{flex:1 1 14em;min-width:0;font-size:13px;font-variant-numeric:tabular-nums}
 .tools{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto}
 header button,.panel button{height:28px;padding:0 12px;line-height:26px;font-size:13px;font-weight:500}
@@ -614,21 +634,28 @@ let wordsOf=x=>W;
 // its own, to act on what is on them.
 let onAccept=async(xs,accepting)=>{};
 const pos=$('pos'),next=$('next'),prev=$('prev'),acc=$('acc'),rev=$('rev'),rp=$('rp'),rq=$('rq'),rt=$('rt'),pop=$('pop'),pa=$('pa'),pr=$('pr');
-// Changes per view: To review (accepted copy to now), Accepted (base to accepted copy), Diff vs base.
-const groups=[],byG=new Map();
-for(const e of document.querySelectorAll('.v-review .chg,.v-acc .chg,.v-diff .chg')){const v=e.closest('.v').dataset.view;
-let x=byG.get(v+e.dataset.g);if(!x){const s=e.closest('section');x={k:e.dataset.k,file:s.dataset.file,sec:s,view:v,els:[]};
-byG.set(v+e.dataset.g,x);groups.push(x);}x.els.push(e);}
-// What changed since the last review (see news()): per doc and view, the changes it touched, each with the
-// changes of last review to now in it (x.since). Each is new: a blue edge on it, or on the block it is in.
+// The changes of base to head, each reviewed (accepted, x.done: class done) or still to review (see states()).
+const groups=[],byG=new Map(),dones=new Map([...document.querySelectorAll('script.done')].map(j=>[j.closest('section'),new Set(JSON.parse(j.textContent))]));
+for(const e of document.querySelectorAll('.v-diff .chg')){let x=byG.get(e.dataset.g);if(!x){const s=e.closest('section');
+x={k:e.dataset.k,file:s.dataset.file,sec:s,view:'diff',done:!!dones.get(s)?.has(e.dataset.k),els:[]};byG.set(e.dataset.g,x);groups.push(x);}
+x.els.push(e);if(x.done)e.classList.add('done');}
+// What changed since the last review (see news()): per doc, the changes it touched, each with the changes
+// of last review to now in it (x.since). Each is new: a blue edge on it, or on the block it is in.
 const rounds=new Map([...document.querySelectorAll('script.round')].map(j=>[j.closest('section'),JSON.parse(j.textContent)]));
 const blocks='p,li,dt,dd,td,th,h1,h2,h3,h4,h5,h6,pre,blockquote,figcaption';
-for(const x of groups){x.since=rounds.get(x.sec)?.fresh[x.view]?.[x.k]||null;
+for(const x of groups){x.since=rounds.get(x.sec)?.fresh[x.k]||null;
 if(x.since)x.els.forEach(e=>{e.classList.add('fresh');if(!e.classList.contains('blk'))e.closest(blocks)?.classList.add('fresh-b');});}
-// The header's New since last review: on, n and p step through the new changes alone.
-const fb=$('fresh'),fresh=groups.some(x=>x.since),lasts=[...new Set([...rounds.values()].map(r=>r.last))];let onlyNew=false;
-let cur=body.dataset.view,c=null,anchor=null,mark=null,req=null;
-const gi=x=>groups.indexOf(x),L=()=>groups.filter(x=>x.view===cur&&(!onlyNew||x.since)),verb={review:'accept',acc:'unaccept'};
+// The filter: which changes n and p step through and the status counts, all of them, the ones to review, the
+// reviewed ones, or the ones new since the last review. It hides nothing.
+const fb=$('fresh'),fresh=groups.some(x=>x.since),lasts=[...new Set([...rounds.values()].map(r=>r.last))];
+const fbs=[...document.querySelectorAll('#filt button')],inF={all:x=>true,todo:x=>!x.done,done:x=>x.done,new:x=>!!x.since},
+named={all:'changes',todo:'to review',done:W.accepted,new:'new'};
+if(!fresh)fb.remove();
+for(const b of fbs){const n=groups.filter(inF[b.dataset.f]).length;b.textContent=b===fb?n+' new since '+(lasts.length===1?lasts[0]:'last review'):b.textContent+' '+n;
+b.onclick=()=>filter(b.dataset.f);}
+let cur=body.dataset.view,c=null,anchor=null,mark=null,req=null,filt='todo';
+const gi=x=>groups.indexOf(x),L=()=>groups.filter(x=>x.view===cur&&inF[filt](x));
+function filter(f){filt=f;fbs.forEach(b=>b.setAttribute('aria-pressed',b.dataset.f===f));status();}
 // A change's removed (-) or added (+) text: an inline <del>/<ins>, or a whole block's old/new part.
 const part=(e,s)=>e.classList.contains('blk')?e.querySelector(s==='-'?'.old':'.now')?.textContent||'':e.tagName===(s==='-'?'DEL':'INS')?e.textContent:'';
 const txt=(x,s)=>x.els.map(e=>part(e,s)).join(' ').replace(/\\s+/g,' ').trim();
@@ -640,27 +667,27 @@ const m=c&&c.view===cur?c:mark===null&&anchor&&anchor.view===cur&&inView(anchor)
 if(m)return (d>0?l.find(x=>gi(x)>gi(m)):l.findLast(x=>gi(x)<gi(m)))||null;
 const y=mark!==null&&mark-scrollY>top&&mark-scrollY<innerHeight?mark-scrollY:top,r=x=>x.els.find(e=>e.offsetParent)?.getBoundingClientRect();
 return (d>0?l.find(x=>r(x)?.bottom>y):l.findLast(x=>r(x)?.top<y))||null;}
+// Accept (a) reads by the current change: accept on one to review, unaccept on a reviewed one.
 function status(){const l=L(),i=l.indexOf(c);prev.disabled=!step(-1);next.disabled=!step(1);
-const w=wordsOf(c);acc.disabled=!c||!verb[cur];acc.textContent=cur==='acc'?w.unaccept:w.accept;acc.classList.toggle('primary',cur!=='acc');
-acc.title=cur==='acc'?w.unaccept_title:w.accept_title;
-fb.hidden=!fresh;fb.textContent=groups.filter(x=>x.view===cur&&x.since).length+' new since '+(lasts.length===1?lasts[0]:'last review');
-pos.textContent=cur==='old'||cur==='new'?W.select:i>=0?(onlyNew?'new change ':'change ')+(i+1)+' of '+l.length+' · '+c.file:
-(l.length||'nothing')+(onlyNew?' new':'')+({review:' to review',acc:' '+W.accepted}[cur]||' changes');}
+const w=wordsOf(c),un=!!c?.done;acc.disabled=!c||cur!=='diff';acc.textContent=un?w.unaccept:w.accept;acc.classList.toggle('primary',!un);
+acc.title=un?w.unaccept_title:w.accept_title;
+pos.textContent=cur!=='diff'?W.select:i>=0?(i+1)+' of '+l.length+' '+named[filt]+' · '+c.file:
+c?'change '+(gi(c)+1)+' of '+groups.length+' · '+(c.done?W.accepted:'to review')+' · '+c.file:(l.length||'nothing')+' '+named[filt];}
 function focus(x,scroll=true){hidePop();if(c)c.els.forEach(e=>e.classList.remove('cur'));c=x;if(x){anchor=x;mark=null;}
 if(c){c.els.forEach(e=>e.classList.add('cur'));if(scroll)c.els.find(e=>e.offsetParent)?.scrollIntoView({block:'center',behavior:'smooth'});}status();}
 function go(d){const x=step(d);if(x)focus(x);}
 async function post(url,data){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
 if(!r.ok)throw new Error(url+' '+r.status);return r.json();}
 // An accept moves the change into the accepted copy, an unaccept takes it back out; the server rebuilds
-// the page and it reloads. It stays where it is: the next change becomes current only if it is already
-// in view; otherwise nothing is current and n goes to it.
-async function accept(){if(!c||!verb[cur])return;const x=c,l=L(),i=l.indexOf(x),nx=l[i+1]||l[i-1]||null;
-try{await onAccept([x],cur==='review').catch(()=>{});await post(verb[cur],{file:x.file,key:x.k});}catch(e){pos.textContent='not saved: '+e.message+' (is the docdiff server running?)';return;}
-focus(nx&&inView(nx)?nx:null,false);if(!c)anchor=l[i-1]||null;location.reload();}
+// the page and it reloads. It stays where it is: the next change in the filter becomes current only if it
+// is already in view; otherwise nothing is current and n goes to it.
+async function accept(){if(!c||cur!=='diff')return;const x=c,l=L(),nx=l.find(y=>gi(y)>gi(x))||l.findLast(y=>gi(y)<gi(x))||null;
+try{await onAccept([x],!x.done).catch(()=>{});await post(x.done?'unaccept':'accept',{file:x.file,key:x.k});}catch(e){pos.textContent='not saved: '+e.message+' (is the docdiff server running?)';return;}
+focus(nx&&inView(nx)?nx:null,false);if(!c)anchor=x;location.reload();}
 function inView(x){const top=document.querySelector('header').getBoundingClientRect().bottom;
 return x.els.some(e=>{const r=e.getBoundingClientRect();return e.offsetParent&&r.bottom>top&&r.top<innerHeight;});}
 document.querySelectorAll('.accf').forEach(b=>b.onclick=async()=>{const s=b.closest('section'),a=b.dataset.a==='accept';
-try{await onAccept(groups.filter(x=>x.sec===s&&x.view===(a?'review':'acc')),a).catch(()=>{});await post(b.dataset.a,{file:s.dataset.file,all:true});
+try{await onAccept(groups.filter(x=>x.sec===s&&x.done!==a),a).catch(()=>{});await post(b.dataset.a,{file:s.dataset.file,all:true});
 location.reload();}catch(e){pos.textContent='not saved: '+e.message;}});
 // Publish runs the --publish command on each file's accepted changes in turn. Its panel asks first, shows
 // which file is being published, then what each printed; the page reloads on Done. (No confirm() or
@@ -685,9 +712,8 @@ try{const r=await fetch('commit',{method:'POST',headers:{'Content-Type':'applica
 catch(e){t='✗ '+e.message;}cx.textContent=t;cs.textContent='Done';cs.disabled=false;cs.dataset.done=1;cc.hidden=true;cs.focus();};
 cm.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter'){e.preventDefault();cs.click();}if(e.key==='Escape')cc.click();});}
 function hidePop(){pop.hidden=true;popX=null;}
-fb.title='Changed since your last review, at '+lasts.join(', ')+': n and p step through these alone while this is on. '+
+fb.title='Changed since your last review, at '+lasts.join(', ')+': n and p step through these alone. '+
 'Once every new change is reviewed, the next update counts from the version you have now.';
-fb.onclick=()=>{onlyNew=!onlyNew;fb.setAttribute('aria-pressed',onlyNew);if(c&&onlyNew&&!c.since)focus(null,false);else status();};
 // A new change's diff since its last review: the blocks of last review to now that it holds, in a card under it.
 const sc=$('since'),psn=$('psn');
 function showSince(x){if(!x?.since)return;const t=x.sec.querySelector('template.since'),bs=[];hidePop();
@@ -707,7 +733,7 @@ const acts=new Map([...document.querySelectorAll('script.acts')].map(j=>[j.close
 const actsOf=x=>x&&acts.get(x.sec)?.[x.k]||[];let popX=null;
 // Under a clicked change x: accept, revisit and the plugins' buttons. Under the end of a text selection: revisit only.
 function showPop(r,withAccept,x){pa.hidden=!withAccept;psn.hidden=!x?.since;if(x?.since){const l=rounds.get(x.sec).last;
-psn.textContent='Δ since '+l;psn.title='What changed in it since your review at '+l+' (s)';}pa.textContent=cur==='acc'?'↺':'✓';pa.title=cur==='acc'?wordsOf(x).unaccept_key:wordsOf(x).accept_key;popX=x||null;
+psn.textContent='Δ since '+l;psn.title='What changed in it since your review at '+l+' (s)';}pa.textContent=x?.done?'↺':'✓';pa.title=x?.done?wordsOf(x).unaccept_key:wordsOf(x).accept_key;popX=x||null;
 pop.querySelectorAll('.act').forEach(b=>b.remove());
 for(const[label,key,href]of actsOf(x)){const b=document.createElement('a');b.className='act';b.textContent=label;b.title=label+' ('+key+')';
 b.href=href;b.target='_blank';b.rel='noopener';b.onmousedown=e=>e.preventDefault();b.onclick=hidePop;pop.append(b);}
@@ -728,7 +754,7 @@ document.addEventListener('click',e=>{if(e.target.closest('header,#pop,.panel,.u
 // A removed block's summary only folds and unfolds it.
 if(e.target.closest('summary')){hidePop();return;}
 const t=e.target.closest('.v-'+cur+' .chg');
-if(t){focus(groups.find(x=>x.view===cur&&x.els.includes(t)),false);showPop(t.getBoundingClientRect(),!!verb[cur],c);}
+if(t){focus(groups.find(x=>x.view===cur&&x.els.includes(t)),false);showPop(t.getBoundingClientRect(),cur==='diff',c);}
 else{mark=e.clientY+scrollY;focus(null,false);}});
 // Without a current change, where n and p start moves with the screen.
 addEventListener('scroll',()=>{if(!c)status();},{passive:true});
@@ -740,7 +766,7 @@ mark=e.clientY+scrollY;if(!c)status();
 const rs=s.getRangeAt(0).getClientRects();if(rs.length)showPop(rs[rs.length-1],false);});});
 [pa,pr,psn].forEach(b=>b.onmousedown=e=>e.preventDefault());
 pa.onclick=()=>{hidePop();accept();};pr.onclick=()=>{hidePop();openRev(grab());};psn.onclick=()=>showSince(popX);
-const vb=[...document.querySelectorAll('.seg button')],views=vb.map(b=>b.dataset.v);
+const vb=[...document.querySelectorAll('.seg button[data-v]')],views=vb.map(b=>b.dataset.v);
 function view(v){if(v===cur)return;hidePop();sc.hidden=true;
 const secs=[...document.querySelectorAll('section')];let s=secs[0],r=0;
 for(const x of secs){const b=x.getBoundingClientRect();if(b.bottom>80){s=x;r=Math.max(0,80-b.top)/Math.max(1,b.height);break;}}
@@ -786,26 +812,29 @@ if(e.key==='r'){e.preventDefault();openRev(grab());}
 if(cur==='old'||cur==='new')return;
 if(e.key==='n'||e.key==='j')go(1);if(e.key==='p'||e.key==='k')go(-1);if(e.key==='a')accept();if(e.key==='s')showSince(c);
 const a=actsOf(c).find(a=>a[1]===e.key);if(a)open(a[2],'_blank','noopener');});
-// Every reload keeps the view, the current change and the place in the doc; a rebuild reloads the page,
-// unless a panel is open (a revisit, or a plugin's, being typed).
+// Every reload keeps the view, the filter, the current change and the place in the doc; a rebuild reloads
+// the page, unless a panel is open (a revisit, or a plugin's, being typed).
 history.scrollRestoration='manual';
 function place(){const secs=[...document.querySelectorAll('section')];
 for(const x of secs){const b=x.getBoundingClientRect();if(b.bottom>80)return{file:x.dataset.file,r:Math.max(0,80-b.top)/Math.max(1,b.height)};}return null;}
-addEventListener('pagehide',()=>{try{sessionStorage.setItem(sk('docdiff'),JSON.stringify({view:cur,at:place(),c:c&&[c.file,c.k],ci:c?L().indexOf(c):-1,a:anchor&&[anchor.file,anchor.k],fresh:onlyNew}));}catch(e){}});
+addEventListener('pagehide',()=>{try{sessionStorage.setItem(sk('docdiff'),JSON.stringify({view:cur,filter:filt,at:place(),c:c&&[c.file,c.k],ci:c?L().indexOf(c):-1,a:anchor&&[anchor.file,anchor.k]}));}catch(e){}});
+// The views before the filter, To review, Reviewed and Diff, are its filters now.
+const was={review:'todo',acc:'done',diff:'all'},filterOk=f=>!!inF[f]&&(f!=='new'||fresh);
 function restore(){let st=null;try{st=JSON.parse(sessionStorage.getItem(sk('docdiff')));}catch(e){}if(!st)return;
 const find=p=>p&&groups.find(x=>x.view===cur&&x.file===p[0]&&x.k===p[1])||null;
 if(views.includes(st.view)&&st.view!==cur){body.classList.replace('show-'+cur,'show-'+st.view);cur=st.view;vb.forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===cur));}
-if(st.fresh&&fresh){onlyNew=true;fb.setAttribute('aria-pressed',true);}
+const f=st.filter||(st.fresh?'new':was[st.view]);if(filterOk(f))filt=f;
 anchor=find(st.a);const x=find(st.c)||(st.c&&L()[Math.min(st.ci,L().length-1)]);if(x)focus(x,false);
 const back=()=>{const s=st.at&&[...document.querySelectorAll('section')].find(z=>z.dataset.file===st.at.file);
 if(s){const b=s.getBoundingClientRect();scrollTo(0,scrollY+b.top+st.at.r*b.height-80);}};
 document.readyState==='complete'?back():addEventListener('load',back);}
 setInterval(()=>fetch('build.json').then(r=>r.json()).then(b=>{if(b.id!==body.dataset.build&&!document.querySelector('.panel:not([hidden])'))location.reload();}).catch(()=>{}),1500);
-restore();status();
+restore();filter(filt);
 // A link to #file=<name> (from gdocsync's docs list, say) opens the page at that doc, just below the header,
-// and &view=<view> in that view.
+// and &view=<view> in that view, or with the filter that view was before (review, acc, diff).
 {const at=()=>{const q=new URLSearchParams(location.hash.slice(1)),want=q.get('file')||'',s=want&&[...document.querySelectorAll('section')].find(s=>s.dataset.file===want);
-if(!want)return;history.replaceState(null,'',location.pathname);if(views.includes(q.get('view')))view(q.get('view'));
+if(!want)return;history.replaceState(null,'',location.pathname);const v=q.get('view');
+if(was[v]){view('diff');filter(was[v]);}else if(views.includes(v))view(v);
 const go=()=>scrollTo(0,s.getBoundingClientRect().top+scrollY-document.querySelector('header').offsetHeight-8);
 if(s)document.readyState==='complete'?go():addEventListener('load',go);};at();addEventListener('hashchange',at);}
 '''
@@ -1030,13 +1059,11 @@ def load_plugins():
 PLUGINS = load_plugins()
 
 
-def plugin_actions(actors, old, new, *diffs):
-    """The buttons plugins give a file's changes, from the pieces of each view's block_diff()."""
+def plugin_actions(actors, old, new, pieces):
+    """The buttons plugins give a file's changes, from the pieces of its block_diff()."""
     acts = {}
     for act in actors:
-        got = {}
-        for pieces in diffs:
-            got.update(act(old, new, [[(key, text(o), text(w)) for key, o, w in parts] for _, _, parts in pieces]))
+        got = act(old, new, [[(key, text(o), text(w)) for key, o, w in parts] for _, _, parts in pieces])
         for key, a in got.items():
             acts.setdefault(key, []).extend(a)
     return acts
@@ -1044,7 +1071,6 @@ def plugin_actions(actors, old, new, *diffs):
 
 def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=None, publish=False, actors=()):
     sections, nav, words, pubs, commits, waiting, counts = [], [], WORDS[bool(head)], [], [], [], [0, 0]
-    none_yet = f'<p class=n>(nothing {words["accepted"]} yet)</p>'
     waiting_for = lambda k, name, wait: (f'<section id="f{k}" data-file="{html.escape(name)}"><div class="file">{html.escape(name)}'
                                          f' <span class=state>· {html.escape(wait[0])}</span></div>{wait[1]}</section>')
     for k, (old, new) in enumerate(files):
@@ -1063,10 +1089,13 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
         if wait:
             sections.append(waiting_for(k, name, wait))
             continue
-        reviewing, reviewed = block_diff(copy, new_html, f'r{k}'), block_diff(old_html, copy, f'a{k}')
-        (review, todo, review_pieces), (done, accepted, done_pieces) = reviewing, reviewed
-        acts = plugin_actions(actors, old, new, review_pieces, done_pieces, pieces)
-        fresh, since = news(last, new_html, k, diffed, reviewing, reviewed) if last is not None else ({}, '')
+        # Each change of base to head is still to review where the accepted copy to head has a change, and
+        # reviewed (accepted) where it has none.
+        stand = states(diffed, block_diff(copy, new_html, 'x'), block_diff(old_html, copy, 'x'))
+        done = sorted(c for c, (t, _) in stand.items() if not t)
+        todo, accepted = len(stand) - len(done), len(done)
+        acts = plugin_actions(actors, old, new, pieces)
+        fresh, since = news(last, new_html, k, diffed) if last is not None else ({}, '')
         counts[0] += todo
         counts[1] += accepted
         state = 'new file' if not old else 'deleted' if not new else f'renamed from {old}' if old != new else ''
@@ -1089,15 +1118,15 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
         state = ' · '.join(filter(None, [state, *(s for s, _ in extra)]))
         data = ''.join(h for _, h in extra) + (('<script type="application/json" class="acts">' +
                                                 json.dumps(acts, ensure_ascii=False).replace('</', '<\\/') + '</script>') if acts else '')
+        data += f'<script type="application/json" class="done">{json.dumps(done)}</script>'
         # What changed since the last review, for its blue edges and the changes' own diffs since then.
-        if any(fresh.values()):
+        if fresh:
             data += ('<script type="application/json" class="round">' + json.dumps(
                 {'last': version_name(rnd['last']), 'time': rnd['last']['time'], 'fresh': fresh}).replace('</', '<\\/') +
                 '</script>' + f'<template class="since">{since}</template>')
         sections.append(f'<section id="{sid}" data-file="{label}">{data}<div class="file">{label}'
                         f'{f" <span class=state>· {html.escape(state)}</span>" if state else ""}'
                         f'{f"<span class=fbar>{bar}</span>" if bar else ""}</div>'
-                        f'{view("review", review)}{view("acc", done if accepted else none_yet)}'
                         f'{view("diff", body)}{view("old", plain(old_html, "new file"))}{view("new", plain(new_html, "deleted"))}'
                         f'</section>')
     what, href = compared(run)
@@ -1112,14 +1141,17 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
            f'data-waiting="{html.escape(json.dumps(waiting, ensure_ascii=False))}" '
            f'title="Commit the {len(commits)} file(s) whose changes are all accepted, as they read on disk">⇪ commit accepted ({len(commits)})</button>'
            if commits else '')
-    buttons = [('review', 'To review'), ('acc', words['Accepted']), ('diff', f'Diff vs {base}'), ('old', 'Old'), ('new', 'New')]
-    seg = ''.join(f'<button data-v="{v}" aria-pressed="{str(v == "review").lower()}">{label}</button>' for v, label in buttons)
+    buttons = [('diff', 'Diff'), ('old', 'Old'), ('new', 'New')]
+    seg = ''.join(f'<button data-v="{v}" aria-pressed="{str(v == "diff").lower()}">{label}</button>' for v, label in buttons)
+    # The filter: which changes n and p step through, and the status counts.
+    filters = [('all', 'All'), ('todo', 'To review'), ('done', words['Accepted']), ('new', '')]
+    filt = ''.join(f'<button data-f="{f}"{" id=fresh" if f == "new" else ""} aria-pressed="false">{label}</button>' for f, label in filters)
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{html.escape(title)}</title><style>{STYLE}{"".join(getattr(m, 'STYLE', '') for m in PLUGINS)}</style></head><body class="show-review" data-view="review" data-repo="{html.escape(str(repo))}" data-build="{build_id}">
+<title>{html.escape(title)}</title><style>{STYLE}{"".join(getattr(m, 'STYLE', '') for m in PLUGINS)}</style></head><body class="show-diff" data-view="diff" data-repo="{html.escape(str(repo))}" data-build="{build_id}">
 <header><span class="what"><b>{shown}</b><span class="n"> · Old: {html.escape(side(repo, base))} — New: {html.escape(new_label or side(repo, head))}</span></span>
 {" · ".join(nav)}<span style="flex:1"></span>
-<span class="seg" data-key="v" title="v cycles the views">{seg}</span>
-<div class="bar"><span id="pos" class="n"></span><span class="tools"><button id="fresh" class="step" aria-pressed="false" hidden></button><span class="pair step"><button id="prev" class="step" data-key="p" title="Previous change (p or k)">↑ prev</button><button id="next" class="step" data-key="n" title="Next change (n or j)">next change ↓</button></span>
+<span class="seg" data-key="v" title="v cycles the views: the diff, and the old and new versions clean">{seg}</span>
+<div class="bar"><span id="pos" class="n"></span><span class="tools"><span id="filt" class="seg step">{filt}</span><span class="pair step"><button id="prev" class="step" data-key="p" title="Previous change (p or k)">↑ prev</button><button id="next" class="step" data-key="n" title="Next change (n or j)">next change ↓</button></span>
 <button id="acc" class="step primary" data-key="a">{words['accept']}</button><button id="rev" data-key="r" title="{words['revisit_title']}">{words['revisit']}</button>{pub}{cmt}</span></div></header>
 <main>{page_top(run)}{"".join(sections)}</main>
 <div id="rp" class="panel" hidden><div id="rx" class="n" hidden></div><blockquote id="rq"></blockquote><textarea id="rt" placeholder="{words['question']}"></textarea>
@@ -1204,10 +1236,14 @@ def move(out, req, accept):
     if req.get('all'):
         text = new_html if accept else old_html
     else:
-        pieces = block_diff(copy, new_html, 'x')[2] if accept else block_diff(old_html, copy, 'x')[2]
-        if req['key'] not in {k for _, _, ps in pieces for k, _, _ in ps}:
+        # The key is a change's of base to head: the changes of the accepted copy at its place move (see
+        # states()). A page from before keys a change of copy to head, or of base to copy, itself.
+        reviewing, reviewed = block_diff(copy, new_html, 'x'), block_diff(old_html, copy, 'x')
+        todo, done = states(block_diff(old_html, new_html, 'x'), reviewing, reviewed).get(req['key'], ([req['key']],) * 2)
+        keys, pieces = set(todo if accept else done), (reviewing if accept else reviewed)[2]
+        if not keys or not keys <= {k for _, _, ps in pieces for k, _, _ in ps}:
             raise LookupError('that change is gone; reload the page')
-        text = apply(pieces, 'old' if accept else 'new', {req['key']})
+        text = apply(pieces, 'old' if accept else 'new', keys)
     save_copy(repo, base, out, name, text)
     see(repo, head, out, name, new_html)
     rebuild(out)
