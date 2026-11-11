@@ -129,7 +129,9 @@ The server writes both into the review's dir, `<out>`:
   nothing. Before answering one with `thread`, read the thread so far: the revisit.jsonl lines whose
   `time` or `thread` is that time (or whose quote is its quote), and their answers in answers.jsonl, and
   answer the new question in that light. A revision asks to rework the draft it quotes: answer with the
-  new draft as a blockquote. One with `remote` (a thread from elsewhere, `<source>:<comment id>`, its
+  new draft as a blockquote. One with `comment` (the id of a comment of the user's not posted, from ✎ Ask
+  Claude on it) quotes that comment's text and asks about it ("shorter", "as a question"): edit nothing,
+  and give a reworked comment as a blockquote, which its card offers to use in its place. One with `remote` (a thread from elsewhere, `<source>:<comment id>`, its
   text starting "Draft a reply to this … thread") asks for a reply to that Google Docs or GitHub thread,
   its quote the thread (the text it is on, then each comment): edit nothing, answer with the reply as a
   blockquote, which the thread's card offers to copy; a revision of it has `remote` too. Its `mode`
@@ -530,6 +532,14 @@ readable. **Dismiss** folds it to a stub. **↶ Undo** takes back Use (deleting 
 if it was edited) or Dismiss. An answer with several proposed drafts also offers 💬 Use all as one
 comment. Using a draft resolves nothing: once every draft in a thread is used, dismissed or replaced, its
 header says "drafts handled" and urges Resolve, where the card has no change to accept.
+
+A comment of yours not posted has **✎ Ask Claude** in its card and panel entry: the revisit panel on the
+comment's text, for "shorter", "as a question" or anything else about it. What you ask about it, and
+Claude's answers, show under the comment as **✎ Asked Claude · private** (not as a question of its own),
+and its mark and the drafts count say when one waits or an answer is unread; a comment with asks opens in
+its card rather than its editor. A reworked draft in an answer offers **Use**, which puts it in place of
+the comment's text (✓ used), and **↶ Undo**, which brings that text back; ✎ Revise and Dismiss work as
+for any proposal.
 
 `review.json` keeps each revisit's state by its time, `revisits: {<time>: {resolved, resolved_by, seen}}`,
 `resolved_by` `accept` when its change's accept resolved it, `seen` how many of its answers were read, and each proposal's by the time of the revisit that first proposed it and
