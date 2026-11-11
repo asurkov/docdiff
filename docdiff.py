@@ -240,9 +240,18 @@ def diff(old, new, gid):
     return page, len({merged[g] for g in shown}), [(keys.get(g), x, y) for g, x, y in parts]
 
 
+class ListTag(str):
+    """The opening tag of the list a block is an item of, with the item's number in that list (n), so a
+    list that reopens after a change boxed on its own goes on counting from there."""
+    def __new__(cls, tag, n):
+        self = super().__new__(cls, tag)
+        self.n = n
+        return self
+
+
 def split_blocks(page):
     """pandoc HTML as its top-level blocks, each list item a block of its own: [(list tag or '', html)]."""
-    out, depth, start, lst = [], 0, None, ''
+    out, depth, start, lst, n = [], 0, None, '', 1
     for m in TAG.finditer(page):
         closing, name = m.group(1), m.group(2).lower()
         top = 1 if lst else 0
@@ -253,13 +262,16 @@ def split_blocks(page):
         if not closing:
             if depth == 0 and not lst and name in ('ul', 'ol'):
                 lst = m.group(0)
+                first = re.search(r'\sstart="?(-?\d+)', lst)
+                n = int(first.group(1)) if first else 1
             elif depth == top and start is None:
                 start = m.start()
             depth += 1
             continue
         depth -= 1
         if depth == top and start is not None:
-            out.append((lst, page[start:m.end()]))
+            out.append((ListTag(lst, n) if lst else lst, page[start:m.end()]))
+            n += name == 'li'
             start = None
         elif depth == 0 and lst:
             lst = ''
@@ -408,19 +420,28 @@ def block_diff(old, new, gid):
     return wrap_lists(items), n, pieces
 
 
-def wrap_lists(items):
-    """Blocks [(list tag or '', html)] back into one page: consecutive items of one list go back into it."""
+def wrap_lists(items, renumber=True):
+    """Blocks [(list tag or '', html)] back into one page: consecutive items of one list go back into it.
+    With renumber, an ordered list opened again around a change starts at its first item's number."""
     out, open_ = [], ''
     for lst, h in items:
         if not h:
             continue
         if lst != open_:
             out += [f'</{open_[1:3]}>'] if open_ else []
-            out += [lst] if lst else []
+            out += [numbered(lst) if renumber else lst] if lst else []
             open_ = lst
         out.append(h)
     out += [f'</{open_[1:3]}>'] if open_ else []
     return ''.join(out)
+
+
+def numbered(lst):
+    """An ordered list's opening tag, starting at the number of the item it carries (ListTag)."""
+    if not lst.startswith('<ol') or not hasattr(lst, 'n'):
+        return lst
+    tag = re.sub(r'\sstart="?-?\d+"?', '', lst)
+    return tag if lst.n == 1 else f'<ol start="{lst.n}"{tag[3:]}'
 
 
 def apply(pieces, side, flip):
@@ -440,7 +461,7 @@ def apply(pieces, side, flip):
             text.append(t)
         keyed = [k for k, _, _ in parts if k]
         items.append((lst_new if new(keyed[0] if keyed else None) else lst_old, ''.join(text)))
-    return wrap_lists(items)
+    return wrap_lists(items, renumber=False)
 
 
 def news(last, new_html, k, diffed):
