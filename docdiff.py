@@ -80,10 +80,12 @@ def git(repo, *args, check=True):
 
 
 def side(repo, rev):
-    """One side of the diff in words: the revision and its commit, or the working tree."""
+    """One side of the diff: the revision in words (a hash short, a name with its short hash) and its
+    commit's subject; for the working tree, its words and its path."""
     if not rev:
-        return 'working tree of ' + str(repo).replace(str(pathlib.Path.home()), '~', 1)
-    return f'{rev} ({git(repo, "log", "-1", "--format=%h %s", rev).stdout.decode().strip()})'
+        return 'working tree', str(repo).replace(str(pathlib.Path.home()), '~', 1)
+    h, _, s = git(repo, 'log', '-1', '--format=%h%n%s', rev).stdout.decode().strip().partition('\n')
+    return (h if re.fullmatch(r'[0-9a-f]{7,40}', rev) else f'{rev} ({h})'), s
 
 
 def read(repo, rev, path):
@@ -654,8 +656,10 @@ STYLE = '''
 @media (prefers-color-scheme: dark){:root{--bg:#0d1117;--fg:#e6edf3;--muted:#9198a1;--line:#3d444d;--ins:#033a16;--insb:#3fb950;--del:#4b1113;--delb:#f85149;--rw:#d29922;--code:#161b22;--link:#4493f8;--btn:#212830;--btnh:#262c36;--new:#4493f8}}
 body{background:var(--bg);color:var(--fg);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0}
 main{max-width:920px;margin:0 auto;padding:16px 16px 40vh;overflow-wrap:anywhere}
-header{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 16px;z-index:1;display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;font-size:14px}
-header a{color:var(--fg);font-weight:600} .n{color:var(--muted)} .what{flex-basis:100%;font-size:13px} .what b{font-size:15px}
+header{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--line);padding:8px 16px;z-index:1;display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:14px}
+.what a,.files a{color:var(--fg);font-weight:600} .n{color:var(--muted)}
+.what{display:flex;align-items:baseline;gap:10px;padding:10px 16px 0;font-size:13px;white-space:nowrap} .what b{flex:none;font-size:15px}
+.what .n{min-width:0;overflow:hidden;text-overflow:ellipsis} .files{padding:2px 16px 8px;font-size:14px} .files:empty{display:none}
 button:disabled{opacity:.4;cursor:default}
 button{font:inherit;padding:4px 10px;border:1px solid var(--line);background:var(--btn);color:var(--fg);border-radius:6px;cursor:pointer;transition:background-color .1s}
 button:not(:disabled):hover{background:var(--btnh)} button:focus-visible{outline:2px solid var(--link);outline-offset:-2px}
@@ -689,13 +693,13 @@ body:not(.show-diff) .v-diff,body:not(.show-old) .v-old,body:not(.show-new) .v-n
 .seg,.pair{display:inline-flex;max-width:100%} .seg button,.pair button{border-radius:0;margin-left:-1px;white-space:nowrap}
 .seg button:first-child,.pair button:first-child{border-radius:6px 0 0 6px;margin-left:0} .seg button:last-child,.pair button:last-child{border-radius:0 6px 6px 0}
 .seg button[aria-pressed=true]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
-.bar{flex:1 1 100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px} #pos{flex:1 1 14em;min-width:0;font-size:13px;font-variant-numeric:tabular-nums}
-.tools{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto}
+#pos{flex:1 1 8em;min-width:0;margin:0 6px;font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 header button,.panel button{height:28px;padding:0 12px;line-height:26px;font-size:13px;font-weight:500}
 .primary{background:var(--ins);color:var(--insb);border-color:color-mix(in srgb,var(--insb) 40%,transparent)} .primary:not(:disabled):hover{background:color-mix(in srgb,var(--ins),var(--insb) 14%)}
-.tools .step:disabled{opacity:1;color:color-mix(in srgb,var(--muted) 60%,var(--bg));background:var(--bg);border-color:var(--line)}
+header .step:disabled{opacity:1;color:color-mix(in srgb,var(--muted) 60%,var(--bg));background:var(--bg);border-color:var(--line)}
 [data-key]::after{content:attr(data-key);display:inline-block;margin-left:7px;padding:0 4px;min-width:7px;border:1px solid color-mix(in srgb,currentColor 25%,transparent);border-radius:4px;font:11px/15px ui-monospace,SFMono-Regular,Menlo,monospace;color:color-mix(in srgb,currentColor 70%,transparent);text-align:center;vertical-align:1px}
-.seg[data-key]::after{align-self:center;color:var(--muted);border-color:var(--line)} @media (max-width:640px){[data-key]::after{display:none}}
+.seg[data-key]::after{align-self:center;color:var(--muted);border-color:var(--line)}
+@media (max-width:640px){[data-key]::after,.lbl{display:none} header button{padding:0 8px}}
 .panel{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);box-shadow:0 -2px 8px rgba(0,0,0,.06);padding:12px max(16px,calc(50% - 444px));z-index:4;font-size:14px;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px}
 .panel[hidden]{display:none} #cmx{flex:1 0 100%;white-space:pre-wrap;font:13px ui-monospace,Menlo,monospace} #cmm{flex:1 0 100%;box-sizing:border-box;font:inherit;padding:4px 6px} #pt{flex:1 0 100%;white-space:pre-wrap;max-height:40vh;overflow:auto;font:13px ui-monospace,Menlo,monospace} .panel>blockquote,.panel>textarea,.panel>#rx{flex:1 0 100%;box-sizing:border-box} #rx{font-size:12px} .panel .hint{margin-right:auto;font-size:12px}
 #pop{position:absolute;z-index:3;display:flex;background:var(--bg);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12);overflow:hidden}
@@ -716,6 +720,8 @@ let wordsOf=x=>W;
 // its own, to act on what is on them.
 let onAccept=async(xs,accepting)=>{};
 const pos=$('pos'),next=$('next'),prev=$('prev'),acc=$('acc'),rev=$('rev'),rp=$('rp'),rq=$('rq'),rt=$('rt'),pop=$('pop'),pa=$('pa'),pr=$('pr');
+// The status line is one line, cut short where narrow: its title holds it whole.
+new MutationObserver(()=>pos.title=pos.textContent).observe(pos,{childList:true,characterData:true,subtree:true});
 // The changes of base to head, each reviewed (accepted, x.done: class done) or still to review (see states()).
 const groups=[],byG=new Map(),dones=new Map([...document.querySelectorAll('script.done')].map(j=>[j.closest('section'),new Set(JSON.parse(j.textContent))]));
 for(const e of document.querySelectorAll('.v-diff .chg')){let x=byG.get(e.dataset.g);if(!x){const s=e.closest('section');
@@ -755,12 +761,14 @@ const m=c&&c.view===cur?c:mark===null&&anchor&&anchor.view===cur&&inView(anchor)
 if(m)return (d>0?l.find(x=>gi(x)>gi(m)):l.findLast(x=>gi(x)<gi(m)))||null;
 const y=mark!==null&&mark-scrollY>top&&mark-scrollY<innerHeight?mark-scrollY:top,r=x=>x.els.find(e=>e.offsetParent)?.getBoundingClientRect();
 return (d>0?l.find(x=>r(x)?.bottom>y):l.findLast(x=>r(x)?.top<y))||null;}
+// The doc a change is in, where there are several. With nothing current, the filter's counts say it all.
+const where=x=>new Set(groups.map(y=>y.file)).size>1?' · '+x.file:'';
 // Accept (a) reads by the current change: accept on one to review, unaccept on a reviewed one.
 function status(){const l=L(),i=l.indexOf(c);prev.disabled=!step(-1);next.disabled=!step(1);
 const w=wordsOf(c),un=!!c?.done;acc.disabled=!c||cur!=='diff';acc.textContent=un?w.unaccept:w.accept;acc.classList.toggle('primary',!un);
 acc.title=un?w.unaccept_title:w.accept_title;
-pos.textContent=cur!=='diff'?W.select:i>=0?(i+1)+' of '+l.length+' '+said()+' · '+c.file:
-c?'change '+(gi(c)+1)+' of '+groups.length+' · '+(c.done?W.accepted:'to review')+(c.since?' · new':'')+' · '+c.file:(l.length||'nothing')+' '+said();}
+pos.textContent=cur!=='diff'?W.select:i>=0?(i+1)+' of '+l.length+' '+said()+where(c):
+c?'change '+(gi(c)+1)+' of '+groups.length+' · '+(c.done?W.accepted:'to review')+(c.since?' · new':'')+where(c):'';}
 function focus(x,scroll=true){hidePop();if(c)c.els.forEach(e=>e.classList.remove('cur'));c=x;if(x){anchor=x;mark=null;}
 if(c){c.els.forEach(e=>e.classList.add('cur'));if(scroll)c.els.find(e=>e.offsetParent)?.scrollIntoView({block:'center',behavior:'smooth'});}status();}
 function go(d){const x=step(d);if(x)focus(x);}
@@ -838,7 +846,7 @@ fetch('open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSO
 .then(r=>{if(!r.ok)throw new Error(r.status);}).catch(()=>window.open(a.href,'_blank','noopener'));return;}
 if(!a.closest('main'))return;e.preventDefault();if(web)window.open(a.href,'_blank','noopener');},true);
 // Clicks on the page's controls (plugins mark theirs .ui) are not clicks on the text.
-document.addEventListener('click',e=>{if(e.target.closest('header,#pop,.panel,.ui')||!getSelection().isCollapsed)return;
+document.addEventListener('click',e=>{if(e.target.closest('header,.what,.files,#pop,.panel,.ui')||!getSelection().isCollapsed)return;
 // A removed block's summary only folds and unfolds it.
 if(e.target.closest('summary')){hidePop();return;}
 const t=e.target.closest('.v-'+cur+' .chg');
@@ -847,7 +855,7 @@ else{mark=e.clientY+scrollY;focus(null,false);}});
 // Without a current change, where n and p start moves with the screen.
 addEventListener('scroll',()=>{if(!c)status();},{passive:true});
 // Runs once the click has settled: clicking inside a selection clears it only after the click handler.
-document.addEventListener('mouseup',e=>{if(e.target.closest('header,#pop,.panel,.ui'))return;setTimeout(()=>{const s=getSelection();
+document.addEventListener('mouseup',e=>{if(e.target.closest('header,.what,.files,#pop,.panel,.ui'))return;setTimeout(()=>{const s=getSelection();
 if(s.isCollapsed||!s.rangeCount){if(!popX)hidePop();return;}
 if(!s.anchorNode.parentElement?.closest('main .v'))return;
 mark=e.clientY+scrollY;if(!c)status();
@@ -1190,9 +1198,9 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
         state = 'new file' if not old else 'deleted' if not new else f'renamed from {old}' if old != new else ''
         sid = f'f{k}'
         label = html.escape(name)
-        # A doc shown only because it was named, with nothing changed, stays out of the header.
+        # A doc shown only because it was named, with nothing changed, stays out of the docs at the top.
         if n:
-            nav.append(f'<a href="#{sid}">{label}</a> <span class="n">{todo} to review · {accepted} {words["accepted"]}</span>')
+            nav.append((sid, label, f'{todo} to review · {accepted} {words["accepted"]}'))
         plain = lambda h, missing: re.sub(r'\sid="[^"]*"', '', h) or f'<p class="n">({missing})</p>'
         bar = ((f'<button class="accf" data-a="accept">{words["accept_file"]}</button>' if todo else '') +
                (f'<button class="accf" data-a="unaccept">{words["unaccept_file"]}</button>' if accepted else ''))
@@ -1220,6 +1228,14 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
                         f'</section>')
     what, href = compared(run)
     shown = f'<a href="{html.escape(href)}" target="_blank" rel="noopener">{html.escape(what)}</a>' if href else html.escape(what)
+    # The two sides in short (the old one's subject and the working tree's path only in the title).
+    (old_name, old_subject), (new_name, new_subject) = side(repo, base), side(repo, head)
+    sides = f'{old_name} → {new_label or (f"{new_name} {new_subject}" if head else new_name)}'
+    sides_title = f'Old: {old_name} {old_subject} — New: {new_label or f"{new_name} {new_subject}"}'
+    # Each doc's counts, where there are several docs: of one, the filter's counts say as much. The span
+    # stays, for what plugins add to a doc's line.
+    files = ' · '.join(f'<a href="#{sid}">{label}</a> <span class="n">{counted if len(nav) > 1 else ""}</span>'
+                       for sid, label, counted in nav)
     title = f'docdiff · {what}'
     # One button publishes every file with accepted changes, each in turn.
     pub = (f'<button id="pub" data-files="{html.escape(json.dumps(pubs, ensure_ascii=False))}" '
@@ -1237,11 +1253,11 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
     filt = ''.join(f'<button data-f="{f}" aria-pressed="false">{label}</button>' for f, label in filters)
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{html.escape(title)}</title><style>{STYLE}{"".join(getattr(m, 'STYLE', '') for m in PLUGINS)}</style></head><body class="show-diff" data-view="diff" data-repo="{html.escape(str(repo))}" data-build="{build_id}">
-<header><span class="what"><b>{shown}</b><span class="n"> · Old: {html.escape(side(repo, base))} — New: {html.escape(new_label or side(repo, head))}</span></span>
-{" · ".join(nav)}<span style="flex:1"></span>
-<span class="seg" data-key="v" title="v cycles the views: the diff, and the old and new versions clean">{seg}</span>
-<div class="bar"><span id="pos" class="n"></span><span class="tools"><span id="filt" class="seg step">{filt}</span><button id="fresh" class="step" aria-pressed="false"></button><span class="pair step"><button id="prev" class="step" data-key="p" title="Previous change (p or k)">↑ prev</button><button id="next" class="step" data-key="n" title="Next change (n or j)">next change ↓</button></span>
-<button id="acc" class="step primary" data-key="a">{words['accept']}</button><button id="rev" data-key="r" title="{words['revisit_title']}">{words['revisit']}</button>{pub}{cmt}</span></div></header>
+<div class="what"><b>{shown}</b><span class="n" title="{html.escape(sides_title)}">{html.escape(sides)}</span></div>
+<div class="files">{files}</div>
+<header><span id="filt" class="seg step">{filt}</span><button id="fresh" class="step" aria-pressed="false"></button><span class="pair step"><button id="prev" class="step" data-key="p" title="Previous change (p or k)">↑<span class="lbl"> prev</span></button><button id="next" class="step" data-key="n" title="Next change (n or j)"><span class="lbl">next change </span>↓</button></span>
+<span id="pos" class="n"></span><button id="acc" class="step primary" data-key="a">{words['accept']}</button><button id="rev" data-key="r" title="{words['revisit_title']}">{words['revisit']}</button>{pub}{cmt}
+<span id="views" class="seg" data-key="v" title="v cycles the views: the diff, and the old and new versions clean">{seg}</span></header>
 <main>{page_top(run)}{"".join(sections)}</main>
 <div id="rp" class="panel" hidden><div id="rx" class="n" hidden></div><blockquote id="rq"></blockquote><textarea id="rt" placeholder="{words['question']}"></textarea>
 <span class="hint n">⇧↵ adds a line</span><button id="rc" data-key="esc">Cancel</button><button id="rs" class="primary" data-key="↵">Send</button></div>

@@ -12,9 +12,11 @@ list items and tables count as paragraphs), and writes one page. Added paragraph
 a green bar; removed ones sit under a one-line summary with a red bar, open up to 200 words and folded
 past that; a lightly edited one is word-diffed inline; consecutive added and removed paragraphs within a
 section are one change, all its old text first, then all its new, each in one box with one bar,
-paragraphs and list items together; only a change of one-to-one rewrites keeps each old paragraph above its new one. The page has
-a sticky header with per-file change counts, "N of M to review · file", ↑ prev / next change ↓ buttons and
-`n`/`p` (or `j`/`k`) keys, and a view switch (`v` cycles): **Diff**, every change from base to new in one
+paragraphs and list items together; only a change of one-to-one rewrites keeps each old paragraph above its new one. The page
+opens with what is compared and its docs, each a link to it (with its change counts where there are
+several), and both scroll away; under them, a sticky toolbar, one row where wide: the filter, ↑ prev / next
+change ↓ buttons and `n`/`p` (or `j`/`k`) keys, "N of M to review" (with the doc where there are several),
+the actions, and a view switch (`v` cycles): **Diff**, every change from base to new in one
 view, each either still **to review** or accepted (✓), and **Old** / **New**, each version clean, for
 rewrites too large to read inline; switching keeps the reader at the same place in the doc. In Diff, a
 **filter** picks which changes `n`/`p` step through and the status counts: **All**, **To review** (the
@@ -22,9 +24,10 @@ default: the changes not accepted yet) or **Accepted** (what the user has signed
 since <rev>** ([Review rounds](#review-rounds)), pressed, narrows the filter to its changes new since the
 last review. It hides nothing, and a reload keeps both. `n`/`p` step from the
 current change; with none, from where the reader last clicked
-or selected, while that is on screen, and otherwise from the top of the screen. The header's first line says what is compared
-(Uncommitted edits, Commits, GitHub PR or Google Docs vs Markdown, with the repo) and names both sides:
-the base revision with its commit, and `--head`'s or the working tree (`--new-label` names it otherwise).
+or selected, while that is on screen, and otherwise from the top of the screen. The page's first line says what is compared
+(Uncommitted edits, Commits, GitHub PR or Google Docs vs Markdown, with the repo) and names both sides in
+short, the base revision and `--head`'s with its commit's subject, or the working tree (`--new-label` names
+it otherwise); its title has both in full.
 Whitespace-only rewraps do not count as changes. Relative images are embedded. With `--head <rev>`, new
 is the files at that revision instead of the working tree (a PR, say). A changed `.html` file under an
 `index.html` that holds a `respecConfig` stands for that ReSpec spec, which shows as one doc
@@ -57,8 +60,8 @@ Accepted (reviewed) changes show **settled**, each with its green ✓: the new t
 or highlight, with a thin neutral bar beside a block that changed (blue for one new since last review);
 your commented wording on one has a dotted amber underline (the comment's quote, or the change's text when
 the comment is on the whole change) and its 💬 beside it. A removed block stays its one-line "removed: …"
-stub with its marks. Clicking one shows its diff again; **± diffs** in the header, remembered per viewer,
-shows them all. Changes to review always show their diffs. The header counts the accepted changes that
+stub with its marks. Clicking one shows its diff again; **± diffs** beside the view switch, remembered per
+viewer, shows them all. Changes to review always show their diffs. Each doc's line at the top counts the accepted changes that
 carry comments or open questions ("· 3 with comments · 1 open question"), each count stepping through
 them.
 

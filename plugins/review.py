@@ -343,7 +343,7 @@ const bar=s.querySelector('.file');bar.insertBefore(a,bar.querySelector('.fbar')
 // Accepted (reviewed) changes that carry comments or open questions, counted on each file's line in the
 // header, so they are not lost once they leave To review; a count steps through them.
 function tally(){document.querySelectorAll('.rvn').forEach(e=>e.remove());
-for(const s of document.querySelectorAll('section')){const n=document.querySelector('header a[href="#'+s.id+'"]')?.nextElementSibling;if(!n)continue;
+for(const s of document.querySelectorAll('section')){const n=document.querySelector('.files a[href="#'+s.id+'"]')?.nextElementSibling;if(!n)continue;
 const on=f=>new Set(items.filter(it=>f(it)&&it.at.diff?.closest('section')===s).flatMap(it=>[...it.on.diff].filter(k=>isDone(s.dataset.file,k))));
 for(const[ks,w]of[[on(said),k=>k>1?' with comments':' with a comment'],[on(it=>it.kind==='r'&&!it.done),k=>' open question'+(k>1?'s':'')]]){if(!ks.size)continue;
 const b=mk('button',{textContent:ks.size+w(ks.size),title:'Step through these '+W.accepted+' changes'}),x=mk('span',{className:'rvn'});
@@ -363,7 +363,7 @@ let diffs=false;try{diffs=localStorage.getItem(sk('docdiff-diffs'))==='1';}catch
 const sd=mk('button',{id:'rvsd',textContent:'± diffs',title:'Show the diffs of '+W.accepted+' changes'});
 function settle(){body.classList.toggle('rv-settled',!diffs);sd.setAttribute('aria-pressed',diffs);}
 sd.onclick=()=>{diffs=!diffs;try{localStorage.setItem(sk('docdiff-diffs'),diffs?'1':'');}catch(e){}settle();};
-rvt.before(sd);for(const g of groups)if(g.done&&!g.els[0].classList.contains('blk'))
+$('views').before(sd);for(const g of groups)if(g.done&&!g.els[0].classList.contains('blk'))
 g.els[0].closest('p,li,dt,dd,td,th,h1,h2,h3,h4,h5,h6,pre,blockquote,figcaption')?.classList.add('rvbar');
 document.addEventListener('click',e=>{if(!body.classList.contains('rv-settled')||!getSelection().isCollapsed||e.target.closest('.rvb,.rvok,a,summary,.ui'))return;
 const t=e.target.closest('.v-diff .chg.done'),g=t&&groups.find(x=>x.els.includes(t));if(g)g.els.forEach(el=>el.classList.toggle('rvshow'));});
