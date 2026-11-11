@@ -82,7 +82,7 @@ STYLE = '''
 .rv-settled .rvbar:not(.fresh-b){box-shadow:-8px 0 0 -6px color-mix(in srgb,var(--muted) 55%,transparent)}
 ::highlight(rvcm){text-decoration:underline dotted;text-decoration-color:var(--rw);text-decoration-thickness:2px;text-underline-offset:3px}
 body:not(.show-diff) #rvsd{display:none}
-#rvsum{display:inline-flex;flex-wrap:wrap;align-items:center;gap:0 6px;font-size:13px;color:var(--muted)} #rvsum button:hover{text-decoration:underline}
+#rvsum{display:inline-flex;flex-wrap:wrap;align-items:center;gap:0 6px;font-size:13px;color:var(--muted)} #rvsum button:hover{text-decoration:underline} #rvsum .rvarmed{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:3px}
 header .rvn button,header .rvn button:hover,#rvsum button,#rvsum button:hover{border:0;background:none;padding:0;height:auto;line-height:inherit;font:inherit;color:var(--link);cursor:pointer}
 #rvsum .rvaud-g{color:var(--fg)} #rvsum .rvaud-c{color:var(--rw)} #rvsum .rvaud-r{color:var(--muted)} #rvsum .rvaud-new{color:var(--insb);font-weight:600}
 #rvp blockquote,#rvc blockquote{margin:4px 0;padding:0 8px;border-left:3px solid var(--line);color:var(--muted);max-height:4.8em;overflow:hidden}
@@ -289,13 +289,14 @@ if(on)on(mk('span',{className:'rvok',textContent:'✓',title:!W.reviewed?'Accept
 status();
 // The header's 💬 opens the Review panel, and beside it what was said is counted by who sees it, how many of
 // them are unread beside each count; each count steps through its own.
-const ts=tallies(order()),step=(k,l,text,w,title,cls)=>{const b=mk('button',{className:cls,textContent:text,title:title+': step through them'});b.onclick=()=>stepTo(k,l,w);return b;};
+steps.clear();const ts=tallies(order()),step=(k,l,text,w,title,cls)=>{const b=mk('button',{className:cls,textContent:text,title:title+': step through them, then with n and p (Esc stops)'});
+steps.set(k,{l,w,b});b.onclick=()=>{arm(k);stepTo(k,l,w,1);};return b;};
 // Unread, in brackets after its count: one item, so the header's gaps go around it.
 const unread=(k,u,uw)=>{const x=mk('span');x.append('(',step(k+'-new',u,u.length+' unread',uw,k==='g'?'With a comment or a drafted reply you have not read':'With an answer you have not read','rvaud-new'),')');return x;};
 rvt.title='Review: '+(ts.map(t=>t[2]+(t[4].length?' ('+t[4].length+' unread)':'')).join(', ')||'nothing yet')+'; all of it in the order of the doc';
 sum.replaceChildren(...ts.flatMap(([k,l,w,t,u,uw],i)=>[...(i?[' · ']:[]),step(k,l,w,w,t,'rvaud-'+k),
 ...(u.length?[unread(k,u,uw)]:[])]));
-rvt.classList.toggle('rvt-new',ts.some(t=>t[4].length));if(!lp.hidden)list();
+rvt.classList.toggle('rvt-new',ts.some(t=>t[4].length));arm(steps.has(armed)?armed:null);if(!lp.hidden)list();
 refreshCard();tally();chips();}
 // What was said, by who sees it: your drafts, what is on GitHub, your open questions, and what Claude is on
 // (pending). Each [who, its items with a mark, in the doc's order, words, title, those of them unread, words
@@ -310,11 +311,22 @@ return[['c',of('c'),to?'draft':'comment',to?'drafts':'comments',to?'Your comment
 .filter(t=>t[1].length).map(([k,l,s1,sn,title])=>{const u=k==='wait'?[]:l.filter(i=>w(i)?.unread&&(i.kind==='r'||!w(i).wait));
 return[k,l,l.length+' '+(l.length>1?sn:s1),title,u,u.length+' unread '+(k==='g'?on:u.length>1?sn:s1)];});}
 // A count steps through its own, from the one it went to last, and the status line says which; the page's
-// own scroll handler retells the status while no change is current, so those words are held while it scrolls.
+// own scroll handler retells the status while no change is current, so those words are held through the
+// scroll to it, until you scroll, click or press a key yourself.
 const stepped={};let held=null;
-function stepTo(k,l,w){const it=l[(l.findIndex(x=>idOf(x)===stepped[k])+1)%l.length];stepped[k]=idOf(it);jump(it);
-held={text:(l.indexOf(it)+1)+' of '+w+' · '+(it.section||it.kind==='g'&&ghLabel(it.root)||it.file),until:Date.now()+1000};pos.textContent=held.text;}
-addEventListener('scroll',()=>{if(held&&!c&&Date.now()<held.until){pos.textContent=held.text;held.until=Date.now()+400;}},{passive:true});
+function stepTo(k,l,w,d){const i=l.findIndex(x=>idOf(x)===stepped[k]),it=l[i<0?(d>0?0:l.length-1):(i+d+l.length)%l.length];stepped[k]=idOf(it);jump(it);
+held=(l.indexOf(it)+1)+' of '+w+' · '+(it.section||it.kind==='g'&&ghLabel(it.root)||it.file);pos.textContent=held;}
+addEventListener('scroll',()=>{if(held&&!c)pos.textContent=held;},{passive:true});
+for(const t of['wheel','touchstart','mousedown','keydown'])addEventListener(t,()=>{held=null;},{capture:true,passive:true});
+// A count clicked stays armed (underlined, with its n p chip): n and p (j and k) then step through its items
+// instead of the changes, until Esc (with no card open) or another of the header's controls lets them go.
+const steps=new Map();let armed=null;
+function arm(k){armed=k;const a=k&&steps.get(k)?.b;for(const b of sum.querySelectorAll('button')){b.classList.toggle('rvarmed',b===a);if(b===a)b.dataset.key='n p';else delete b.dataset.key;}}
+addEventListener('keydown',e=>{if(!armed||e.target.closest('input,textarea')||e.metaKey||e.ctrlKey||e.altKey)return;
+if(e.key==='Escape'){if(card.hidden)arm(null);return;}
+const d=e.key==='n'||e.key==='j'?1:e.key==='p'||e.key==='k'?-1:0,st=d&&steps.get(armed);if(!st)return;
+e.preventDefault();e.stopImmediatePropagation();stepTo(armed,st.l,st.w,d);},true);
+document.querySelector('header').addEventListener('click',e=>{if(armed&&!e.target.closest('#rvsum'))arm(null);},true);
 // Each doc's bar counts the comments made elsewhere on it (on GitHub, in the Google Docs); a click opens the
 // Review panel on that doc's comments, where each entry goes to its place.
 function chips(){document.querySelectorAll('.rvfc').forEach(e=>e.remove());const all=order();
@@ -871,18 +883,54 @@ def push(run, out, req):
 
 
 def counts(run):
-    """For the index of reviews: the comments, and the open threads of revisits, grouped as the page groups
-    them (threads()): by the thread a revisit goes on in, its change, or its quote."""
+    """For the index of reviews, by who sees them, as the page's header counts them (tallies()): your
+    comments not posted (drafts, where a source takes posts), the open threads from elsewhere with a place in
+    the doc and your comments posted there, and the open threads of revisits, grouped as the page groups
+    them (threads()): by the thread a revisit goes on in, its change, or its quote. Comments from elsewhere
+    are the copy the page read last (remarks() with no refresh): no request for them."""
     out, ts = pathlib.Path(run['out']), []
     doc = load(out)
+    remotes = [r for r in (m.remarks(run, out) for m in docdiff.PLUGINS if hasattr(m, 'remarks')) if r]
+    posted, on = set(), collections.Counter()
+    for r in remotes:
+        cs, me = r.get('comments') or [], r.get('me')
+        by, told = {c['id']: c for c in cs}, set()
+        mine = [g for g in cs if not me or g.get('author') == me]
+        for c in doc['comments'] if r.get('posting') else []:
+            g = next((g for g in mine if same(g.get('body'), c.get('body'))), None)
+            if g:
+                posted.add(c['id'])
+                on[r['source']] += not root(g, by).get('resolved')
+                if me:
+                    told.add(g['id'])
+        roots = collections.defaultdict(list)
+        for c in cs:
+            roots[root(c, by)['id']].append(c)
+        on[r['source']] += sum(1 for i, ms in roots.items() if by[i].get('file') and not by[i].get('resolved')
+                               and not any(c['id'] in told for c in ms))
     for r in (r for r in records(out / 'revisit.jsonl') if not r.get('remote')):
         t = next((t for t in ts if t[0].get('file') == r.get('file') and any(
             r.get('thread') == m.get('time') or r.get('key') and m.get('key') == r.get('key') or m.get('quote') == r.get('quote')
             for m in t)), None)
         t.append(r) if t else ts.append([r])
-    n, k = len(doc['comments']), sum(1 for t in ts if not all(doc['revisits'].get(m.get('time'), {}).get('resolved') for m in t))
-    what = 'question' if run.get('head') else 'revisit'
-    return [w for w in (n and f'{n} comment{"s" * (n != 1)}', k and f'{k} open {what}{"s" * (k != 1)}') if w]
+    n, k = len(doc['comments']) - len(posted), sum(1 for t in ts if not all(doc['revisits'].get(m.get('time'), {}).get('resolved') for m in t))
+    what, mine = ('question' if run.get('head') else 'revisit'), ('draft' if any(r.get('posting') for r in remotes) else 'comment')
+    return [w for w in (n and f'{n} {mine}{"s" * (n != 1)}', *(f'{g} on {src}' for src, g in on.items() if g),
+                        k and f'{k} open {what}{"s" * (k != 1)}') if w]
+
+
+def same(a, b):
+    """Whether two comments say the same, spacing aside, or one holds the other (20 characters at least), as
+    the page finds a comment of yours posted (same())."""
+    a, b = ' '.join(str(a or '').split()), ' '.join(str(b or '').split())
+    return bool(a and b and (a == b or len(a) >= 20 and a in b or len(b) >= 20 and b in a))
+
+
+def root(c, by):
+    """The first comment of the thread c is in, following reply_to."""
+    while c.get('reply_to') in by:
+        c = by[c['reply_to']]
+    return c
 
 
 def stores(run):

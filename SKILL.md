@@ -318,7 +318,8 @@ in its way), that it stays on the session's branch, with git's reason, and PATH 
 One server on `127.0.0.1:7878` serves every review in `~/.docdiff`, each under `/<name>/`, found by its
 `.run.json`. Its index, http://127.0.0.1:7878/, lists them, the last active first: each one's name,
 linked to its page, what it compares (the PR, or the repo with its revisions), its counts (to review,
-reviewed or accepted, comments, open questions) and when it was last active. `--serve` starts the server
+reviewed or accepted, then as the page's header counts them, drafts, on GitHub and open questions) and
+when it was last active. `--serve` starts the server
 in the background, apart from the command, so it outlives the command and the session that ran it; its
 log is `~/.docdiff/server.log`. It answers on `127.0.0.1` and, for spec renders, on `localhost`, and to
 no other name for the address.
@@ -381,8 +382,10 @@ below; `load_plugins()` in `docdiff.py` has their exact shapes. `run` is the run
   rebuilds see them.
 - `name(run)`: the review's name when neither `--name` nor `--out` gives one: `github_pr.py`'s is the
   repo's name and the PR's number.
-- `counts(run)`: words for the review's line in the index of reviews: `review.py`'s count its comments
-  and open questions (or revisits).
+- `counts(run)`: words for the review's line in the index of reviews: `review.py`'s count by who sees
+  them, as the page's header does: your comments not posted (drafts where comments get posted), the open
+  threads on GitHub (or in the Google Docs) with a place in the doc and your comments posted there, from
+  the copy the page read last, and the open questions (or revisits).
 - `PATHS` and `doc(…)`: the files it makes docs of beside `*.md`, and the doc a changed one stands for
   (a spec's `index.html` for a section file).
 - `htmls(…)`: its docs rendered, both sides, or while they are not, what the file's section shows instead.
@@ -481,7 +484,9 @@ in the doc, and unread there is a thread with a comment or a drafted reply you h
 Unread); a question is unread while its answer is; pending is what waits for Claude, drafted replies to
 threads from elsewhere too. Each count, unread ones too, steps through its own marks in the doc's order, as
 the counts of reviewed changes with comments or open questions step through those ("2 of 4 unread questions
-· Monetization status"). The Review panel: the comments and revisits in the order they
+· Monetization status"), and stays armed, underlined with an `n p` chip: `n` and `p` (`j` and `k`) then step
+through its marks instead of the changes, until Esc (with no card open) or another of the header's controls,
+such as next change, hands them back. The Review panel: the comments and revisits in the order they
 come in the doc, each a click from its place, comments with edit, copy and delete. Copy puts one comment
 on the clipboard as Markdown: its `path:line` (linked to the line on GitHub; without `--pr`, the file and
 section), the quote and the comment, to paste into GitHub. **Copy drafts (N)**, shown while you have
